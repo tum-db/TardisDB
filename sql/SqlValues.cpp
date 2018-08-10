@@ -1,5 +1,4 @@
-
-#include "SqlValues.hpp"
+#include "sql/SqlValues.hpp"
 
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
@@ -10,12 +9,12 @@
 #include <functional>
 #include <limits>
 
-#include "CodeGen.hpp"
-#include "LegacyTypes.hpp"
-#include "utils.hpp"
-#include "exceptions.hpp"
-#include "PhiNode.hpp"
-#include "SqlType.hpp"
+#include "codegen/CodeGen.hpp"
+#include "codegen/PhiNode.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/LegacyTypes.hpp"
+#include "foundations/utils.hpp"
+#include "sql/SqlType.hpp"
 
 namespace Sql {
 

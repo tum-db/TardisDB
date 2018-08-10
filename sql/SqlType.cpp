@@ -1,14 +1,14 @@
 
-#include "SqlType.hpp"
+#include "sql/SqlType.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
-#include "CodeGen.hpp"
-#include "utils.hpp"
-#include "exceptions.hpp"
-#include "SqlValues.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/utils.hpp"
+#include "sql/SqlValues.hpp"
 
 namespace Sql {
 

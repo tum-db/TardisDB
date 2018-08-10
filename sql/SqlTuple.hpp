@@ -8,8 +8,8 @@
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
 
-#include "CodeGen.hpp"
-#include "SqlValues.hpp"
+#include "codegen/CodeGen.hpp"
+#include "sql/SqlValues.hpp"
 
 namespace Sql {
 

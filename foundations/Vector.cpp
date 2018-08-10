@@ -1,5 +1,5 @@
 
-#include "Vector.hpp"
+#include "foundations/Vector.hpp"
 
 #include <cassert>
 #include <cstdlib>
@@ -8,7 +8,7 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
+#include "codegen/CodeGen.hpp"
 
 Vector::Vector(size_type elementSize) :
         Vector(elementSize, 0)

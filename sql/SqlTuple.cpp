@@ -9,9 +9,9 @@
 
 #include <functional>
 
-#include "CodeGen.hpp"
-#include "LegacyTypes.hpp"
-#include "utils.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/LegacyTypes.hpp"
+#include "foundations/utils.hpp"
 #include "sql/SqlUtils.hpp"
 
 namespace Sql {

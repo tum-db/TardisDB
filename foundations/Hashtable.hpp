@@ -6,8 +6,8 @@
 
 #include <llvm/IR/Value.h>
 
-#include "CodeGen.hpp"
-#include "MemoryPool.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/MemoryPool.hpp"
 
 //-----------------------------------------------------------------------------
 // Hashtable

@@ -9,15 +9,12 @@
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/TargetSelect.h>
 
-#include "CodeGen.hpp"
-#include "utils.hpp"
-#include "loader.hpp"
-#include "exceptions.hpp"
-
+#include "codegen/CodeGen.hpp"
+#include "foundations/utils.hpp"
+#include "foundations/loader.hpp"
+#include "foundations/exceptions.hpp"
 #include "tests/tests.hpp"
-
 #include "queries/queries.hpp"
-
 #include "query_compiler/queryparser.hpp"
 #include "query_compiler/compiler.hpp"
 

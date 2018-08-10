@@ -6,8 +6,8 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
-#include "utils.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/utils.hpp"
 
 //-----------------------------------------------------------------------------
 // Hashtable

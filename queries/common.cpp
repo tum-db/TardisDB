@@ -1,12 +1,12 @@
-#include "common.hpp"
+#include "queries/common.hpp"
 
 #include <random>
 #include <limits>
 
-#include "CodeGen.hpp"
-#include "Database.hpp"
-#include "loader.hpp"
-#include "exceptions.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/Database.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/loader.hpp"
 #include "sql/SqlValues.hpp"
 
 std::unique_ptr<Database> load_tpch_db()

@@ -3,11 +3,11 @@
 
 #include <string>
 
-#include "CodeGen.hpp"
-#include "exceptions.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
-#include "utils.hpp"
 
 template<class T>
 class PhiNode;

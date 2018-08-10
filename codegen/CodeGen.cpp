@@ -2,8 +2,7 @@
 // Created by josef on 26.11.16.
 //
 
-#include "CodeGen.hpp"
-#include "TypeCache.hpp"
+#include "codegen/CodeGen.hpp"
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>

@@ -24,37 +24,15 @@ llvm_map_components_to_libnames(LLVM_LIBS
         )
 
 ### locate source files
-file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp")
-
+file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
+file(GLOB_RECURSE CODEGEN_FILES "codegen/*.cpp" "codegen/*.hpp" "codegen/*.tcc")
+file(GLOB_RECURSE FOUNDATIONS_FILES "foundations/*.cpp" "foundations/*.hpp" "foundations/*.tcc")
 file(GLOB_RECURSE SQL_FILES "sql/*.cpp" "sql/*.hpp" "sql/*.tcc")
-
 file(GLOB_RECURSE QUERIES_FILES "queries/*.cpp" "queries/*.hpp")
-
 #file(GLOB_RECURSE TESTS_FILES "tests/*.cpp" "tests/*.hpp")
 
 set(SOURCE_FILES
         main.cpp
-
-        CodeGen.cpp
-        CodeGen.hpp
-        CodeGen.tcc
-
-        exceptions.hpp
-
-        LegacyTypes.cpp
-        LegacyTypes.hpp
-
-        StaticHashtable.cpp
-        StaticHashtable.hpp
-        MemoryPool.cpp
-        MemoryPool.hpp
-        utils.cpp
-        utils.hpp
-
-        loader.cpp
-        loader.hpp
-
-        TypeCache.hpp
 
         query_compiler/queryparser.cpp
         query_compiler/queryparser.hpp
@@ -63,23 +41,9 @@ set(SOURCE_FILES
         query_compiler/compiler.cpp
         query_compiler/compiler.hpp
 
-        InformationUnit.cpp
-        InformationUnit.hpp
-
-        Hashtable.cpp
-        Hashtable.hpp
-
-        PhiNode.hpp
-
-        Database.hpp
-        Database.cpp
-
-        Vector.hpp
-        Vector.cpp
-
-        QueryContext.cpp
-        QueryContext.hpp
         ${ALGEBRA_FILES}
+        ${CODEGEN_FILES}
+        ${FOUNDATIONS_FILES}
         ${SQL_FILES}
         ${QUERIES_FILES}
         )

@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "Operator.hpp"
+#include "algebra/physical/Operator.hpp"
 
 namespace Algebra {
 namespace Physical {

@@ -18,9 +18,9 @@
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
 #include <llvm/Target/TargetMachine.h>
 
-#include "CodeGen.hpp"
-#include "utils.hpp"
-#include "PhiNode.hpp"
+#include "codegen/CodeGen.hpp"
+#include "codegen/PhiNode.hpp"
+#include "foundations/utils.hpp"
 
 /* TODO
 #undef DISABLE_OPTIMIZATIONS

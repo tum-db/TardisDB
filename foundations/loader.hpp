@@ -2,7 +2,8 @@
 #pragma once
 
 #include <memory>
-#include "Database.hpp"
+
+#include "foundations/Database.hpp"
 
 /// \brief Load the database
 std::unique_ptr<Database> loadDatabase();

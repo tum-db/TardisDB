@@ -1,8 +1,8 @@
 
 #pragma once
 
-#include "SqlType.hpp"
-#include "SqlValues.hpp"
+#include "sql/SqlType.hpp"
+#include "sql/SqlValues.hpp"
 
 namespace Sql {
 namespace Operators {

@@ -8,9 +8,9 @@
 #include <string>
 #include <unordered_map>
 
-#include "CodeGen.hpp"
-#include "exceptions.hpp"
-#include "InformationUnit.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/InformationUnit.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlOperators.hpp"

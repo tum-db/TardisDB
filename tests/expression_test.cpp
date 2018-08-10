@@ -3,15 +3,13 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
+#include "algebra/physical/Operator.hpp"
+#include "algebra/physical/expressions.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlUtils.hpp"
-#include "utils.hpp"
-
-#include "algebra/physical/Operator.hpp"
-#include "algebra/physical/expressions.hpp"
-
 #include "query_compiler/compiler.hpp"
 
 using namespace Algebra::Physical;

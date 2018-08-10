@@ -2,19 +2,19 @@
 // Created by josef on 22.03.17.
 //
 
-#include "SqlOperators.hpp"
+#include "sql/SqlOperators.hpp"
 
 #include <unordered_map>
 
-#include "SqlValues.hpp"
-#include "utils.hpp"
-#include "exceptions.hpp"
-#include "CodeGen.hpp"
-#include "PhiNode.hpp"
-#include "LegacyTypes.hpp"
-#include "QueryContext.hpp"
+#include "codegen/CodeGen.hpp"
+#include "codegen/PhiNode.hpp"
+#include "foundations/utils.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/LegacyTypes.hpp"
+#include "foundations/QueryContext.hpp"
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlType.hpp"
+#include "sql/SqlValues.hpp"
 
 using namespace Sql;
 

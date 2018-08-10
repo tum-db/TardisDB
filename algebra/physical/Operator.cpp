@@ -4,7 +4,7 @@
 
 #include "Operator.hpp"
 
-#include "exceptions.hpp"
+#include "foundations/exceptions.hpp"
 
 namespace Algebra {
 namespace Physical {

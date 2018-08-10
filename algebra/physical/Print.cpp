@@ -2,9 +2,8 @@
 // Created by josef on 03.01.17.
 //
 
-#include "Print.hpp"
-
-#include "utils.hpp"
+#include "algebra/physical/Print.hpp"
+#include "foundations/utils.hpp"
 #include "sql/SqlUtils.hpp"
 
 using namespace Sql;

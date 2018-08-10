@@ -1,8 +1,8 @@
 
 #pragma once
 
-#include "Operator.hpp"
-#include "expressions.hpp"
+#include "algebra/physical/Operator.hpp"
+#include "algebra/physical/expressions.hpp"
 
 namespace Algebra {
 namespace Physical {

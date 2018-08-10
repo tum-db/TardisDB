@@ -1,12 +1,12 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
-#include "SqlTypes.hpp"
-#include "StaticHashtable.hpp"
-#include "MemoryPool.hpp"
-#include "Types.hpp"
-#include "utils.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/StaticHashtable.hpp"
+#include "foundations/MemoryPool.hpp"
+#include "foundations/Types.hpp"
+#include "foundations/utils.hpp"
+#include "sql/SqlTypes.hpp"
 
 // This test also represents the draft for the HashJoin operator
 

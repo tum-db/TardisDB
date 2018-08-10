@@ -1,7 +1,7 @@
 
-#include "operators.hpp"
+#include "algebra/logical/operators.hpp"
 
-#include "exceptions.hpp"
+#include "foundations/exceptions.hpp"
 #include "sql/SqlType.hpp"
 
 namespace Algebra {

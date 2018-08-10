@@ -3,10 +3,10 @@
 
 #include <llvm/IR/DerivedTypes.h>
 
-#include "utils.hpp"
-#include "Hashtable.hpp"
-#include "PhiNode.hpp"
-#include "LegacyTypes.hpp"
+#include "codegen/PhiNode.hpp"
+#include "foundations/utils.hpp"
+#include "foundations/Hashtable.hpp"
+#include "foundations/LegacyTypes.hpp"
 #include "sql/SqlTuple.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlUtils.hpp"

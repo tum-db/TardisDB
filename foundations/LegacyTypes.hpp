@@ -6,7 +6,7 @@
 #include <ostream>
 #include <cassert>
 
-#include "CodeGen.hpp"
+#include "codegen/CodeGen.hpp"
 //---------------------------------------------------------------------------
 // HyPer
 // (c) Thomas Neumann 2010

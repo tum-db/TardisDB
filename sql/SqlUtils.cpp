@@ -3,7 +3,7 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "LegacyTypes.hpp"
+#include "foundations/LegacyTypes.hpp"
 #include "sql/SqlValues.hpp"
 
 namespace Sql {

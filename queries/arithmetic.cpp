@@ -4,11 +4,11 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
-#include "Database.hpp"
-#include "loader.hpp"
 #include "algebra/logical/operators.hpp"
 #include "algebra/translation.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/Database.hpp"
+#include "foundations/loader.hpp"
 #include "query_compiler/compiler.hpp"
 #include "queries/common.hpp"
 

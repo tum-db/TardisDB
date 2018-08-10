@@ -1,9 +1,7 @@
 
-#include "Select.hpp"
-
-#include "exceptions.hpp"
-#include "utils.hpp"
-
+#include "algebra/physical/Select.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/utils.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlUtils.hpp"
 

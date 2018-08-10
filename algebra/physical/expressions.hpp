@@ -7,11 +7,11 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
-#include <algebra/logical/expressions.hpp>
 
-#include "CodeGen.hpp"
-#include "Operator.hpp"
-#include "InformationUnit.hpp"
+#include "algebra/logical/expressions.hpp"
+#include "algebra/physical/Operator.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/InformationUnit.hpp"
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"

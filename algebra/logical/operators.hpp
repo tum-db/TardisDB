@@ -4,9 +4,9 @@
 #include <cstdint>
 #include <memory>
 
-#include "expressions.hpp"
-#include "InformationUnit.hpp"
-#include "QueryContext.hpp"
+#include "algebra/logical/expressions.hpp"
+#include "foundations/InformationUnit.hpp"
+#include "foundations/QueryContext.hpp"
 
 namespace Algebra {
 namespace Logical {

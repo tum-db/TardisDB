@@ -1,5 +1,5 @@
 
-#include "tests.hpp"
+#include "tests/tests.hpp"
 
 #include <cstdlib>
 #include <functional>

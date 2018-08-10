@@ -1,10 +1,10 @@
 
-#include "translation.hpp"
+#include "algebra/translation.hpp"
 
 #include <memory>
 #include <stack>
 
-#include "utils.hpp"
+#include "foundations/utils.hpp"
 
 #include "algebra/physical/expressions.hpp"
 #include "algebra/physical/operators.hpp"

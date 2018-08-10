@@ -2,7 +2,7 @@
 // Created by josef on 06.01.17.
 //
 
-#include "compiler.hpp"
+#include "query_compiler/compiler.hpp"
 
 #include <chrono>
 
@@ -18,9 +18,10 @@
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
 #include <llvm/Target/TargetMachine.h>
 
-#include "utils.hpp"
-#include "CodeGen.hpp"
-#include "exceptions.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/utils.hpp"
+#include "foundations/exceptions.hpp"
 #include "query_compiler/queryparser.hpp"
 //#include "query_compiler/semantic_analysis.hpp"
 

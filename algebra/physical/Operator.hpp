@@ -5,12 +5,11 @@
 #include <vector>
 #include <memory>
 
-#include "CodeGen.hpp"
-#include "InformationUnit.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/InformationUnit.hpp"
+#include "foundations/QueryContext.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
-
-#include "QueryContext.hpp"
 
 namespace Algebra {
 namespace Physical {

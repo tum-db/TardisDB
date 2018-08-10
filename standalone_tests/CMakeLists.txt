@@ -3,16 +3,16 @@ add_definitions(${LLVM_DEFINITIONS})
 
 set(PHI_TEST_SRCS
         phi_test.cpp
-        ../CodeGen.cpp
-        ../CodeGen.hpp
-        ../CodeGen.tcc
-        ../PhiNode.hpp
+        ../codegen/CodeGen.cpp
+        ../codegen/CodeGen.hpp
+        ../codegen/CodeGen.tcc
+        ../codegen/PhiNode.hpp
+        ../foundations/LegacyTypes.cpp
+        ../foundations/LegacyTypes.hpp
         ../sql/SqlType.cpp
         ../sql/SqlType.hpp
         ../sql/SqlValues.cpp
         ../sql/SqlValues.hpp
-        ../LegacyTypes.cpp
-        ../LegacyTypes.hpp
         )
 
 add_executable(phi_test ${PHI_TEST_SRCS})

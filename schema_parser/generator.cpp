@@ -71,7 +71,7 @@ static void generateTableLoadCode(const Schema & schema, const Schema::Relation 
 void generateLoadCode(const SchemaParser::Schema & schema)
 {
     // intro
-    std::cout << "#include \"loader.hpp\"\n"
+    std::cout << "#include \"foundations/loader.hpp\"\n"
                  "#include <fstream>\n"
                  "std::unique_ptr<Database> loadDatabase()\n"
                  "{\n"

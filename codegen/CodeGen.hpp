@@ -10,7 +10,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 
-#include "TypeCache.hpp"
+#include "codegen/TypeCache.hpp"
 
 class CodeGen;
 class ModuleGen;

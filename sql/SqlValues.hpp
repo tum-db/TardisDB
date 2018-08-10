@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <memory>
 
-#include "CodeGen.hpp"
-#include "SqlType.hpp"
-#include "utils.hpp"
+#include "codegen/CodeGen.hpp"
+#include "foundations/utils.hpp"
+#include "sql/SqlType.hpp"
 
 namespace Sql {
 

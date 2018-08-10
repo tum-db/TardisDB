@@ -4,7 +4,7 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
+#include "codegen/CodeGen.hpp"
 
 extern "C" void interop()
 {

@@ -2,14 +2,14 @@
 // Created by josef on 19.12.16.
 //
 
-#include "StaticHashtable.hpp"
+#include "foundations/StaticHashtable.hpp"
 
 #include <cstdlib>
 #include <cmath>
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
+#include "codegen/CodeGen.hpp"
 
 //-----------------------------------------------------------------------------
 // StaticHashtable

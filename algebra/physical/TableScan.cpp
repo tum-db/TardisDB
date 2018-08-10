@@ -2,11 +2,11 @@
 // Created by josef on 31.12.16.
 //
 
-#include "TableScan.hpp"
+#include "algebra/physical/TableScan.hpp"
 
 #include <map>
 
-#include "PhiNode.hpp"
+#include "codegen/PhiNode.hpp"
 #include "sql/SqlUtils.hpp"
 
 using namespace Sql;

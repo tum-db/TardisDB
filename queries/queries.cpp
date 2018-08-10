@@ -1,11 +1,11 @@
 
-#include "queries.hpp"
+#include "queries/queries.hpp"
 
 #include <cstdlib>
 #include <functional>
 #include <unordered_map>
 
-#include "QueryContext.hpp"
+#include "foundations/QueryContext.hpp"
 
 using benchmarkFunc = std::function<void (unsigned)>;
 

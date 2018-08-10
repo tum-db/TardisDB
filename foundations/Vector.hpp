@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "CodeGen.hpp"
+#include "codegen/CodeGen.hpp"
 
 // vector without type information
 class Vector {

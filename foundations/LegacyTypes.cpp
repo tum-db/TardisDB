@@ -1,4 +1,4 @@
-#include "LegacyTypes.hpp"
+#include "foundations/LegacyTypes.hpp"
 //---------------------------------------------------------------------------
 #include <ctime>
 #include <llvm/IR/TypeBuilder.h>

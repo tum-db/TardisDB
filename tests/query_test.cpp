@@ -4,9 +4,8 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "CodeGen.hpp"
-#include "load.hpp"
-
+#include "codegen/CodeGen.hpp"
+#include "foundations/load.hpp"
 #include "query_compiler/queryparser.hpp"
 #include "query_compiler/semantic_analysis.hpp"
 

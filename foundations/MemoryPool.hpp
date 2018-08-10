@@ -5,7 +5,8 @@
 #include <vector>
 
 #include <llvm/IR/Value.h>
-#include "CodeGen.hpp"
+
+#include "codegen/CodeGen.hpp"
 
 //-----------------------------------------------------------------------------
 // MemoryPool
