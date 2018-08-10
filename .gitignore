@@ -1,0 +1,33 @@
+*
+
+!*.c
+!*.h
+!*.cpp
+!*.hpp
+!*.tcc
+!*.sql
+!*.script
+!*.patch
+!*.txt
+!*.sh
+!*.tex
+!*.bib
+!*.ods
+!*.png
+!*.eps
+!*.pdf
+!*.ll
+!*.md
+!*.cmd
+!*.csv
+!Makefile
+!Readme
+!empty
+!.gitignore
+
+# even if they are in subdirectories
+!*/
+
+# build dirs
+cmake-build-*/
+build*/
