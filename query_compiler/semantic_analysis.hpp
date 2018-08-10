@@ -4,11 +4,10 @@
 
 #include <string>
 
-#include "algebra/Operator.hpp"
+#include "algebra/logical/operators.hpp"
+#include "query_compiler/queryparser.hpp"
 
-#include "queryparser.hpp"
-
-/// \brief Build the algebra tree of the given query
-std::unique_ptr<Algebra::Operator> computeTree(const QueryParser::ParsedQuery & query);
+/// \brief Build a algebra tree for the given query
+std::unique_ptr<Algebra::Logical::Operator> computeTree(const QueryParser::ParsedQuery & query);
 
 #endif // SEMANTIC_ANALYSIS_HPP
