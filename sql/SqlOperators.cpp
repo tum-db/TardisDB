@@ -546,17 +546,17 @@ value_op_t sqlCast(const Value & outerValue, SqlType newType)
 
 value_op_t sqlAnd(const Value & lhs, const Value & rhs)
 {
-    throw NotImplementedException();
+    throw NotImplementedException("sqlAnd");
 }
 
 value_op_t sqlOr(const Value & lhs, const Value & rhs)
 {
-    throw NotImplementedException();
+    throw NotImplementedException("sqlOr");
 }
 
 value_op_t sqlNot()
 {
-    throw NotImplementedException();
+    throw NotImplementedException("sqlNot");
 }
 
 } // end namespace Operators

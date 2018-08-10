@@ -56,6 +56,50 @@ public:
         _translated.push( std::make_unique<Physical::Expressions::Cast>( std::move(child), exp.getType() ) );
     }
 
+    void visit(Logical::Expressions::Not & exp)
+    {
+        // translate child
+        traverse(exp);
+
+        auto child = std::move( _translated.top() );
+        _translated.pop();
+        _translated.push( std::make_unique<Physical::Expressions::Not>( std::move(child) ) );
+    }
+
+    void visit(Logical::Expressions::And & exp)
+    {
+        // translate children
+        traverse(exp);
+
+        // the right child was visited last
+        auto rightChild = std::move( _translated.top() );
+        _translated.pop();
+        auto leftChild = std::move( _translated.top() );
+        _translated.pop();
+        _translated.push( std::make_unique<Physical::Expressions::And>(
+                exp.getType(),
+                std::move(leftChild),
+                std::move(rightChild)
+        ) );
+    }
+
+    void visit(Logical::Expressions::Or & exp)
+    {
+        // translate children
+        traverse(exp);
+
+        // the right child was visited last
+        auto rightChild = std::move( _translated.top() );
+        _translated.pop();
+        auto leftChild = std::move( _translated.top() );
+        _translated.pop();
+        _translated.push( std::make_unique<Physical::Expressions::Or>(
+                exp.getType(),
+                std::move(leftChild),
+                std::move(rightChild)
+        ) );
+    }
+
     void visit(Logical::Expressions::Addition & exp)
     {
         // translate children

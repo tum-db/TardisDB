@@ -69,6 +69,23 @@ public:
     }
 };
 
+class Not : public UnaryOperator {
+public:
+    Not(exp_op_t child) :
+            UnaryOperator(child->getType(), std::move(child))
+    {
+        assert(child->getType().typeID == Sql::SqlType::TypeID::BoolID);
+    }
+
+    ~Not() override { }
+
+    Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
+    {
+        auto value = _child->evaluate(values);
+        return Sql::Operators::sqlNot(*value);
+    }
+};
+
 class BinaryOperator : public Expression {
 public:
     exp_op_t _left;
@@ -81,6 +98,48 @@ protected:
             Expression(type),
             _left(std::move(left)), _right(std::move(right))
     { }
+};
+
+class And : public BinaryOperator {
+public:
+    And(Sql::SqlType type, exp_op_t left, exp_op_t right) :
+            BinaryOperator(type, std::move(left), std::move(right))
+    {
+        // TODO null values?
+        assert(type.typeID == Sql::SqlType::TypeID::BoolID && type.typeID == Sql::SqlType::TypeID::BoolID);
+    }
+
+     ~And() override { }
+
+    Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
+    {
+        auto lhs = _left->evaluate(values);
+        auto rhs = _right->evaluate(values);
+        auto result = Sql::Operators::sqlAnd(*lhs, *rhs);
+        assert(Sql::equals(result->type, getType(), Sql::SqlTypeEqualsMode::Full));
+        return result;
+    }
+};
+
+class Or : public BinaryOperator {
+public:
+    Or(Sql::SqlType type, exp_op_t left, exp_op_t right) :
+            BinaryOperator(type, std::move(left), std::move(right))
+    {
+        // TODO null values?
+        assert(type.typeID == Sql::SqlType::TypeID::BoolID && type.typeID == Sql::SqlType::TypeID::BoolID);
+    }
+
+     ~Or() override { }
+
+    Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
+    {
+        auto lhs = _left->evaluate(values);
+        auto rhs = _right->evaluate(values);
+        auto result = Sql::Operators::sqlOr(*lhs, *rhs);
+        assert(Sql::equals(result->type, getType(), Sql::SqlTypeEqualsMode::Full));
+        return result;
+    }
 };
 
 class Addition : public BinaryOperator {

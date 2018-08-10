@@ -68,6 +68,19 @@ public:
     }
 };
 
+class Not : public UnaryOperator {
+public:
+    Not(exp_op_t child) :
+            UnaryOperator(std::move(child))
+    {
+        assert(child->getType().typeID == Sql::SqlType::TypeID::BoolID);
+    }
+
+    ~Not() override { }
+
+    void accept(ExpressionVisitor & visitor) override;
+};
+
 class BinaryOperator : public Expression {
 public:
     ~BinaryOperator() override { }
@@ -82,6 +95,60 @@ protected:
     BinaryOperator(exp_op_t left, exp_op_t right) :
             _left(std::move(left)), _right(std::move(right))
     { }
+};
+
+class And : public BinaryOperator {
+public:
+    And(exp_op_t left, exp_op_t right) :
+            BinaryOperator(std::move(left), std::move(right))
+    {
+        if (_left->getType().typeID != Sql::SqlType::TypeID::BoolID ||
+            _right->getType().typeID != Sql::SqlType::TypeID::BoolID)
+        {
+            throw ArithmeticException("'and' requires boolean arguments");
+        }
+
+        // TODO null values?
+    }
+
+    ~And() override { }
+
+    void accept(ExpressionVisitor & visitor) override;
+
+    Sql::SqlType getType() const override
+    {
+        return _type;
+    }
+
+private:
+    Sql::SqlType _type;
+};
+
+class Or : public BinaryOperator {
+public:
+    Or(exp_op_t left, exp_op_t right) :
+            BinaryOperator(std::move(left), std::move(right))
+    {
+        if (_left->getType().typeID != Sql::SqlType::TypeID::BoolID ||
+            _right->getType().typeID != Sql::SqlType::TypeID::BoolID)
+        {
+            throw ArithmeticException("'or' requires boolean arguments");
+        }
+
+        // TODO null values?
+    }
+
+    ~Or() override { }
+
+    void accept(ExpressionVisitor & visitor) override;
+
+    Sql::SqlType getType() const override
+    {
+        return _type;
+    }
+
+private:
+    Sql::SqlType _type;
 };
 
 class Addition : public BinaryOperator {

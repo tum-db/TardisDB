@@ -10,6 +10,21 @@ void Cast::accept(ExpressionVisitor & visitor)
     visitor.visit(*this);
 }
 
+void Not::accept(ExpressionVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+void And::accept(ExpressionVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+void Or::accept(ExpressionVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
 void Addition::accept(ExpressionVisitor & visitor)
 {
     visitor.visit(*this);
