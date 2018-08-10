@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(llvm_prototype)
+project(protodb)
 
 set(CMAKE_CXX_STANDARD 14)
 
@@ -123,13 +123,13 @@ add_custom_target(
 set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
 ### main application
-add_executable(llvm_prototype ${SOURCE_FILES} ${GENERATED_SOURCE_FILES} ${THIRD_PARTY} ${TESTS})
-#target_link_libraries(llvm_prototype ${LLVM_LIBS})
-target_link_libraries(llvm_prototype LLVM)
+add_executable(protodb ${SOURCE_FILES} ${GENERATED_SOURCE_FILES} ${THIRD_PARTY} ${TESTS})
+#target_link_libraries(protodb ${LLVM_LIBS})
+target_link_libraries(protodb LLVM)
 
 ### set up dependencies
 add_dependencies(GenerateLoader schema_parser)
-add_dependencies(llvm_prototype GenerateLoader)
+add_dependencies(protodb GenerateLoader)
 
 ### sub projects
 add_subdirectory(standalone_tests)

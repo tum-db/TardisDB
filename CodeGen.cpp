@@ -184,7 +184,7 @@ llvm::DataLayout & ModuleGen::getDataLayout()
 //-----------------------------------------------------------------------------
 
 FunctionGen::FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
-                         llvm::FunctionType * functionTypeType) :
+                         llvm::FunctionType * functionType) :
         moduleGen(moduleGen),
         function(nullptr),
         returnValue(nullptr)
@@ -196,7 +196,7 @@ FunctionGen::FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
     auto & codeGen = moduleGen.getCodeGen();
 
     // create a new function object
-    function = cast<Function>(module.getOrInsertFunction(name, functionTypeType));
+    function = cast<Function>(module.getOrInsertFunction(name, functionType));
     BasicBlock * entryBB = BasicBlock::Create(context, "EntryBlock", function);
     codeGen->SetInsertPoint(entryBB);
 
@@ -204,7 +204,7 @@ FunctionGen::FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
 }
 
 FunctionGen::FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
-                         llvm::FunctionType * functionTypeType, llvm::AttributeSet attributeList) :
+                         llvm::FunctionType * functionType, llvm::AttributeList attributeList) :
         moduleGen(moduleGen),
         function(nullptr),
         returnValue(nullptr)
@@ -216,7 +216,7 @@ FunctionGen::FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
     auto & codeGen = moduleGen.getCodeGen();
 
     // create a new function object
-    function = cast<Function>(module.getOrInsertFunction(name, functionTypeType, attributeList));
+    function = cast<Function>(module.getOrInsertFunction(name, functionType, attributeList));
     BasicBlock * entryBB = BasicBlock::Create(context, "EntryBlock", function);
     codeGen->SetInsertPoint(entryBB);
 
@@ -599,7 +599,7 @@ Function * getPrintfPrototype(llvm::Module & module)
             cast<Function>(
                     module.getOrInsertFunction(
                             "printf", type,
-                            llvm::AttributeSet().addAttribute(context, 1u, llvm::Attribute::NoAlias)
+                            llvm::AttributeList().addAttribute(context, 1u, llvm::Attribute::NoAlias)
                     )
             );
 

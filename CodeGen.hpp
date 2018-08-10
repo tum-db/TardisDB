@@ -120,9 +120,9 @@ private:
 class FunctionGen {
 public:
     FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
-                llvm::FunctionType * functionTypeType);
+                llvm::FunctionType * functionType);
     FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
-                llvm::FunctionType * functionTypeType, llvm::AttributeSet attributeList);
+                llvm::FunctionType * functionType, llvm::AttributeList attributeList);
     ~FunctionGen();
 
     llvm::Function * getFunction();
