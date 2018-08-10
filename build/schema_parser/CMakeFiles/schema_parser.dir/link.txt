@@ -1,1 +1,0 @@
-/usr/bin/c++     CMakeFiles/schema_parser.dir/generator.cpp.o CMakeFiles/schema_parser.dir/main.cpp.o CMakeFiles/schema_parser.dir/Parser.cpp.o CMakeFiles/schema_parser.dir/Schema.cpp.o  -o schema_parser 
