@@ -191,5 +191,5 @@ void expression_test()
 {
     ModuleGen moduleGen("TestModule");
     llvm::Function * testFunc = genFunc();
-    QueryCompiler::execute(testFunc);
+    QueryCompiler::compileAndExecute(testFunc);
 }

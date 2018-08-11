@@ -169,7 +169,7 @@ void benchmark_tpc_h_1(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
 
-    auto times = QueryCompiler::benchmark(queryFunc, runs);
+    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 
@@ -179,7 +179,7 @@ void run_tpc_h_1()
 
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
-    QueryCompiler::execute(queryFunc);
+    QueryCompiler::compileAndExecute(queryFunc);
 }
 
 void benchmark_tpc_h_1_null(unsigned runs)
@@ -189,7 +189,7 @@ void benchmark_tpc_h_1_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
 
-    auto times = QueryCompiler::benchmark(queryFunc, runs);
+    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 
@@ -200,5 +200,5 @@ void run_tpc_h_1_null()
     printf("running query...\n");
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
-    QueryCompiler::execute(queryFunc);
+    QueryCompiler::compileAndExecute(queryFunc);
 }

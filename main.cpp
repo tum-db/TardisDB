@@ -43,7 +43,7 @@ void prompt()
                 break;
             }
 
-            QueryCompiler::execute(input);
+            QueryCompiler::compileAndExecute(input);
         } catch (const QueryParser::parser_error & e) {
             fprintf(stderr, "Failed to parse query, reason: %s\n", e.what());
         } catch (const std::exception & e) {

@@ -163,7 +163,7 @@ void benchmark_arithmetic_1_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic1_func(*db);
 
-    auto times = QueryCompiler::benchmark(queryFunc, runs);
+    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 /*
@@ -270,7 +270,7 @@ void benchmark_arithmetic_2_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic2_func(*db);
 
-    auto times = QueryCompiler::benchmark(queryFunc, runs);
+    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 
@@ -359,7 +359,7 @@ void benchmark_arithmetic_3_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic3_func(*db);
 
-    auto times = QueryCompiler::benchmark(queryFunc, runs);
+    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 
@@ -437,6 +437,6 @@ void benchmark_arithmetic_4_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic4_func(*db);
 
-    auto times = QueryCompiler::benchmark(queryFunc, runs);
+    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }

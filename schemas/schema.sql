@@ -1,1 +1,1 @@
-tpch-nullable.sql
+tpch.sql

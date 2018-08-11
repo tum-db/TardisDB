@@ -18,12 +18,14 @@
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
 #include <llvm/Target/TargetMachine.h>
 
+#include "algebra/logical/operators.hpp"
+#include "algebra/translation.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
+#include "foundations/loader.hpp"
 #include "foundations/utils.hpp"
-#include "foundations/exceptions.hpp"
 #include "query_compiler/queryparser.hpp"
-//#include "query_compiler/semantic_analysis.hpp"
+#include "query_compiler/semantic_analysis.hpp"
 
 using namespace std::chrono;
 
@@ -63,26 +65,32 @@ static void optimize(llvm::Module & module)
 }
 #endif // DISABLE_OPTIMIZATIONS
 
-static llvm::Function * compileQuery(const std::string & query)
+static llvm::Function * compileQuery(const std::string & query, QueryContext & queryContext)
 {
-    throw NotImplementedException("compileQuery(const std::string & query)");
+//    throw NotImplementedException("compileQuery(const std::string & query)");
 
-#if 0
+#if 1
+
+
+
+
     auto parsedQuery = QueryParser::parse_query(query);
-    auto queryTree = computeTree(*parsedQuery.get());
+    auto queryTree = computeTree(*parsedQuery.get(), queryContext);
 
     auto & codeGen = getThreadLocalCodeGen();
-    auto & context = codeGen.getLLVMContext();
+    auto & llvmContext = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
     // query function signature
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(llvmContext);
 
     // generate the query function
     llvm::Function * queryFunc;
     {
         FunctionGen funcGen(moduleGen, "query", funcTy);
-        queryTree->produce();
+
+        auto physicalTree = Algebra::translateToPhysicalTree(*queryTree);
+        physicalTree->produce();
 
         queryFunc = funcGen.getFunction();
     }
@@ -132,17 +140,22 @@ static void executeQueryFunction(llvm::Function * queryFunc)
     printf("Execution time: %lums\n", duration_cast<milliseconds>(queryDuration).count());
 }
 
-void execute(const std::string & query)
+void compileAndExecute(const std::string & query)
 {
-    ModuleGen moduleGen("QueryModule");
+//    ModuleGen moduleGen("QueryModule");
+
+    auto db = loadUniDb();
+    QueryContext queryContext(*db); // TODO as function argument?
 
     compilationStart = high_resolution_clock::now();
-    auto queryFunc = compileQuery(query);
+
+    ModuleGen moduleGen("QueryModule");
+    auto queryFunc = compileQuery(query, queryContext);
 
     executeQueryFunction(queryFunc);
 }
 
-void execute(llvm::Function * queryFunction)
+void compileAndExecute(llvm::Function * queryFunction)
 {
     auto & codeGen = getThreadLocalCodeGen();
     assert(codeGen.hasModuleGen());
@@ -169,7 +182,7 @@ void execute(llvm::Function * queryFunction)
     executeQueryFunction(queryFunction);
 }
 
-void execute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args)
+void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args)
 {
     throw NotImplementedException();
 }
@@ -206,17 +219,19 @@ static BenchmarkResult benchmarkQueryFunction(llvm::Function * queryFunc, unsign
     return result;
 }
 
-BenchmarkResult benchmark(const std::string & query, unsigned runs)
+BenchmarkResult compileAndBenchmark(const std::string & query, unsigned runs)
 {
+    /*
     ModuleGen moduleGen("QueryModule");
 
     compilationStart = high_resolution_clock::now();
     auto queryFunc = compileQuery(query);
 
-    return benchmarkQueryFunction(queryFunc, runs);
+    return benchmarkQueryFunction(queryFunc, runs);*/
+    throw NotImplementedException();
 }
 
-BenchmarkResult benchmark(llvm::Function * queryFunction, unsigned runs)
+BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, unsigned runs)
 {
     auto & codeGen = getThreadLocalCodeGen();
     assert(codeGen.hasModuleGen());
@@ -243,7 +258,7 @@ BenchmarkResult benchmark(llvm::Function * queryFunction, unsigned runs)
     return benchmarkQueryFunction(queryFunction, runs);
 }
 
-BenchmarkResult benchmark(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args, unsigned runs)
+BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args, unsigned runs)
 {
     throw NotImplementedException();
 }

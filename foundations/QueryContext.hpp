@@ -6,6 +6,7 @@
 
 using scope_level_t = size_t;
 
+// TODO distinguish between Compilation and Runtime context
 struct QueryContext {
     QueryContext(Database & pDB) :
             db(pDB),

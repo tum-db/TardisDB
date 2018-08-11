@@ -8,6 +8,6 @@
 #include "query_compiler/queryparser.hpp"
 
 /// \brief Build a algebra tree for the given query
-std::unique_ptr<Algebra::Logical::Operator> computeTree(const QueryParser::ParsedQuery & query);
+std::unique_ptr<Algebra::Logical::Result> computeTree(const QueryParser::ParsedQuery & query, QueryContext & context);
 
 #endif // SEMANTIC_ANALYSIS_HPP

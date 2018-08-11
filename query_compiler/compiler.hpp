@@ -17,18 +17,18 @@ struct BenchmarkResult {
 
 /// \brief Benchmarks the given SQL query
 /// \returns The compilation and the average execution time of the query
-BenchmarkResult benchmark(const std::string & query, unsigned runs);
+BenchmarkResult compileAndBenchmark(const std::string & query, unsigned runs);
 
-BenchmarkResult benchmark(llvm::Function * queryFunction, unsigned runs);
+BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, unsigned runs);
 
-BenchmarkResult benchmark(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args, unsigned runs);
+BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args, unsigned runs);
 
 /// \brief Executes the given SQL query
-void execute(const std::string & query);
+void compileAndExecute(const std::string & query);
 
-void execute(llvm::Function * queryFunction);
+void compileAndExecute(llvm::Function * queryFunction);
 
-void execute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args);
+void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args);
 
 } // end namespace QueryCompiler
 

@@ -179,5 +179,5 @@ void groupby_test()
 
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
-    QueryCompiler::execute(queryFunc);
+    QueryCompiler::compileAndExecute(queryFunc);
 }

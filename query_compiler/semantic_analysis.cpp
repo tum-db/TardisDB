@@ -25,7 +25,7 @@ referenced. Also, you should report an error if a table has no join condition
 (i.e., a cross product would be necessary). Build left-deep join trees based
 on the order of the relations in the from clause.
 */
-std::unique_ptr<Operator> computeTree(const ParsedQuery & query, QueryContext & context)
+std::unique_ptr<Result> computeTree(const ParsedQuery & query, QueryContext & context)
 {
     if (query.where.empty() && query.from.size() > 1) {
         throw std::runtime_error("cross product required");
@@ -107,19 +107,22 @@ std::unique_ptr<Operator> computeTree(const ParsedQuery & query, QueryContext & 
                 attr = scope[predicate.lhs];
                 table = attributeToTable[predicate.lhs];
                 value = predicate.rhs;
-                ci = table->getCI(predicate.rhs);
-                
+                ci = table->getCI(predicate.lhs);
             } else if (predicate.lhsType == ExpressionType::Constant &&
                     predicate.rhsType == ExpressionType::Attribute)
             {
                 attr = scope[predicate.rhs];
                 table = attributeToTable[predicate.rhs];
                 value = predicate.lhs;
+                ci = table->getCI(predicate.rhs);
             } else {
                 throw std::runtime_error("invalid predicate");
             }
 
             // build the expression
+            if (ci->type.nullable) {
+                throw NotImplementedException();
+            }
             auto constExp = std::make_unique<Expressions::Constant>(value, ci->type);
             auto identifier = std::make_unique<Expressions::Identifier>(attr);
             // TODO auto cast

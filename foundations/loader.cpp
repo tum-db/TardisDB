@@ -165,7 +165,8 @@ std::unique_ptr<Database> loadUniDb()
         auto studenten = std::make_unique<Table>();
         studenten->addColumn("matrnr", Sql::getIntegerTy());
         studenten->addColumn("name", Sql::getVarcharTy(20));
-        studenten->addColumn("semester", Sql::getIntegerTy(true));
+//        studenten->addColumn("semester", Sql::getIntegerTy(true));
+        studenten->addColumn("semester", Sql::getIntegerTy());
 
         std::ifstream fs("tables/uni/studenten.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
