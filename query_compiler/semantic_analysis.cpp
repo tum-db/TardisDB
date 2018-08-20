@@ -32,7 +32,7 @@ std::unique_ptr<Result> computeTree(const ParsedQuery & query, QueryContext & co
     }
 
     std::unordered_map<std::string, iu_p_t> scope;
-    std::unordered_map<std::string, Table *> attributeToTable;
+    std::unordered_map<std::string, Table *> attributeToTable; // FIXME handle ambiguous names
     std::unordered_map<Table *, std::unique_ptr<Operator>> scans;
 
     // create the table scan operators and build the scope
@@ -87,7 +87,7 @@ std::unique_ptr<Result> computeTree(const ParsedQuery & query, QueryContext & co
             auto * ci2 = table2->getCI(predicate.rhs);
 
             // TODO upgrade to compare all compatible types
-            if (ci1->type.typeID == ci2->type.typeID) { // FIXME: not very robust
+            if (ci1->type.typeID != ci2->type.typeID) { // FIXME: not very robust
                 throw std::runtime_error("incompatible types");
             }
 
@@ -167,6 +167,7 @@ std::unique_ptr<Result> computeTree(const ParsedQuery & query, QueryContext & co
         while (it != joinPairs.end()) {
             const auto & joinPair = *it;
 
+            // TODO handle ambiguous names
             if (attributeToTable[joinPair.first] == rel &&
                     joined.count(attributeToTable[joinPair.second]) > 0)
             {

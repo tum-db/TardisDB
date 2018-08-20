@@ -1,19 +1,19 @@
 
-#include "queryparser.hpp"
+#include "query_compiler/queryparser.hpp"
 
-//#include <cstdlib>
 #include <algorithm>
 #include <cctype>
-
 #include <sstream>
 
 namespace QueryParser {
 
 /*
-The select clause contains one or more attribute names.
-The from clause contains one or more relation names.
-The where clause is optional and can contain one or more selections (connected by "and"). You only need to support selections of the form "attribute = attribute" and "attribute = constant".
-You can assume that each relation is referenced only once, and that all attribute names are unique.
+The select clause contains one or more attribute names. The from clause
+contains one or more relation names. The where clause is optional and can
+contain one or more selections (connected by "and"). You only need to support
+selections of the form "attribute = attribute" and "attribute = constant".
+You can assume that each relation is referenced only once, and that all
+attribute names are unique.
 */
 
 namespace keyword {
