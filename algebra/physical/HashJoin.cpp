@@ -231,7 +231,7 @@ HashJoin::~HashJoin()
 
 void HashJoin::constructIUSets()
 {
-    // build a set of required ius that contains only ius from the left side
+    // build a set of required ius that only contains ius from the left side
     const iu_set_t & leftChildRequired = leftChild->getRequired();
     std::set_intersection(
             _required.begin(), _required.end(),
@@ -239,7 +239,7 @@ void HashJoin::constructIUSets()
             std::inserter(buildSet, buildSet.end())
     );
 
-    // build a set of required ius that contains only ius from the right side
+    // build a set of required ius that only contains ius from the right side
     const iu_set_t & rightChildRequired = rightChild->getRequired();
     std::set_intersection(
             _required.begin(), _required.end(),
