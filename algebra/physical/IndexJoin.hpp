@@ -9,7 +9,7 @@
 namespace Algebra {
 namespace Physical {
 
-class IndexJoin : public UnaryOperator {
+class IndexJoin : public BinaryOperator {
 public:
     using join_pair_vec_t = std::vector<std::pair<iu_p_t, Expressions::exp_op_t>>;
 
@@ -36,7 +36,8 @@ private:
 
     void probeCandidate(cg_voidptr_t nodePtr);
 
-    void consume(const iu_value_mapping_t & values, const Operator & src) override;
+    void consumeLeft(const iu_value_mapping_t & values) override;
+    void consumeRight(const iu_value_mapping_t & values) override;
 
     // stored tuple description
 //    std::vector<Sql::SqlType> storedTypes; // used to construct the SqlTuple
