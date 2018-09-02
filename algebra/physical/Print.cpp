@@ -26,7 +26,21 @@ Print::~Print()
 
 void Print::produce()
 {
+    tupleCountPtr = codeGen->CreateAlloca(cg_size_t::getType());
+    codeGen->CreateStore(cg_size_t(0ul), tupleCountPtr);
+
     child->produce();
+
+    cg_size_t tupleCnt(codeGen->CreateLoad(tupleCountPtr));
+    IfGen check(tupleCnt == cg_size_t(0ul));
+    {
+        Functions::genPrintfCall("Empty result set\n");
+    }
+    check.Else();
+    {
+        Functions::genPrintfCall("Produced %lu tuples\n", tupleCnt);
+    }
+    check.EndIf();
 }
 
 void Print::consume(const iu_value_mapping_t & values, const Operator & src)
@@ -42,6 +56,10 @@ void Print::consume(const iu_value_mapping_t & values, const Operator & src)
         Sql::Utils::genPrintValue(*values.at(iu));
     }
     Functions::genPrintfCall("\n");
+
+    // increment tuple counter
+    cg_size_t prevCnt(codeGen->CreateLoad(tupleCountPtr));
+    codeGen->CreateStore(prevCnt + 1ul, tupleCountPtr);
 }
 
 } // end namespace Physical
