@@ -19,8 +19,7 @@ TableScan::TableScan(QueryContext & context, const iu_set_t & required, Table & 
         table(table)
 {
     // collect all information which is necessary to access the columns
-    iu_set_t required = getRequired();
-    for (auto iu : required) {
+    for (auto iu : getRequired()) {
         auto ci = getColumnInformation(iu);
 
         SqlType storedSqlType;
@@ -31,6 +30,7 @@ TableScan::TableScan(QueryContext & context, const iu_set_t & required, Table & 
             storedSqlType = ci->type;
         }
 
+        size_t tableSize = table.size();
         llvm::Type * elemTy = toLLVMTy(storedSqlType);
         llvm::Type * columnTy = llvm::ArrayType::get(elemTy, tableSize);
         llvm::Value * columnPtr = createPointerValue(ci->column->front(), columnTy);
@@ -56,7 +56,7 @@ void TableScan::produce()
     cg_size_t tid(scanLoop.getLoopVar(0));
     {
         LoopBodyGen bodyGen(scanLoop);
-
+        produce(tid);
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
