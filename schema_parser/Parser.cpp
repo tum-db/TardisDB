@@ -42,14 +42,30 @@ std::unique_ptr<Schema> Parser::parse() {
       std::string::size_type pos;
       std::string::size_type prevPos = 0;
 
+      size_t c_pos = token.find("--");
+      if (c_pos != std::string::npos) {
+        if (c_pos != 0) {
+          throw "not implemented";
+        }
+        do {
+          if (in.peek() == '\n') {
+            ++line;
+            break;
+          }
+        } while (in >> token);
+        continue;
+      }
+
       while ((pos = token.find_first_of(",)(;", prevPos)) != std::string::npos) {
          nextToken(line, token.substr(prevPos, pos-prevPos), *s);
          nextToken(line, token.substr(pos,1), *s);
          prevPos=pos+1;
       }
       nextToken(line, token.substr(prevPos), *s);
-      if (token.find("\n")!=std::string::npos)
-         ++line;
+      while (in.peek() == '\n') {
+        in.get();
+        ++line;
+      }
    }
    in.close();
    return s;
