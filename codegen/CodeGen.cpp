@@ -28,7 +28,7 @@ CodeGen & getThreadLocalCodeGen()
 
 CodeGen::CodeGen() :
         context(),
-        currentFunctionGen(nullptr),
+//        currentFunctionGen(nullptr),
         builder(context)
 { }
 
@@ -39,13 +39,13 @@ CodeGen::~CodeGen()
 
 void CodeGen::setNextBlock(BasicBlock * nextBB)
 {
-    assert(currentFunctionGen != nullptr);
+    assert(hasFunctionGen());
     nextBBVec.push_back(nextBB);
 }
 
 void CodeGen::leaveBlock(BasicBlock * afterBB)
 {
-    assert(currentFunctionGen != nullptr);
+    assert(hasFunctionGen());
 
     // get the next basic block or create a new one
     llvm::BasicBlock * nextBB = nullptr;
@@ -61,46 +61,46 @@ void CodeGen::leaveBlock(BasicBlock * afterBB)
 
 void CodeGen::setCurrentFunctionGen(FunctionGen & functionGen)
 {
-    currentFunctionGen = &functionGen;
+    functionGens.push(&functionGen);
 }
 
 void CodeGen::setCurrentModuleGen(ModuleGen & moduleGen)
 {
-    currentModuleGen = &moduleGen;
+    moduleGens.push(&moduleGen);
 }
 
 ModuleGen & CodeGen::getCurrentModuleGen()
 {
-    assert(currentModuleGen != nullptr);
-    return *currentModuleGen;
+    assert(hasModuleGen());
+    return *moduleGens.top();
 }
 
 void CodeGen::finalizeModuleGen()
 {
-    assert(currentModuleGen != nullptr);
-    currentModuleGen = nullptr;
+    assert(hasModuleGen());
+    moduleGens.pop();
 }
 
 llvm::Module & CodeGen::getCurrentModule()
 {
-    return currentModuleGen->getModule();
+    return getCurrentModuleGen().getModule();
 }
 
 FunctionGen & CodeGen::getCurrentFunctionGen()
 {
-    assert(currentFunctionGen != nullptr);
-    return *currentFunctionGen;
+    assert(hasFunctionGen());
+    return *functionGens.top();
 }
 
 void CodeGen::finalizeFunctionGen()
 {
-    assert(currentFunctionGen != nullptr);
-    currentFunctionGen = nullptr;
+    assert(hasFunctionGen());
+    functionGens.pop();
 }
 
 llvm::Function & CodeGen::getCurrentFunction()
 {
-    return *currentFunctionGen->getFunction();
+    return *getCurrentFunctionGen().getFunction();
 }
 
 llvm::IRBuilder<> & CodeGen::getIRBuilder()

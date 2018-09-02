@@ -5,6 +5,7 @@
 #ifndef LLVM_PROTOTYPE_CODEGEN_H
 #define LLVM_PROTOTYPE_CODEGEN_H
 
+#include <stack>
 #include <utility>
 
 #include <llvm/IR/IRBuilder.h>
@@ -60,13 +61,13 @@ public:
     ModuleGen & getCurrentModuleGen();
     void finalizeModuleGen();
     llvm::Module & getCurrentModule();
-    bool hasModuleGen() const { return currentModuleGen != nullptr; }
+    bool hasModuleGen() const { return !moduleGens.empty(); }
 
     void setCurrentFunctionGen(FunctionGen & functionGen);
     FunctionGen & getCurrentFunctionGen();
     void finalizeFunctionGen();
     llvm::Function & getCurrentFunction();
-    bool hasFunctionGen() const { return currentFunctionGen != nullptr; }
+    bool hasFunctionGen() const { return !functionGens.empty(); }
 
     /// \brief Set the BasicBlock that should be executed next
     void setNextBlock(llvm::BasicBlock * nextBB);
@@ -79,8 +80,8 @@ public:
 private:
     llvm::LLVMContext context;
     std::vector<llvm::BasicBlock *> nextBBVec;
-    ModuleGen * currentModuleGen;
-    FunctionGen * currentFunctionGen;
+    std::stack<ModuleGen *> moduleGens;
+    std::stack<FunctionGen *> functionGens;
     llvm::IRBuilder<> builder;
     TypeCache typeCache;
 };
