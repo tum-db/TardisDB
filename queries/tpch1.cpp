@@ -164,7 +164,7 @@ static llvm::Function * genFunc(Database & db)
 
 void benchmark_tpc_h_1(unsigned runs)
 {
-    auto db = load_tpch_db();
+    auto db = load_tables();
 
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
@@ -175,7 +175,7 @@ void benchmark_tpc_h_1(unsigned runs)
 
 void run_tpc_h_1()
 {
-    auto db = load_tpch_db();
+    auto db = load_tables();
 
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);

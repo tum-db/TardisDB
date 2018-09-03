@@ -18,6 +18,15 @@ void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan)
     }
 }
 
+void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan, const std::string & prefix)
+{
+    auto & scope = context.scope;
+    for (iu_p_t iu : scan.getProduced()) {
+        ci_p_t ci = getColumnInformation(iu);
+        scope.emplace(prefix + "." + ci->columnName, iu);
+    }
+}
+
 iu_p_t lookup(QueryContext & context, const std::string & symbol)
 {
     auto & scope = context.scope;

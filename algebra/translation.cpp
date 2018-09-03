@@ -338,12 +338,21 @@ public:
         auto leftChild = std::move( _translated.top() );
         _translated.pop();
 
-        ExpressionTranslator expTranslator(*op._joinExp);
-        physical_expression_op_t joinExp = expTranslator.getResult();
+        Logical::Expressions::Expression * logicalLeftExpr, * logicalRightExpr;
+        if (Logical::Expressions::Comparison * cmp = dynamic_cast<Logical::Expressions::Comparison *>(op._joinExp.get())) {
+            if (cmp->_mode != Logical::Expressions::ComparisonMode::eq) {
+                throw NotImplementedException();
+            }
+            logicalLeftExpr = &cmp->getLeftChild();
+            logicalRightExpr = &cmp->getRightChild();
+        } else {
+            throw NotImplementedException();
+        }
 
-        // TODO
-        physical_expression_op_t leftExp;
-        physical_expression_op_t rightExp;
+        ExpressionTranslator leftExprTranslator(*logicalLeftExpr);
+        physical_expression_op_t leftExp = leftExprTranslator.getResult();
+        ExpressionTranslator rightExprTranslator(*logicalLeftExpr);
+        physical_expression_op_t rightExp = rightExprTranslator.getResult();
 
         switch (op._method) {
             case Logical::Join::Method::Hash: {
@@ -359,7 +368,6 @@ public:
             default:
                 throw NotImplementedException();
         }
-
     }
 
     void visit(Logical::Map & op) override

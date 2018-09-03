@@ -9,7 +9,7 @@
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "algebra/pyhsical/TableScan.hpp"
+#include "algebra/physical/TableScan.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/StaticHashtable.hpp"
 #include "foundations/MemoryPool.hpp"
@@ -20,6 +20,7 @@
 
 using namespace Sql;
 
+#ifdef ENABLE_IJ
 //-----------------------------------------------------------------------------
 // operator implementation
 
@@ -249,3 +250,4 @@ void IndexJoin::consumeLeft(const iu_value_mapping_t & values)
 
 } // end namespace Physical
 } // end namespace Algebra
+#endif

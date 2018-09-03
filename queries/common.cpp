@@ -9,7 +9,7 @@
 #include "foundations/loader.hpp"
 #include "sql/SqlValues.hpp"
 
-std::unique_ptr<Database> load_tpch_db()
+std::unique_ptr<Database> load_tables()
 {
     std::unique_ptr<Database> db;
 
@@ -97,7 +97,7 @@ static void setNullValues(Database & db)
 
 std::unique_ptr<Database> load_tpch_null_db()
 {
-    auto db = load_tpch_db();
+    auto db = load_tables();
 
     printf("setting values to null...\n");
     setNullValues(*db);
