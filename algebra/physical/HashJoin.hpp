@@ -22,8 +22,6 @@ public:
     virtual void produce() override ;
 
 private:
-//    void constructIUSets();
-
     void probeCandidate(cg_voidptr_t nodePtr);
 
     void consumeLeft(const iu_value_mapping_t & values) override;
@@ -39,10 +37,7 @@ private:
     // stored tuple description
     std::vector<Sql::SqlType> storedTypes; // used to construct the SqlTuple
     std::unordered_map<iu_p_t, size_t> tupleMapping; // iu_p_t -> index into storedTypes
-/*
-    iu_set_t buildSet;
-    iu_set_t probeSet;
-*/
+
     const iu_value_mapping_t * rightProduced;
 };
 

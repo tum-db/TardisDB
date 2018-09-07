@@ -173,33 +173,6 @@ namespace Physical {
 
 enum Side : size_t { Left = 0, Right = 1 };
 
-#if false
-/// \brief Calculates the joint hash of all join attributes
-template<Side side>
-static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_mapping_t & values)
-{
-    cg_hash_t seed(0ul);
-
-    // iterate over each join pair and calculate the combined hash
-    bool first = true;
-    for (auto & joinPair : joinPairs) {
-        // pair structure: (left iu, right iu)
-        auto it = values.find( std::get<side>(joinPair) );
-        assert(it != values.end());
-
-        Value * sqlValue = it->second;
-        if (first) {
-            seed = sqlValue->hash();
-            first = false;
-        } else {
-            seed = genHashCombine(seed, sqlValue->hash());
-        }
-    }
-
-    return seed;
-}
-#endif
-
 using join_pair_vec_t = HashJoin::join_pair_vec_t;
 
 /// \brief Calculates the joint hash of all join attributes
@@ -231,8 +204,6 @@ HashJoin::HashJoin(const logical_operator_t & logicalOperator,
         BinaryOperator(std::move(logicalOperator), std::move(left), std::move(right)),
         joinPairs(std::move(pairs))
 {
-//    constructIUSets();
-
     // sanity check:
 #ifndef NDEBUG
     const auto & leftRequired = _leftChild->getRequired();
