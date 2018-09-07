@@ -12,10 +12,10 @@ namespace Physical {
 //-----------------------------------------------------------------------------
 // Operator
 
-Operator::Operator(QueryContext & context, const iu_set_t & required) :
-        codeGen(context.codeGen),
-        context(context),
-        _required(required)
+Operator::Operator(logical_operator_op_t logicalOperator) :
+        _codeGen(logicalOperator->getContext().codeGen),
+        _context(logicalOperator->getContext()),
+        _logicalOperator(std::move(logicalOperator))
 { }
 
 Operator::~Operator()
@@ -23,29 +23,29 @@ Operator::~Operator()
 
 QueryContext & Operator::getContext() const
 {
-    return context;
+    return _context;
 }
 
 Operator * Operator::getParent() const
 {
-    return parent;
+    return _parent;
 }
 
 void Operator::setParent(Operator * parent)
 {
-    this->parent = parent;
+    this->_parent = parent;
 }
 
 const iu_set_t & Operator::getRequired()
 {
-    return _required;
+    return _logicalOperator->getRequired();
 }
 
 //-----------------------------------------------------------------------------
 // NullaryOperator
 
-NullaryOperator::NullaryOperator(QueryContext & context, const iu_set_t & required) :
-        Operator(context, required)
+NullaryOperator::NullaryOperator(logical_operator_op_t logicalOperator) :
+        Operator(std::move(logicalOperator))
 { }
 
 NullaryOperator::~NullaryOperator()
@@ -63,8 +63,8 @@ size_t NullaryOperator::arity() const
 
 //-----------------------------------------------------------------------------
 // UnaryOperator
-UnaryOperator::UnaryOperator(std::unique_ptr<Operator> input, const iu_set_t & required) :
-        Operator(input->getContext(), required),
+UnaryOperator::UnaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> input) :
+        Operator(std::move(logicalOperator)),
         child(std::move(input))
 {
     child->setParent(this);
@@ -80,14 +80,14 @@ size_t UnaryOperator::arity() const
 
 //-----------------------------------------------------------------------------
 // BinaryOperator
-BinaryOperator::BinaryOperator(std::unique_ptr<Operator> leftInput, std::unique_ptr<Operator> rightInput,
-                               const iu_set_t & required) :
-        Operator(leftInput->getContext(), required),
-        leftChild(std::move(leftInput)),
-        rightChild(std::move(rightInput))
+BinaryOperator::BinaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> leftInput,
+                               std::unique_ptr<Operator> rightInput) :
+        Operator(std::move(logicalOperator)),
+        _leftChild(std::move(leftInput)),
+        _rightChild(std::move(rightInput))
 {
-    leftChild->setParent(this);
-    rightChild->setParent(this);
+    _leftChild->setParent(this);
+    _rightChild->setParent(this);
 }
 
 BinaryOperator::~BinaryOperator()
@@ -95,7 +95,7 @@ BinaryOperator::~BinaryOperator()
 
 void BinaryOperator::consume(const iu_value_mapping_t & values, const Operator & src)
 {
-    if (&src == leftChild.get()) {
+    if (&src == _leftChild.get()) {
         consumeLeft(values);
     } else {
         consumeRight(values);

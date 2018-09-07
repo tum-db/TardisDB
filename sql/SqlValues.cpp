@@ -319,7 +319,7 @@ void Integer::accept(ValueVisitor & visitor)
 
 cg_bool_t Integer::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -413,7 +413,7 @@ void Numeric::accept(ValueVisitor & visitor)
 
 cg_bool_t Numeric::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -504,7 +504,7 @@ void Bool::accept(ValueVisitor & visitor)
 
 cg_bool_t Bool::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -703,7 +703,7 @@ void Char::accept(ValueVisitor & visitor)
 
 cg_bool_t Char::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -811,7 +811,7 @@ void Varchar::accept(ValueVisitor & visitor)
 
 cg_bool_t Varchar::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -899,7 +899,7 @@ void Date::accept(ValueVisitor & visitor)
 
 cg_bool_t Date::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -983,7 +983,7 @@ void Timestamp::accept(ValueVisitor & visitor)
 
 cg_bool_t Timestamp::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -1181,7 +1181,7 @@ void NullableValue::accept(ValueVisitor & visitor)
 
 cg_bool_t NullableValue::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -1197,7 +1197,7 @@ cg_bool_t NullableValue::equals(const Value & other) const
 
 cg_bool_t NullableValue::compare(const Value & other, ComparisonMode mode) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -1369,7 +1369,7 @@ void NullableValue::accept(ValueVisitor & visitor)
 
 cg_bool_t NullableValue::equals(const Value & other) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 
@@ -1385,7 +1385,7 @@ cg_bool_t NullableValue::equals(const Value & other) const
 
 cg_bool_t NullableValue::compare(const Value & other, ComparisonMode mode) const
 {
-    if (Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }
 

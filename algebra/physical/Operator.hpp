@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 
+#include "algebra/logical/operators.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/InformationUnit.hpp"
 #include "foundations/QueryContext.hpp"
@@ -14,11 +15,12 @@
 namespace Algebra {
 namespace Physical {
 
+using Algebra::Logical::logical_operator_op_t;
 using iu_value_mapping_t = std::unordered_map<iu_p_t, Sql::Value *>;
 
 class Operator {
 public:
-    Operator(QueryContext & context, const iu_set_t & required);
+    Operator(logical_operator_op_t logicalOperator);
 
     virtual ~Operator();
 
@@ -47,16 +49,15 @@ public:
 protected:
     void setParent(Operator * parent);
 
-    Operator * parent = nullptr;
-    CodeGen & codeGen;
-    QueryContext & context;
-
-    iu_set_t _required;
+    Operator * _parent = nullptr;
+    CodeGen & _codeGen;
+    QueryContext & _context;
+    logical_operator_op_t _logicalOperator;
 };
 
 class NullaryOperator : public Operator {
 public:
-    NullaryOperator(QueryContext & context, const iu_set_t & required);
+    NullaryOperator(logical_operator_op_t logicalOperator);
 
     virtual ~NullaryOperator();
 
@@ -67,7 +68,7 @@ public:
 
 class UnaryOperator : public Operator {
 public:
-    UnaryOperator(std::unique_ptr<Operator> input, const iu_set_t & required);
+    UnaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> input);
 
     virtual ~UnaryOperator();
 
@@ -79,8 +80,8 @@ protected:
 
 class BinaryOperator : public Operator {
 public:
-    BinaryOperator(std::unique_ptr<Operator> leftInput, std::unique_ptr<Operator> rightInput,
-                   const iu_set_t & required);
+    BinaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> leftInput,
+                   std::unique_ptr<Operator> rightInput);
 
     virtual ~BinaryOperator();
 
@@ -92,8 +93,8 @@ protected:
     virtual void consumeLeft(const iu_value_mapping_t & values) = 0;
     virtual void consumeRight(const iu_value_mapping_t & values) = 0;
 
-    std::unique_ptr<Operator> leftChild;
-    std::unique_ptr<Operator> rightChild;
+    std::unique_ptr<Operator> _leftChild;
+    std::unique_ptr<Operator> _rightChild;
 };
 
 } // end namespace Physical

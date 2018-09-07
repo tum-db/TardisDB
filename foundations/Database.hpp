@@ -5,6 +5,7 @@
 #include <map>
 #include <unordered_map>
 #include <set>
+#include <limits>
 
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
@@ -12,6 +13,8 @@
 
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
+
+tid_t invalid_tid = std::numeric_limits<tid_t>::max();
 
 //-----------------------------------------------------------------------------
 // ColumnInformation

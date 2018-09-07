@@ -173,6 +173,7 @@ namespace Physical {
 
 enum Side : size_t { Left = 0, Right = 1 };
 
+#if false
 /// \brief Calculates the joint hash of all join attributes
 template<Side side>
 static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_mapping_t & values)
@@ -197,20 +198,37 @@ static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_m
 
     return seed;
 }
+#endif
 
-HashJoin::HashJoin(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, const iu_set_t & required,
-                   Expressions::exp_op_t leftExp, Expressions::exp_op_t rightExp) :
-        BinaryOperator(std::move(left), std::move(right), required)
+using join_pair_vec_t = HashJoin::join_pair_vec_t;
+
+/// \brief Calculates the joint hash of all join attributes
+template<Side side>
+static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_mapping_t & values)
 {
-    throw NotImplementedException();
+    cg_hash_t seed(0ul);
 
-    constructIUSets();
+    // iterate over each join pair and calculate the combined hash
+    bool first = true;
+    for (auto & joinPair : joinPairs) {
+        // pair structure: (left expr, right expr)
+        auto& expr = std::get<side>(joinPair);
+        auto sqlValue = expr->evaluate(values);
+        if (first) {
+            seed = sqlValue->hash();
+            first = false;
+        } else {
+            seed = genHashCombine(seed, sqlValue->hash());
+        }
+    }
+
+    return seed;
 }
 
 HashJoin::HashJoin(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, const iu_set_t & required,
-                   const join_pair_vec_t & pairs) :
+                   join_pair_vec_t pairs) :
         BinaryOperator(std::move(left), std::move(right), required),
-        joinPairs(pairs)
+        joinPairs(std::move(pairs))
 {
     constructIUSets();
 
@@ -218,37 +236,18 @@ HashJoin::HashJoin(std::unique_ptr<Operator> left, std::unique_ptr<Operator> rig
 #ifndef NDEBUG
     const auto & leftRequired = leftChild->getRequired();
     const auto & rightRequired = rightChild->getRequired();
+    /* TODO (implement Expression::getRequired())
     for (const auto & p : pairs) {
         if (leftRequired.count(p.first) != 1 || rightRequired.count(p.second) != 1) {
             throw std::runtime_error("join pair order");
         }
     }
+    */
 #endif
 }
 
 HashJoin::~HashJoin()
 { }
-
-void HashJoin::constructIUSets()
-{
-    // build a set of required ius that only contains ius from the left side
-    const iu_set_t & leftChildRequired = leftChild->getRequired();
-    std::set_intersection(
-            _required.begin(), _required.end(),
-            leftChildRequired.begin(), leftChildRequired.end(),
-            std::inserter(buildSet, buildSet.end())
-    );
-
-    // build a set of required ius that only contains ius from the right side
-    const iu_set_t & rightChildRequired = rightChild->getRequired();
-    std::set_intersection(
-            _required.begin(), _required.end(),
-            rightChildRequired.begin(), rightChildRequired.end(),
-            std::inserter(probeSet, probeSet.end())
-    );
-
-    // TODO assert required == buildSet union probeSet
-}
 
 void HashJoin::produce()
 {
@@ -278,58 +277,51 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
 //    Functions::genPrintfCall("===\nprobeCandidate() iter node: %p\n===\n", rawNodePtr);
 
     auto & codeGen = getThreadLocalCodeGen();
-    auto & funcGen = codeGen.getCurrentFunctionGen();
-
-    llvm::Type * nodePtrTy = llvm::PointerType::getUnqual(listNodeTy);
 
     // load the tuple
+    llvm::Type * nodePtrTy = llvm::PointerType::getUnqual(listNodeTy);
     llvm::Value * nodePtr = codeGen->CreatePointerCast(rawNodePtr, nodePtrTy);
     llvm::Value * tuplePtr = codeGen->CreateStructGEP(listNodeTy, nodePtr, 2);
     auto tuple = SqlTuple::load(tuplePtr, storedTypes);
-
+ 
     // check if all related values do also match:
-#if 0
+#if 1
     // naive first version:
 
-    cg_bool_t all(true);
-    for (auto & joinPair : joinPairs) {
-        auto it = tupleMapping.find(joinPair.first);
-        iu_p_t rightCIU = joinPair.second;
-        assert(rightProduced->count(rightCIU) == 1);
-
-        size_t i = it->second;
-        SqlValue & left = *(tuple->values[i]);
-        SqlValue & right = *(rightProduced->at(rightCIU));
-
-        all = all && left.equals(right);
+    iu_value_mapping_t values;
+    iu_p_t iu;
+    size_t idx;
+    for (auto & pair : tupleMapping) {
+        std::tie(iu, idx) = pair;
+        values[iu] = tuple->values[idx].get();
     }
 
-    IfGen check(funcGen, all);
-    {
+    cg_bool_t match(true);
+    for (auto & joinPair : joinPairs) {
+        auto leftExprValue = joinPair.first->evaluate(values); // build side
+        auto rightExprValue = joinPair.second->evaluate(*rightProduced); // probe side
 /*
-        Functions::genPrintfCall("RESULT: ");
-        genPrintSqlValue(tuple.values[0]);
-        Functions::genPrintfCall(", ");
-        genPrintSqlValue(*rightProduced[0]);
-        Functions::genPrintfCall("\n");
+        Functions::genPrintfCall("===\nprobeCandidate() compare:");
+        Utils::genPrintValue(*leftExprValue);
+        Functions::genPrintfCall(" == ");
+        Utils::genPrintValue(*rightExprValue);
+        Functions::genPrintfCall(" -> %d\n", leftExprValue->equals(*rightExprValue));
 */
-#if 0
+        match = match && leftExprValue->equals(*rightExprValue);
+    }
+
+    IfGen check(match);
+    {
         // merge both sides
-        iu_value_mapping_t values(*rightProduced);
-#endif
-        // merge both sides
-        iu_value_mapping_t values;
         for (iu_p_t iu : probeSet) {
             values[iu] = rightProduced->at(iu);
-        }
-        for (auto & pair : tupleMapping) {
-            values[pair.first] = tuple->values[pair.second].get();
         }
 
         parent->consume(values, *this);
     }
     check.EndIf();
-#else
+
+#else // TODO port and benchmark the following code
     // this version builds a nested "if" construct in order to avoid unnecessary comparisons
 
     // "IfGen"s are not copyable (otherwise the BasicBlock structure would get mixed up)
@@ -352,10 +344,6 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
 
         // at this point all join-attributes are guaranteed to be equal
         if (std::next(pairIt) == joinPairs.end()) {
-#if 0
-            // merge both sides
-            iu_value_mapping_t values(*rightProduced);
-#endif
             // merge both sides
             iu_value_mapping_t values;
             for (iu_p_t iu : probeSet) {
@@ -380,29 +368,13 @@ void HashJoin::consumeLeft(const iu_value_mapping_t & values)
 {
     std::vector<value_op_t> leftTupleValues;
 
-#if 0
-    // gather tuple information
-    size_t i = 0;
-    for (auto & pair : values) {
-        value_op_t sqlValue = pair.second->clone();
-        storedTypes.push_back(sqlValue->type);
-        leftTupleValues.push_back( std::move(sqlValue) );
-        tupleMapping[pair.first] = i;
-
-        i += 1;
-    }
-#endif
-    // TODO test this!
-
     // gather tuple information
     size_t i = 0;
     for (iu_p_t iu : buildSet) {
         value_op_t sqlValue = values.at(iu)->clone();
         storedTypes.push_back(sqlValue->type);
         leftTupleValues.push_back( std::move(sqlValue) );
-        tupleMapping[iu] = i;
-
-        i += 1;
+        tupleMapping[iu] = i++;
     }
 
     SqlTuple tuple( std::move(leftTupleValues) );

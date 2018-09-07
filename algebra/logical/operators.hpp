@@ -80,6 +80,8 @@ private:
     uint32_t _uid;
 };
 
+using logical_operator_op_t = std::unique_ptr<Operator>;
+
 //-----------------------------------------------------------------------------
 // OperatorVisitor
 
@@ -165,8 +167,13 @@ protected:
     void updateProducedSetsTraverser() final;
     void updateRequiredSetsTraverser() final;
 
+    void splitRequiredSet();
+
     std::unique_ptr<Operator> leftChild;
     std::unique_ptr<Operator> rightChild;
+
+    iu_set_t leftRequired;
+    iu_set_t rightRequired;
 };
 
 //-----------------------------------------------------------------------------
@@ -216,16 +223,18 @@ protected:
 //-----------------------------------------------------------------------------
 // Join operator
 
+using join_expr_vec_t = std::vector<logical_exp_op_t>;
+
 class Join : public BinaryOperator {
 public:
     enum class Method { Hash } _method;
 
-    logical_exp_op_t _joinExp;
+    join_expr_vec_t _joinExprVec;
 
-    Join(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, logical_exp_op_t exp, Method method) :
+    Join(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, join_expr_vec_t joinExprVec, Method method) :
             BinaryOperator(std::move(left), std::move(right)),
             _method(method),
-            _joinExp(std::move(exp))
+            _joinExprVec(std::move(joinExprVec))
     { }
 
     ~Join() override { };

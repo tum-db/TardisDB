@@ -20,6 +20,7 @@
 
 using namespace Sql;
 
+#define ENABLE_IJ
 #ifdef ENABLE_IJ
 //-----------------------------------------------------------------------------
 // operator implementation
@@ -73,116 +74,30 @@ void IndexJoin::produce()
 
 void IndexJoin::probeCandidate(cg_voidptr_t rawNodePtr)
 {
-    assert(listNodeTy != nullptr);
 
-//    Functions::genPrintfCall("===\nprobeCandidate() iter node: %p\n===\n", rawNodePtr);
+}
 
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & funcGen = codeGen.getCurrentFunctionGen();
+cg_tid_t performARTLookup(const iu_value_mapping_t & values)
+{
+    // TODO
+    auto& executionContext = getContext().getExecutionContext();
 
-    llvm::Type * nodePtrTy = llvm::PointerType::getUnqual(listNodeTy);
+    auto indexJoinResources = std::make_unique<IndexJoinResources>();
+    executionContext.acquireResource(std::move(indexJoinResources));
 
-    // load the tuple
-    llvm::Value * nodePtr = codeGen->CreatePointerCast(rawNodePtr, nodePtrTy);
-    llvm::Value * tuplePtr = codeGen->CreateStructGEP(listNodeTy, nodePtr, 2);
-    auto tuple = SqlTuple::load(tuplePtr, storedTypes);
+    cg_voidptr_t key = cg_voidptr_t::fromRawPointer(&indexJoinResources->key);
 
-    // check if all related values do also match:
-#if 0
-    // naive first version:
-
-    cg_bool_t all(true);
-    for (auto & joinPair : joinPairs) {
-        auto it = tupleMapping.find(joinPair.first);
-        iu_p_t rightCIU = joinPair.second;
-        assert(rightProduced->count(rightCIU) == 1);
-
-        size_t i = it->second;
-        SqlValue & left = *(tuple->values[i]);
-        SqlValue & right = *(rightProduced->at(rightCIU));
-
-        all = all && left.equals(right);
-    }
-
-    IfGen check(funcGen, all);
-    {
-/*
-        Functions::genPrintfCall("RESULT: ");
-        genPrintSqlValue(tuple.values[0]);
-        Functions::genPrintfCall(", ");
-        genPrintSqlValue(*rightProduced[0]);
-        Functions::genPrintfCall("\n");
-*/
-#if 0
-        // merge both sides
-        iu_value_mapping_t values(*rightProduced);
-#endif
-        // merge both sides
-        iu_value_mapping_t values;
-        for (iu_p_t iu : probeSet) {
-            values[iu] = rightProduced->at(iu);
-        }
-        for (auto & pair : tupleMapping) {
-            values[pair.first] = tuple->values[pair.second].get();
-        }
-
-        parent->consume(values, *this);
-    }
-    check.EndIf();
-#else
-    // this version builds a nested "if" construct in order to avoid unnecessary comparisons
-
-    // "IfGen"s are not copyable (otherwise the BasicBlock structure would get mixed up)
-    std::vector<std::unique_ptr<IfGen>> chain;
-
-    for (auto pairIt = joinPairs.begin(); pairIt != joinPairs.end(); ++pairIt) {
-        auto & joinPair = *pairIt;
-
-        auto tupleIt = tupleMapping.find(joinPair.first);
-        iu_p_t rightIU = joinPair.second;
-        assert(rightProduced->count(rightIU) == 1);
-
-        size_t i = tupleIt->second;
-        Value & left = *(tuple->values[i]);
-        Value & right = *(rightProduced->at(rightIU));
-
-        // extend the nested "if"-chain by one statement
-        cg_bool_t equals = left.equals(right);
-        chain.emplace_back( std::make_unique<IfGen>(funcGen, equals) );
-
-        // at this point all join-attributes are guaranteed to be equal
-        if (std::next(pairIt) == joinPairs.end()) {
-#if 0
-            // merge both sides
-            iu_value_mapping_t values(*rightProduced);
-#endif
-            // merge both sides
-            iu_value_mapping_t values;
-            for (iu_p_t iu : probeSet) {
-                values[iu] = rightProduced->at(iu);
-            }
-            for (auto & pair : tupleMapping) {
-                values[pair.first] = tuple->values[pair.second].get();
-            }
-
-            parent->consume(values, *this);
-        }
-    }
-
-    // close the chain in reverse order
-    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-        it->get()->EndIf();
-    }
-#endif
 }
 
 cg_tid_t performLookup(const iu_value_mapping_t & values)
 {
+    // TODO
 
 }
 
 cg_tid_t performRangeLookup(const iu_value_mapping_t & values)
 {
+    // TODO
     throw NotImplementedException();
 }
 
@@ -193,7 +108,7 @@ struct IndexJoinResources : public ExecutionResource {
     Key key;
 
     std::vector<SqlType> keyType;
-}
+};
 
 // TODO
 // generic key conversion function
@@ -208,15 +123,6 @@ struct IndexJoinResources : public ExecutionResource {
 
 void IndexJoin::consumeLeft(const iu_value_mapping_t & values)
 {
-
-
-    auto& executionContext = getContext().getExecutionContext();
-
-    auto indexJoinResources = std::make_unique<IndexJoinResources>();
-    executionContext.acquireResource(std::move(indexJoinResources));
-
-    cg_voidptr_t key = cg_voidptr_t::fromRawPointer(&indexJoinResources->key);
-
     // lookup
     cg_tid_t tid;
     if (method == LookupMethod::Exact) {
@@ -225,16 +131,19 @@ void IndexJoin::consumeLeft(const iu_value_mapping_t & values)
         tid = performRangeLookup(values);
     }
 
+    IfGen check(tid != cg_tid_t(invalid_tid));
+    {
+        iu_value_mapping_t generatedValues;
 
-    iu_value_mapping_t generatedValues;
-
-    // load
-    auto * tableScan = dynamic_cast<TableScan *>(rightChild.get());
-    assert(tableScan);
-    tableScan->produce(tid);
+        // load
+        auto * tableScan = dynamic_cast<TableScan *>(rightChild.get());
+        assert(tableScan);
+        tableScan->produce(tid);
+    }
+    check.EndIf();
 }
 
-void IndexJoin::consumeLeft(const iu_value_mapping_t & values)
+void IndexJoin::consumeRight(const iu_value_mapping_t & values)
 {
     iu_value_mapping_t generatedValues; // TODO
 

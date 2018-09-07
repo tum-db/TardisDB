@@ -45,9 +45,6 @@ private:
 
     std::vector<Sql::SqlType> lookupType; // ordered
 
-    iu_set_t probeSet;
-    iu_set_t indexedSet;
-
     ART_unsynchronized::Tree & index;
 
     join_pair_vec_t joinPairs;

@@ -338,21 +338,25 @@ public:
         auto leftChild = std::move( _translated.top() );
         _translated.pop();
 
-        Logical::Expressions::Expression * logicalLeftExpr, * logicalRightExpr;
-        if (Logical::Expressions::Comparison * cmp = dynamic_cast<Logical::Expressions::Comparison *>(op._joinExp.get())) {
-            if (cmp->_mode != Logical::Expressions::ComparisonMode::eq) {
-                throw NotImplementedException();
-            }
-            logicalLeftExpr = &cmp->getLeftChild();
-            logicalRightExpr = &cmp->getRightChild();
-        } else {
-            throw NotImplementedException();
-        }
+        bool equiConditionsOnly = true;
+        std::vector<std::pair<physical_expression_op_t, physical_expression_op_t>> joinPairs;
+        for (auto& joinExpr : op._joinExprVec) {
+            if (Logical::Expressions::Comparison * cmp = dynamic_cast<Logical::Expressions::Comparison *>(joinExpr.get())) {
+                if (cmp->_mode != Logical::Expressions::ComparisonMode::eq) {
+                    throw NotImplementedException();
+                    equiConditionsOnly = false;
+                }
 
-        ExpressionTranslator leftExprTranslator(*logicalLeftExpr);
-        physical_expression_op_t leftExp = leftExprTranslator.getResult();
-        ExpressionTranslator rightExprTranslator(*logicalLeftExpr);
-        physical_expression_op_t rightExp = rightExprTranslator.getResult();
+                ExpressionTranslator leftExprTranslator(cmp->getLeftChild());
+                physical_expression_op_t leftExpr = leftExprTranslator.getResult();
+                ExpressionTranslator rightExprTranslator(cmp->getRightChild());
+                physical_expression_op_t rightExpr = rightExprTranslator.getResult();
+                joinPairs.push_back(std::make_pair(std::move(leftExpr), std::move(rightExpr)));
+            } else {
+                throw NotImplementedException();
+                // e.g. or construction within an expression -> block nested loop join
+            }
+        }
 
         switch (op._method) {
             case Logical::Join::Method::Hash: {
@@ -360,8 +364,7 @@ public:
                     std::move(leftChild),
                     std::move(rightChild),
                     op.getRequired(),
-                    std::move(leftExp),
-                    std::move(rightExp)
+                    std::move(joinPairs)
                 ) );
                 break;
             }

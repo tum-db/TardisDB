@@ -34,8 +34,11 @@ public:
 
     virtual Sql::SqlType getType() const final { return _type; }
 
+    virtual Logical::Expressions::Expression & logical() const final { return *_logical; }
+
 private:
     const Sql::SqlType _type;
+    Logical::Expressions::exp_op_t _logical; // TODO
 };
 
 using exp_op_t = std::unique_ptr<Expression>;

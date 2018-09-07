@@ -30,6 +30,9 @@ public:
     virtual Sql::SqlType getType() const = 0;
 
     virtual void accept(ExpressionVisitor & visitor) = 0;
+
+// TODO
+//    virtual iu_set_t computeRequired() const final;
 };
 
 using exp_op_t = std::unique_ptr<Expression>;

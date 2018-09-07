@@ -33,6 +33,7 @@ namespace QueryCompiler {
 
 static high_resolution_clock::time_point compilationStart;
 
+//#define EMIT_IR
 //#define DISABLE_OPTIMIZATIONS
 
 #ifndef DISABLE_OPTIMIZATIONS
@@ -97,7 +98,7 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 
     auto & module = moduleGen.getModule();
 
-#ifndef NDEBUG
+#ifdef EMIT_IR
     llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << module;
     llvm::outs().flush();
 #endif
@@ -105,7 +106,7 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 #ifndef DISABLE_OPTIMIZATIONS
     optimize(module);
 
-#ifndef NDEBUG
+#ifdef EMIT_IR
     llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << module;
     llvm::outs().flush();
 #endif
@@ -162,7 +163,7 @@ void compileAndExecute(llvm::Function * queryFunction)
 
     auto & module = codeGen.getCurrentModule();
 
-#ifndef NDEBUG
+#ifdef EMIT_IR
     llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << module;
     llvm::outs().flush();
 #endif
@@ -170,7 +171,7 @@ void compileAndExecute(llvm::Function * queryFunction)
 #ifndef DISABLE_OPTIMIZATIONS
     optimize(module);
 
-#ifndef NDEBUG
+#ifdef EMIT_IR
     llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << module;
     llvm::outs().flush();
 #endif
@@ -238,7 +239,7 @@ BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, unsigned run
 
     auto & module = codeGen.getCurrentModule();
 
-#ifndef NDEBUG
+#ifdef EMIT_IR
     llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << module;
     llvm::outs().flush();
 #endif
@@ -246,7 +247,7 @@ BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, unsigned run
 #ifndef DISABLE_OPTIMIZATIONS
     optimize(module);
 
-#ifndef NDEBUG
+#ifdef EMIT_IR
     llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << module;
     llvm::outs().flush();
 #endif

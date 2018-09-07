@@ -43,11 +43,18 @@ std::unique_ptr<Result> computeTree(const ParsedQuery & query, QueryContext & co
         }
 
         auto * scan = new TableScan(context, *table);
-
+/*
         for (const std::string & column : table->getColumnNames()) {
             auto ci = table->getCI(column);
             scope[column] = context.iuFactory.createIU(*scan, ci);
             attributeToTable[column] = table;
+        }
+*/
+        auto& produced = scan->getProduced();
+        for (iu_p_t iu : produced) {
+            auto ci = getColumnInformation(iu);
+            scope[ci->columnName] = iu;
+            attributeToTable[ci->columnName] = table;
         }
 
         scans[table] = std::unique_ptr<Operator>(scan);
@@ -201,30 +208,21 @@ std::unique_ptr<Result> computeTree(const ParsedQuery & query, QueryContext & co
             visited = 0; // reset
 
             // construct the join expression
-            std::unique_ptr<Expressions::Expression> joinExp;
+            std::vector<Expressions::exp_op_t> joinExprVec;
             for (auto iuPair : joinCondition) {
-                auto subExp = std::make_unique<Expressions::Comparison>(
+                auto joinExpr = std::make_unique<Expressions::Comparison>(
                     Expressions::ComparisonMode::eq, // equijoin
                     std::make_unique<Expressions::Identifier>(iuPair.first),
                     std::make_unique<Expressions::Identifier>(iuPair.second)
                 );
-                if (joinExp) {
-                    // construct implicit 'and' condition
-                    auto andExp = std::make_unique<Expressions::And>(
-                        std::move(joinExp),
-                        std::move(subExp)
-                    );
-                    joinExp = std::move(andExp);
-                } else {
-                    joinExp = std::move(subExp);
-                }
+                joinExprVec.push_back(std::move(joinExpr));
             }
 
             // join this branch with the existing tree
             auto join = std::make_unique<Join>(
                 std::move(root),
                 std::move(scans[rel]),
-                std::move(joinExp),
+                std::move(joinExprVec),
                 Join::Method::Hash
             );
             root = std::move(join);
@@ -232,5 +230,7 @@ std::unique_ptr<Result> computeTree(const ParsedQuery & query, QueryContext & co
     }
 
     auto print = std::make_unique<Result>(std::move(root), select);
+//    __asm__("int3");
+//    ((Operator *)print.get())->updateRequiredSetsTraverser();
     return print;
 }

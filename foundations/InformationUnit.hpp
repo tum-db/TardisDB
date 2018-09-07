@@ -20,6 +20,9 @@ struct InformationUnit {
     Sql::SqlType sqlType;
     ci_p_t columnInformation; // only valid if iuType == ColumnRef
     uint32_t scanUID; // only valid if iuType == ColumnRef
+
+    InformationUnit() { }
+    InformationUnit(const InformationUnit &) = delete;
 };
 
 using iu_p_t = const InformationUnit *;
@@ -29,10 +32,10 @@ class IUFactory {
 public:
     IUFactory() = default;
 
-    /// \brief Create an iu create for a temporary
+    /// \brief Create an iu for a temporary
     iu_p_t createIU(Sql::SqlType type);
 
-    /// \brief Create an iu create for a column
+    /// \brief Create an iu for a given column
     iu_p_t createIU(const Algebra::Logical::TableScan & producer, ci_p_t columnInformation);
 
 private:

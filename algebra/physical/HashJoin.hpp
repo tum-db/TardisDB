@@ -7,18 +7,14 @@
 namespace Algebra {
 namespace Physical {
 
-typedef std::vector<std::pair<iu_p_t, iu_p_t>> join_pair_vec_t;
-
 /// The hash join operator
 class HashJoin : public BinaryOperator {
 public:
-    /// \param pairs: vector of (left iu, right iu) pairs
-    HashJoin(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, const iu_set_t & required,
-             const join_pair_vec_t & pairs);
+    using join_pair_vec_t = std::vector<std::pair<Expressions::exp_op_t, Expressions::exp_op_t>>;
 
-    // TODO change to:
+    /// \param pairs: vector of (left expr, right expr) pairs
     HashJoin(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, const iu_set_t & required,
-             Expressions::exp_op_t leftExp, Expressions::exp_op_t rightExp);
+            join_pair_vec_t pairs);
 
     virtual ~HashJoin();
 
@@ -31,9 +27,6 @@ private:
 
     void consumeLeft(const iu_value_mapping_t & values) override;
     void consumeRight(const iu_value_mapping_t & values) override;
-
-    std::unique_ptr<Operator> leftChild;
-    std::unique_ptr<Operator> rightChild;
 
     join_pair_vec_t joinPairs;
 

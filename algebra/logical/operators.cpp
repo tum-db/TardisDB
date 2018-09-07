@@ -138,9 +138,30 @@ void BinaryOperator::updateProducedSetsTraverser()
 void BinaryOperator::updateRequiredSetsTraverser()
 {
     computeRequired();
+    requiredUpToDate = true;
     leftChild->updateRequiredSetsTraverser();
     rightChild->updateRequiredSetsTraverser();
-    requiredUpToDate = true;
+
+    splitRequiredSet();
+}
+
+void BinaryOperator::splitRequiredSet()
+{
+    // build a set of required ius that only contains ius from the left side
+    const iu_set_t & leftChildRequired = leftChild->getRequired();
+    std::set_intersection(
+            required.begin(), required.end(),
+            leftChildRequired.begin(), leftChildRequired.end(),
+            std::inserter(leftRequired, leftRequired.end())
+    );
+
+    // build a set of required ius that only contains ius from the right side
+    const iu_set_t & rightChildRequired = rightChild->getRequired();
+    std::set_intersection(
+            required.begin(), required.end(),
+            rightChildRequired.begin(), rightChildRequired.end(),
+            std::inserter(rightRequired, rightRequired.end())
+    );
 }
 
 //-----------------------------------------------------------------------------
@@ -278,8 +299,10 @@ void Join::computeRequired()
     required.insert(expected.begin(), expected.end());
 
     // add the join attributes (they might not be needed by the parent operator)
-    iu_set_t expRequired = collectRequired(*_joinExp);
-    required.insert(expRequired.begin(), expRequired.end());
+    for (auto& expr : _joinExprVec) {
+        iu_set_t exprRequired = collectRequired(*expr);
+        required.insert(exprRequired.begin(), exprRequired.end());
+    }
 }
 
 //-----------------------------------------------------------------------------
