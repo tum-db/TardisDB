@@ -12,7 +12,7 @@ class Select : public UnaryOperator {
 public:
     enum ArithmeticOperator { Equals };
 
-    Select(std::unique_ptr<Operator> input, const iu_set_t & required, Expressions::exp_op_t exp);
+    Select(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Expressions::exp_op_t exp);
 
     virtual ~Select();
 

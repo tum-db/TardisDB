@@ -9,7 +9,7 @@ namespace Physical {
 /// The table scan operator
 class TableScan : public NullaryOperator {
 public:
-    TableScan(QueryContext & context, const iu_set_t & required, Table & table);
+    TableScan(const logical_operator_t & logicalOperator, Table & table);
 
     virtual ~TableScan();
 

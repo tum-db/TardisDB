@@ -19,20 +19,22 @@ Operator * Operator::getRoot()
     return root;
 }
 
-const iu_set_t & Operator::getProduced()
+const iu_set_t & Operator::getProduced() const
 {
     if (!producedUpToDate) {
+        auto mutable_this = const_cast<Operator *>(this);
         // it is most likely that the whole tree is not up to date
-        updateProducedSets();
+        mutable_this->updateProducedSets();
     }
     return produced;
 }
 
-const iu_set_t & Operator::getRequired()
+const iu_set_t & Operator::getRequired() const
 {
     if (!requiredUpToDate) {
+        auto mutable_this = const_cast<Operator *>(this);
         // it is most likely that the whole tree is not up to date
-        updateRequiredSets();
+        mutable_this->updateRequiredSets();
     }
     return required;
 }

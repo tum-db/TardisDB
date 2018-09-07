@@ -15,12 +15,12 @@
 namespace Algebra {
 namespace Physical {
 
-using Algebra::Logical::logical_operator_op_t;
+using logical_operator_t = Algebra::Logical::Operator;
 using iu_value_mapping_t = std::unordered_map<iu_p_t, Sql::Value *>;
 
 class Operator {
 public:
-    Operator(logical_operator_op_t logicalOperator);
+    Operator(const logical_operator_t & logicalOperator);
 
     virtual ~Operator();
 
@@ -52,12 +52,12 @@ protected:
     Operator * _parent = nullptr;
     CodeGen & _codeGen;
     QueryContext & _context;
-    logical_operator_op_t _logicalOperator;
+    const logical_operator_t & _logicalOperator;
 };
 
 class NullaryOperator : public Operator {
 public:
-    NullaryOperator(logical_operator_op_t logicalOperator);
+    NullaryOperator(const logical_operator_t & logicalOperator);
 
     virtual ~NullaryOperator();
 
@@ -68,7 +68,7 @@ public:
 
 class UnaryOperator : public Operator {
 public:
-    UnaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> input);
+    UnaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input);
 
     virtual ~UnaryOperator();
 
@@ -80,7 +80,7 @@ protected:
 
 class BinaryOperator : public Operator {
 public:
-    BinaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> leftInput,
+    BinaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> leftInput,
                    std::unique_ptr<Operator> rightInput);
 
     virtual ~BinaryOperator();

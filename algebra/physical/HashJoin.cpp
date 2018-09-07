@@ -225,17 +225,18 @@ static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_m
     return seed;
 }
 
-HashJoin::HashJoin(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, const iu_set_t & required,
+HashJoin::HashJoin(const logical_operator_t & logicalOperator,
+                   std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
                    join_pair_vec_t pairs) :
-        BinaryOperator(std::move(left), std::move(right), required),
+        BinaryOperator(std::move(logicalOperator), std::move(left), std::move(right)),
         joinPairs(std::move(pairs))
 {
-    constructIUSets();
+//    constructIUSets();
 
     // sanity check:
 #ifndef NDEBUG
-    const auto & leftRequired = leftChild->getRequired();
-    const auto & rightRequired = rightChild->getRequired();
+    const auto & leftRequired = _leftChild->getRequired();
+    const auto & rightRequired = _rightChild->getRequired();
     /* TODO (implement Expression::getRequired())
     for (const auto & p : pairs) {
         if (leftRequired.count(p.first) != 1 || rightRequired.count(p.second) != 1) {
@@ -255,7 +256,7 @@ void HashJoin::produce()
     memoryPool = genMemoryPoolCreateCall();
     listHeaderPtr = genCreateListHeader(memoryPool);
 
-    leftChild->produce();
+    _leftChild->produce();
 
     // build hashtable
     auto headerData = genListGetHeaderData(listHeaderPtr);
@@ -263,7 +264,7 @@ void HashJoin::produce()
     joinTable = genStaticHashtableCreateCall(headerData.first, headerData.second);
 //    Functions::genPrintfCall("joinTable: %p\n", joinTable);
 
-    rightChild->produce();
+    _rightChild->produce();
 
     // cleanup
     genStaticHashtableFreeCall(joinTable);
@@ -313,11 +314,12 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
     IfGen check(match);
     {
         // merge both sides
+        auto & probeSet = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator).getRightRequired();
         for (iu_p_t iu : probeSet) {
             values[iu] = rightProduced->at(iu);
         }
 
-        parent->consume(values, *this);
+        _parent->consume(values, *this);
     }
     check.EndIf();
 
@@ -370,6 +372,7 @@ void HashJoin::consumeLeft(const iu_value_mapping_t & values)
 
     // gather tuple information
     size_t i = 0;
+    auto & buildSet = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator).getLeftRequired();
     for (iu_p_t iu : buildSet) {
         value_op_t sqlValue = values.at(iu)->clone();
         storedTypes.push_back(sqlValue->type);

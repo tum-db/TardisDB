@@ -1,8 +1,8 @@
 
 #pragma once
 
-#include "Database.hpp"
-#include "InformationUnit.hpp"
+#include "foundations/Database.hpp"
+#include "foundations/InformationUnit.hpp"
 
 using scope_level_t = size_t;
 
@@ -17,6 +17,9 @@ struct QueryContext {
     Database & db;
     IUFactory iuFactory;
     CodeGen & codeGen;
+
+//    std::unique_ptr<Algebra::Logical::Operator> logicalTree;
+//    std::unique_ptr<Algebra::Physical::Operator> physicalTree;
 
     using scope_op_t = std::unique_ptr<std::unordered_map<std::string, iu_p_t>>;
 

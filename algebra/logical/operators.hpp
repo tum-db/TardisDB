@@ -45,9 +45,9 @@ public:
 
     virtual size_t arity() const = 0;
 
-    const iu_set_t & getProduced();
+    const iu_set_t & getProduced() const;
 
-    const iu_set_t & getRequired();
+    const iu_set_t & getRequired() const;
 
     uint32_t getUID() const { return _uid; }
 
@@ -79,8 +79,6 @@ protected:
 private:
     uint32_t _uid;
 };
-
-using logical_operator_op_t = std::unique_ptr<Operator>;
 
 //-----------------------------------------------------------------------------
 // OperatorVisitor
@@ -162,6 +160,9 @@ public:
     // see swap()
 //    std::unique_ptr<Operator> takeLeftChild();
 //    std::unique_ptr<Operator> takeRightChild();
+
+    const iu_set_t & getLeftRequired() const { return leftRequired; }
+    const iu_set_t & getRightRequired() const { return rightRequired; }
 
 protected:
     void updateProducedSetsTraverser() final;

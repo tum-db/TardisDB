@@ -325,9 +325,9 @@ public:
         }
 
         _translated.push( std::make_unique<Physical::GroupBy>(
-                std::move(child),
-                op.getRequired(),
-                std::move(aggregations)
+            op,
+            std::move(child),
+            std::move(aggregations)
         ) );
     }
 
@@ -361,9 +361,9 @@ public:
         switch (op._method) {
             case Logical::Join::Method::Hash: {
                 _translated.push( std::make_unique<Physical::HashJoin>(
+                    op,
                     std::move(leftChild),
                     std::move(rightChild),
-                    op.getRequired(),
                     std::move(joinPairs)
                 ) );
                 break;
@@ -385,7 +385,10 @@ public:
 
         switch (op._type) {
             case Logical::Result::Type::PrintToStdOut: {
-                _translated.push( std::make_unique<Physical::Print>( std::move(child), op.selection ) );
+                _translated.push( std::make_unique<Physical::Print>(
+                    op,
+                    std::move(child)
+                ) );
                 break;
             }
             default:
@@ -401,12 +404,19 @@ public:
         ExpressionTranslator expTranslator(*op._exp);
         physical_expression_op_t exp = expTranslator.getResult();
 
-        _translated.push( std::make_unique<Physical::Select>( std::move(child), op.getRequired(), std::move(exp) ) );
+        _translated.push( std::make_unique<Physical::Select>(
+            op,
+            std::move(child),
+            std::move(exp)
+        ) );
     }
 
     void visit(Logical::TableScan & op) override
     {
-        _translated.push( std::make_unique<Physical::TableScan>(op.getContext(), op.getRequired(), op.getTable()) );
+        _translated.push( std::make_unique<Physical::TableScan>(
+            op,
+            op.getTable()
+        ) );
     }
 
 };

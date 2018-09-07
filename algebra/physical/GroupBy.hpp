@@ -151,7 +151,7 @@ class CountDistinct : public Aggregator {
 /// The "group by" operator
 class GroupBy : public UnaryOperator {
 public:
-    GroupBy(std::unique_ptr<Operator> input, const iu_set_t & required,
+    GroupBy(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input,
             std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations);
 
     virtual ~GroupBy();
@@ -170,18 +170,14 @@ private:
 
     std::pair<std::vector<Sql::value_op_t>, iu_value_mapping_t> getResult(cg_voidptr_t group);
 
-    std::vector<std::unique_ptr<Aggregations::Aggregator>> _aggregations;
-
     iu_set_t _keepSet;
     bool _keepMode = false;
+    size_t _groupSize;
+    std::vector<std::unique_ptr<Aggregations::Aggregator>> _aggregations;
 
     cg_voidptr_t _hashTable;
     cg_voidptr_t _singleGroup;
-
-    size_t _groupSize;
-
     llvm::Type * _groupType;
-
     llvm::AllocaInst * _emptyStackVar;
 };
 

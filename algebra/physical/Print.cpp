@@ -11,27 +11,21 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-Print::Print(std::unique_ptr<Operator> input, const std::vector<iu_p_t> & selection) :
-        UnaryOperator(std::move(input), iu_set_t()),
-        selection(selection)
-{
-    // "selection" represents the required attributes of the print operator
-    for (iu_p_t ciu : selection) {
-        _required.insert(ciu);
-    }
-}
+Print::Print(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input) :
+        UnaryOperator(std::move(logicalOperator), std::move(input))
+{ }
 
 Print::~Print()
 { }
 
 void Print::produce()
 {
-    tupleCountPtr = codeGen->CreateAlloca(cg_size_t::getType());
-    codeGen->CreateStore(cg_size_t(0ul), tupleCountPtr);
+    tupleCountPtr = _codeGen->CreateAlloca(cg_size_t::getType());
+    _codeGen->CreateStore(cg_size_t(0ul), tupleCountPtr);
 
     child->produce();
 
-    cg_size_t tupleCnt(codeGen->CreateLoad(tupleCountPtr));
+    cg_size_t tupleCnt(_codeGen->CreateLoad(tupleCountPtr));
     IfGen check(tupleCnt == cg_size_t(0ul));
     {
         Functions::genPrintfCall("Empty result set\n");
@@ -46,6 +40,7 @@ void Print::produce()
 void Print::consume(const iu_value_mapping_t & values, const Operator & src)
 {
     bool first = true;
+    auto& selection = _logicalOperator.getRequired();
     for (iu_p_t iu : selection) {
         if (!first) {
             Functions::genPrintfCall("\t");
@@ -58,8 +53,8 @@ void Print::consume(const iu_value_mapping_t & values, const Operator & src)
     Functions::genPrintfCall("\n");
 
     // increment tuple counter
-    cg_size_t prevCnt(codeGen->CreateLoad(tupleCountPtr));
-    codeGen->CreateStore(prevCnt + 1ul, tupleCountPtr);
+    cg_size_t prevCnt(_codeGen->CreateLoad(tupleCountPtr));
+    _codeGen->CreateStore(prevCnt + 1ul, tupleCountPtr);
 }
 
 } // end namespace Physical

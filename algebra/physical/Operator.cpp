@@ -12,9 +12,9 @@ namespace Physical {
 //-----------------------------------------------------------------------------
 // Operator
 
-Operator::Operator(logical_operator_op_t logicalOperator) :
-        _codeGen(logicalOperator->getContext().codeGen),
-        _context(logicalOperator->getContext()),
+Operator::Operator(const logical_operator_t & logicalOperator) :
+        _codeGen(logicalOperator.getContext().codeGen),
+        _context(logicalOperator.getContext()),
         _logicalOperator(std::move(logicalOperator))
 { }
 
@@ -38,13 +38,13 @@ void Operator::setParent(Operator * parent)
 
 const iu_set_t & Operator::getRequired()
 {
-    return _logicalOperator->getRequired();
+    return _logicalOperator.getRequired();
 }
 
 //-----------------------------------------------------------------------------
 // NullaryOperator
 
-NullaryOperator::NullaryOperator(logical_operator_op_t logicalOperator) :
+NullaryOperator::NullaryOperator(const logical_operator_t & logicalOperator) :
         Operator(std::move(logicalOperator))
 { }
 
@@ -63,7 +63,7 @@ size_t NullaryOperator::arity() const
 
 //-----------------------------------------------------------------------------
 // UnaryOperator
-UnaryOperator::UnaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> input) :
+UnaryOperator::UnaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input) :
         Operator(std::move(logicalOperator)),
         child(std::move(input))
 {
@@ -80,7 +80,7 @@ size_t UnaryOperator::arity() const
 
 //-----------------------------------------------------------------------------
 // BinaryOperator
-BinaryOperator::BinaryOperator(logical_operator_op_t logicalOperator, std::unique_ptr<Operator> leftInput,
+BinaryOperator::BinaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> leftInput,
                                std::unique_ptr<Operator> rightInput) :
         Operator(std::move(logicalOperator)),
         _leftChild(std::move(leftInput)),

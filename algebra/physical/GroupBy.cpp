@@ -321,9 +321,9 @@ llvm::Type * Min::getEntryType()
 
 using namespace Aggregations;
 
-GroupBy::GroupBy(std::unique_ptr<Operator> input, const iu_set_t & required,
+GroupBy::GroupBy(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input,
                  std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations) :
-        UnaryOperator(std::move(input), required),
+        UnaryOperator(std::move(logicalOperator), std::move(input)),
         _aggregations(std::move(aggregations))
 {
     createGroupType();
@@ -340,7 +340,7 @@ GroupBy::GroupBy(std::unique_ptr<Operator> input, const iu_set_t & required,
     _keepMode = !_keepSet.empty();
 
     // calculate _groupSize
-    auto & dataLayout = codeGen.getCurrentModuleGen().getDataLayout();
+    auto & dataLayout = _codeGen.getCurrentModuleGen().getDataLayout();
     _groupSize = dataLayout.getTypeAllocSize(_groupType);
 }
 
@@ -359,13 +359,13 @@ void GroupBy::produce()
             // get payload pointer
             cg_voidptr_t groupPtr = genHashtableGetUserDataPtr(nodePtr);
             auto result = getResult(groupPtr);
-            parent->consume(result.second, *this);
+            _parent->consume(result.second, *this);
         });
 
         genHashtableFreeCall(_hashTable);
     } else {
         _emptyStackVar = createEntryBlockAlloca(
-                codeGen.getCurrentFunction(), "isEmpty", codeGen->getInt1Ty(), codeGen->getInt1(true)
+                _codeGen.getCurrentFunction(), "isEmpty", _codeGen->getInt1Ty(), _codeGen->getInt1(true)
         );
 
         // reserve memory for exactly one group
@@ -374,11 +374,11 @@ void GroupBy::produce()
         child->produce();
 
         // pass the group to the parent if it is not empty
-        cg_bool_t isEmpty( codeGen->CreateLoad(_emptyStackVar) );
+        cg_bool_t isEmpty( _codeGen->CreateLoad(_emptyStackVar) );
         IfGen notEmptyCheck(!isEmpty);
         {
             auto result = getResult(_singleGroup);
-            parent->consume(result.second, *this);
+            _parent->consume(result.second, *this);
         }
         notEmptyCheck.EndIf();
 
@@ -394,7 +394,7 @@ void GroupBy::createGroupType()
         members.push_back(aggregator->getEntryType());
     }
 
-    llvm::StructType * groupTy = llvm::StructType::create(codeGen->getContext(), "groupTy");
+    llvm::StructType * groupTy = llvm::StructType::create(_codeGen->getContext(), "groupTy");
     groupTy->setBody(members);
 
     _groupType = groupTy;
@@ -418,11 +418,11 @@ cg_hash_t GroupBy::currentHash(const iu_value_mapping_t & values)
 
 void GroupBy::initializeGroup(cg_voidptr_t groupRawPtr, const iu_value_mapping_t & values)
 {
-    llvm::Value * groupPtr = codeGen->CreateBitCast(groupRawPtr, llvm::PointerType::getUnqual(_groupType));
+    llvm::Value * groupPtr = _codeGen->CreateBitCast(groupRawPtr, llvm::PointerType::getUnqual(_groupType));
 
     unsigned i = 0;
     for (auto & aggregator : _aggregations) {
-        llvm::Value * entryPtr = codeGen->CreateStructGEP(_groupType, groupPtr, i);
+        llvm::Value * entryPtr = _codeGen->CreateStructGEP(_groupType, groupPtr, i);
         aggregator->consumeFirst(values, entryPtr);
 
         i += 1;
@@ -431,11 +431,11 @@ void GroupBy::initializeGroup(cg_voidptr_t groupRawPtr, const iu_value_mapping_t
 
 void GroupBy::aggregateInto(cg_voidptr_t groupRawPtr, const iu_value_mapping_t & values)
 {
-    llvm::Value * groupPtr = codeGen->CreateBitCast(groupRawPtr, llvm::PointerType::getUnqual(_groupType));
+    llvm::Value * groupPtr = _codeGen->CreateBitCast(groupRawPtr, llvm::PointerType::getUnqual(_groupType));
 
     unsigned i = 0;
     for (auto & aggregator : _aggregations) {
-        llvm::Value * entryPtr = codeGen->CreateStructGEP(_groupType, groupPtr, i);
+        llvm::Value * entryPtr = _codeGen->CreateStructGEP(_groupType, groupPtr, i);
         aggregator->consumeNext(values, entryPtr);
 
         i += 1;
@@ -446,12 +446,12 @@ std::pair<std::vector<value_op_t>, iu_value_mapping_t> GroupBy::getResult(cg_voi
 {
     std::pair<std::vector<value_op_t>, iu_value_mapping_t> result;
 
-    llvm::Value * groupPtr = codeGen->CreateBitCast(groupRawPtr, llvm::PointerType::getUnqual(_groupType));
+    llvm::Value * groupPtr = _codeGen->CreateBitCast(groupRawPtr, llvm::PointerType::getUnqual(_groupType));
 
     // finalize each aggregation function and collect the results
     unsigned i = 0;
     for (auto & aggregator : _aggregations) {
-        llvm::Value * entryPtr = codeGen->CreateStructGEP(_groupType, groupPtr, i);
+        llvm::Value * entryPtr = _codeGen->CreateStructGEP(_groupType, groupPtr, i);
 
         value_op_t resultValue = aggregator->getResult(entryPtr);
         iu_p_t iu = aggregator->getProduced();
@@ -488,11 +488,11 @@ void GroupBy::consume(const iu_value_mapping_t & values, const Operator & src)
         }
         isNull.EndIf();
     } else {
-        cg_bool_t isEmpty( codeGen->CreateLoad(_emptyStackVar) );
+        cg_bool_t isEmpty( _codeGen->CreateLoad(_emptyStackVar) );
         IfGen emptyCheck(isEmpty);
         {
             // create a new group and initialize it
-            codeGen->CreateStore(codeGen->getInt1(false), _emptyStackVar);
+            _codeGen->CreateStore(_codeGen->getInt1(false), _emptyStackVar);
             initializeGroup(_singleGroup, values);
         }
         emptyCheck.Else();

@@ -13,7 +13,8 @@ public:
     using join_pair_vec_t = std::vector<std::pair<Expressions::exp_op_t, Expressions::exp_op_t>>;
 
     /// \param pairs: vector of (left expr, right expr) pairs
-    HashJoin(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right, const iu_set_t & required,
+    HashJoin(const logical_operator_t & logicalOperator,
+            std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
             join_pair_vec_t pairs);
 
     virtual ~HashJoin();
@@ -21,7 +22,7 @@ public:
     virtual void produce() override ;
 
 private:
-    void constructIUSets();
+//    void constructIUSets();
 
     void probeCandidate(cg_voidptr_t nodePtr);
 
@@ -38,10 +39,10 @@ private:
     // stored tuple description
     std::vector<Sql::SqlType> storedTypes; // used to construct the SqlTuple
     std::unordered_map<iu_p_t, size_t> tupleMapping; // iu_p_t -> index into storedTypes
-
+/*
     iu_set_t buildSet;
     iu_set_t probeSet;
-
+*/
     const iu_value_mapping_t * rightProduced;
 };
 

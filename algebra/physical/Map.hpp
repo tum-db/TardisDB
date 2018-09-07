@@ -16,7 +16,7 @@ struct Mapping {
 /// The map operator
 class Map : public UnaryOperator {
 public:
-    Map(std::unique_ptr<Operator> input, const iu_set_t & required, std::vector<Mapping> mappings);
+    Map(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, std::vector<Mapping> mappings);
     virtual ~Map();
 
     void produce() override;

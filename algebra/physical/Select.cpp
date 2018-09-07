@@ -10,8 +10,8 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-Select::Select(std::unique_ptr<Operator> input, const iu_set_t & required, Expressions::exp_op_t exp) :
-        UnaryOperator(std::move(input), required),
+Select::Select(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Expressions::exp_op_t exp) :
+        UnaryOperator(std::move(logicalOperator), std::move(input)),
         _exp(std::move(exp))
 { }
 
@@ -32,7 +32,7 @@ void Select::consume(const iu_value_mapping_t & values, const Operator & src)
     // pass only matching tuples
     IfGen check(result);
     {
-        parent->consume(values, *this);
+        _parent->consume(values, *this);
     }
     check.EndIf();
 }

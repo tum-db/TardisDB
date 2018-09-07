@@ -21,7 +21,7 @@
 using namespace Sql;
 
 #define ENABLE_IJ
-#ifdef ENABLE_IJ
+#if 0
 //-----------------------------------------------------------------------------
 // operator implementation
 

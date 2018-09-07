@@ -14,8 +14,8 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-TableScan::TableScan(QueryContext & context, const iu_set_t & required, Table & table) :
-        NullaryOperator(context, required),
+TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table) :
+        NullaryOperator(std::move(logicalOperator)),
         table(table)
 {
     // collect all information which is necessary to access the columns
@@ -44,7 +44,7 @@ TableScan::~TableScan()
 
 void TableScan::produce()
 {
-    auto & funcGen = codeGen.getCurrentFunctionGen();
+    auto & funcGen = _codeGen.getCurrentFunctionGen();
 
     size_t tableSize = table.size();
     if (tableSize < 1) {
@@ -77,7 +77,7 @@ void TableScan::produce(cg_tid_t tid)
         ci_p_t ci = std::get<0>(column);
 
         // calculate the SQL value pointer
-        llvm::Value * elemPtr = codeGen->CreateGEP(
+        llvm::Value * elemPtr = _codeGen->CreateGEP(
             std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
 
         // the final value
@@ -101,7 +101,7 @@ void TableScan::produce(cg_tid_t tid)
         i += 1;
     }
 
-    parent->consume(values, *this);
+    _parent->consume(values, *this);
 }
 
 } // end namespace Physical
