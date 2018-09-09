@@ -32,6 +32,26 @@ cg_bool_t isTrue(const Value & value)
     return cg_bool_t(result);
 }
 
+cg_bool_t isFalse(const Value & value)
+{
+    using actionType = std::function<llvm::Value * (const Value &)>;
+
+    actionType presentAction = [](const Value & _value) {
+        if (_value.type.typeID == TypeID::BoolID) {
+            return !cg_bool_t(_value.getLLVMValue());
+        } else {
+            throw InvalidOperationException("attempt to compare incompatible types");
+        }
+    };
+
+    actionType absentAction = [](const Value & ) {
+        return cg_bool_t(false).llvmValue;
+    };
+
+    auto result = Utils::nullHandlerExtended(presentAction, absentAction, value);
+    return cg_bool_t(result);
+}
+
 cg_bool_t isNull(const Value & value)
 {
     // null constant?

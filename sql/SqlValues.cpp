@@ -1409,7 +1409,7 @@ bool isNullable(const Value & value)
     return (dynamic_cast<const NullableValue *>(&value) != nullptr);
 }
 
-bool isMaybeNull(const Value & value)
+bool mayBeNull(const Value & value)
 {
     if (value.type.typeID == SqlType::TypeID::UnknownID) {
         return true;

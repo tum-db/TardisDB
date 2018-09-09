@@ -546,7 +546,34 @@ value_op_t sqlCast(const Value & outerValue, SqlType newType)
 
 value_op_t sqlAnd(const Value & lhs, const Value & rhs)
 {
-    throw NotImplementedException("sqlAnd");
+    assert(lhs.type.typeID == SqlType::TypeID::BoolID);
+    assert(rhs.type.typeID == SqlType::TypeID::BoolID);
+
+    if (!isNullable(lhs) && !isNullable(rhs)) {
+        cg_bool_t lhsRaw(lhs.getLLVMValue());
+        cg_bool_t rhsRaw(rhs.getLLVMValue());
+        cg_bool_t result = lhsRaw && rhsRaw;
+        return Sql::Bool::fromRawValues({result.llvmValue});
+    } else {
+        Sql::Bool trueValue(true);
+        auto nullableTrueValue = Sql::NullableValue::create(trueValue, cg_bool_t(false));
+        PhiNode<Sql::Value> resultNode(*nullableTrueValue, "resultNode");
+
+        IfGen cases(Utils::isFalse(lhs) || Utils::isFalse(rhs)); // any false -> false
+        {
+            Sql::Bool falseValue(false);
+            auto nullableFalseValue = Sql::NullableValue::create(trueValue, cg_bool_t(false));
+            resultNode.addIncoming(*nullableFalseValue);
+        }
+        cases.ElseIf(Utils::isNull(lhs) || Utils::isNull(rhs)); // any null -> null
+        {
+            auto nullValue = Sql::NullableValue::getNull(getBoolTy(true));
+            resultNode.addIncoming(*nullValue);
+        }
+        cases.EndIf();
+
+        return resultNode.get();
+    }
 }
 
 value_op_t sqlOr(const Value & lhs, const Value & rhs)

@@ -444,7 +444,7 @@ public:
 bool isNullable(const Value & value);
 
 /// Checks whether the given Value is an instance of NullableValue or UnknownValue (null constant)
-bool isMaybeNull(const Value & value);
+bool mayBeNull(const Value & value);
 
 bool isUnknown(const Value & value);
 

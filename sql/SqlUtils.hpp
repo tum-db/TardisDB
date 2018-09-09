@@ -15,6 +15,9 @@ namespace Utils {
 /// \returns True if the given boolean SQL value is true
 cg_bool_t isTrue(const Value & value);
 
+/// \returns True if the given boolean SQL value is true
+cg_bool_t isFalse(const Value & value);
+
 /// \returns True if the given boolean SQL value is null
 cg_bool_t isNull(const Value & value);
 
