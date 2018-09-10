@@ -562,7 +562,7 @@ value_op_t sqlAnd(const Value & lhs, const Value & rhs)
         IfGen cases(Utils::isFalse(lhs) || Utils::isFalse(rhs)); // any false -> false
         {
             Sql::Bool falseValue(false);
-            auto nullableFalseValue = Sql::NullableValue::create(trueValue, cg_bool_t(false));
+            auto nullableFalseValue = Sql::NullableValue::create(falseValue, cg_bool_t(false));
             resultNode.addIncoming(*nullableFalseValue);
         }
         cases.ElseIf(Utils::isNull(lhs) || Utils::isNull(rhs)); // any null -> null
@@ -578,12 +578,45 @@ value_op_t sqlAnd(const Value & lhs, const Value & rhs)
 
 value_op_t sqlOr(const Value & lhs, const Value & rhs)
 {
-    throw NotImplementedException("sqlOr");
+    assert(lhs.type.typeID == SqlType::TypeID::BoolID);
+    assert(rhs.type.typeID == SqlType::TypeID::BoolID);
+
+    if (!isNullable(lhs) && !isNullable(rhs)) {
+        cg_bool_t lhsRaw(lhs.getLLVMValue());
+        cg_bool_t rhsRaw(rhs.getLLVMValue());
+        cg_bool_t result = lhsRaw || rhsRaw;
+        return Sql::Bool::fromRawValues({result.llvmValue});
+    } else {
+        Sql::Bool falseValue(false);
+        auto nullableFalseValue = Sql::NullableValue::create(falseValue, cg_bool_t(false));
+        PhiNode<Sql::Value> resultNode(*nullableFalseValue, "resultNode");
+
+        IfGen cases(Utils::isTrue(lhs) || Utils::isTrue(rhs)); // any true -> true
+        {
+            Sql::Bool trueValue(true);
+            auto nullableTrueValue = Sql::NullableValue::create(trueValue, cg_bool_t(false));
+            resultNode.addIncoming(*nullableTrueValue);
+        }
+        cases.ElseIf(Utils::isNull(lhs) || Utils::isNull(rhs)); // any null -> null
+        {
+            auto nullValue = Sql::NullableValue::getNull(getBoolTy(true));
+            resultNode.addIncoming(*nullValue);
+        }
+        cases.EndIf();
+
+        return resultNode.get();
+    }
 }
 
-value_op_t sqlNot()
+value_op_t sqlNot(const Value & value)
 {
-    throw NotImplementedException("sqlNot");
+    assert(value.type.typeID == SqlType::TypeID::BoolID);
+
+    auto action = [](const Value & innerValue) {
+        cg_bool_t booleanValue( innerValue.getLLVMValue() );
+        return value_op_t( Bool::fromRawValues({ !booleanValue }) );
+    };
+    return Utils::nullHandler(action, value, value.type);
 }
 
 } // end namespace Operators
