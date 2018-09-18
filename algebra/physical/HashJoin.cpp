@@ -245,6 +245,7 @@ void HashJoin::produce()
 void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
 {
     assert(listNodeTy != nullptr);
+    assert(rightIncoming != nullptr);
 
 //    Functions::genPrintfCall("===\nprobeCandidate() iter node: %p\n===\n", rawNodePtr);
 
@@ -271,7 +272,7 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
     cg_bool_t match(true);
     for (auto & joinPair : joinPairs) {
         auto leftExprValue = joinPair.first->evaluate(values); // build side
-        auto rightExprValue = joinPair.second->evaluate(*rightProduced); // probe side
+        auto rightExprValue = joinPair.second->evaluate(*rightIncoming); // probe side
 /*
         Functions::genPrintfCall("===\nprobeCandidate() compare:");
         Utils::genPrintValue(*leftExprValue);
@@ -287,7 +288,7 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
         // merge both sides
         auto & probeSet = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator).getRightRequired();
         for (iu_p_t iu : probeSet) {
-            values[iu] = rightProduced->at(iu);
+            values[iu] = rightIncoming->at(iu);
         }
 
         _parent->consume(values, *this);
@@ -364,7 +365,7 @@ void HashJoin::consumeLeft(const iu_value_mapping_t & values)
 
 void HashJoin::consumeRight(const iu_value_mapping_t & values)
 {
-    rightProduced = &values;
+    rightIncoming = &values;
 
     cg_hash_t h = genJoinHash<Right>(joinPairs, values);
 
@@ -375,7 +376,7 @@ void HashJoin::consumeRight(const iu_value_mapping_t & values)
         this->probeCandidate(nodePtr);
     });
 
-    rightProduced = nullptr;
+    rightIncoming = nullptr;
 }
 
 } // end namespace Physical

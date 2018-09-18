@@ -38,7 +38,7 @@ private:
     std::vector<Sql::SqlType> storedTypes; // used to construct the SqlTuple
     std::unordered_map<iu_p_t, size_t> tupleMapping; // iu_p_t -> index into storedTypes
 
-    const iu_value_mapping_t * rightProduced;
+    const iu_value_mapping_t * rightIncoming;
 };
 
 } // end namespace Physical
