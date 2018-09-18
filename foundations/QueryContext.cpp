@@ -4,6 +4,11 @@
 #include "exceptions.hpp"
 #include "algebra/logical/operators.hpp"
 
+void ExecutionContext::acquireResource(std::unique_ptr<ExecutionResource> && resource)
+{
+    resources.push_back(std::move(resource));
+}
+
 void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol)
 {
     context.scope.emplace(symbol, iu);

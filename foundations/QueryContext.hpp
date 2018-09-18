@@ -6,12 +6,25 @@
 
 using scope_level_t = size_t;
 
+struct ExecutionResource {
+    virtual ~ExecutionResource() { }
+};
+
+struct ExecutionContext {
+    std::vector<std::unique_ptr<ExecutionResource>> resources;
+    bool overflowFlag = false;
+
+    void acquireResource(std::unique_ptr<ExecutionResource> && resource);
+};
+
 // TODO distinguish between Compilation and Runtime context
 struct QueryContext {
     QueryContext(Database & pDB) :
             db(pDB),
             codeGen(getThreadLocalCodeGen())
     { }
+
+//    ExecutionContext & getExecutionContext();
 
     // compilation related
     Database & db;
@@ -29,8 +42,7 @@ struct QueryContext {
     uint32_t operatorUID = 0;
 
     // runtime related
-//    bool overflow = false;
-    //...
+    ExecutionContext executionContext;
 };
 
 static bool overflowFlag = false;
