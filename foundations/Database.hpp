@@ -12,6 +12,9 @@
 using branch_id_t = int32_t;
 using cg_branch_id_t = TypeWrappers::UInt32;
 
+using branch_id_t = int32_t;
+using cg_branch_id_t = TypeWrappers::UInt32;
+
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
 
