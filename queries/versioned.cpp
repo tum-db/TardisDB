@@ -52,7 +52,7 @@ static llvm::Function * genFunc(Database & db)
     auto vidExpr = std::make_unique<Comparison>(
         ComparisonMode::eq,
         std::make_unique<Identifier>(v_vid),
-        std::make_unique<Constant>(2, Sql::getIntegerTy()) // TODO string?
+        std::make_unique<Constant>("2", Sql::getIntegerTy())
     );
 
     auto tableidExpr = std::make_unique<Comparison>(
@@ -77,10 +77,12 @@ static llvm::Function * genFunc(Database & db)
         std::make_unique<Identifier>(v_rid), // left side
         std::make_unique<Identifier>(u_rid) // right side
     );
+    join_expr_vec_t joinExprVec;
+    joinExprVec.push_back(std::move(joinExpr));
     auto join = std::make_unique<Join>(
         std::move(versiontableSelect), // build side
         std::move(usertableScan), // probe side
-        std::move(joinExpr),
+        std::move(joinExprVec),
         Join::Method::Hash
     );
 
@@ -93,12 +95,12 @@ static llvm::Function * genFunc(Database & db)
     return funcGen.getFunction();
 }
 
-void benchmark_tpc_h_1(unsigned runs)
+void benchmark_versioned_1(unsigned runs)
 {
     throw NotImplementedException();
 }
 
-void run_tpc_h_1()
+void run_versioned_1()
 {
     auto db = load_tables();
 
