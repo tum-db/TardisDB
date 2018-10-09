@@ -9,6 +9,9 @@
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
 
+using branch_id_t = int32_t;
+using cg_branch_id_t = TypeWrappers::UInt32;
+
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
 
@@ -32,17 +35,17 @@ using ci_p_t = const ColumnInformation *;
 //-----------------------------------------------------------------------------
 // NullIndicatorColumn
 
-class NullIndicatorTable {
+class BitmapTable {
 public:
-    NullIndicatorTable();
+    BitmapTable();
 
-    NullIndicatorTable(size_t columnCountHint);
+    BitmapTable(size_t columnCountHint);
 
     unsigned addColumn();
 
     void removeColumn(unsigned column);
 
-    unsigned getColumnCount() const { return _nullColumnCount; }
+    unsigned getColumnCount() const { return _columnCount; }
 
     void addRow();
 
@@ -53,7 +56,7 @@ public:
 
     void set(tid_t tid, unsigned column, bool value);
 
-    bool isNull(tid_t tid, unsigned column);
+    bool isSet(tid_t tid, unsigned column);
 
     void * data() const { return _data->front(); }
 
@@ -61,12 +64,14 @@ private:
     void resize();
 
     unsigned _availableCount = 0;
-    unsigned _nullColumnCount = 0;
+    unsigned _columnCount = 0;
     std::unique_ptr<Vector> _data;
 };
 
 /// \param columnAddr The raw address obtained through NullIndicatorColumn::data()
-cg_bool_t genNullIndicatorLoad(NullIndicatorTable & table, cg_tid_t tid, cg_unsigned_t column);
+cg_bool_t genNullIndicatorLoad(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column);
+
+cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_id_t branchId);
 
 //-----------------------------------------------------------------------------
 // Table
@@ -74,12 +79,14 @@ cg_bool_t genNullIndicatorLoad(NullIndicatorTable & table, cg_tid_t tid, cg_unsi
 /// AbstractTable is a base class which provides an interface to lookup columns at runtime
 class Table {
 public:
-    Table() = default;
+    Table();
     ~Table() = default;
 
     void addColumn(const std::string & columnName, Sql::SqlType type);
 
     void addRow();
+
+    void createBranch(const std::string & name);
 
 //    const std::string & getName() const;
 
@@ -92,7 +99,9 @@ public:
 
     const std::vector<std::string> & getColumnNames() const;
 
-    NullIndicatorTable & getNullIndicatorTable() { return _nullIndicatorTable; }
+    BitmapTable & getNullIndicatorTable() { return _nullIndicatorTable; }
+
+    BitmapTable & getBranchBitmap() { return _branchBitmap; }
 
     size_t size() const;
 
@@ -102,7 +111,8 @@ private:
             std::string,
             std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>> _columns;
     std::vector<std::string> _columnNames;
-    NullIndicatorTable _nullIndicatorTable;
+    BitmapTable _nullIndicatorTable;
+    BitmapTable _branchBitmap;
 };
 
 void genTableAddRowCall(cg_voidptr_t table);
