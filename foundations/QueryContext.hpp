@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
 #include "foundations/InformationUnit.hpp"
 
@@ -12,9 +13,10 @@ struct ExecutionResource {
 
 struct ExecutionContext {
     std::vector<std::unique_ptr<ExecutionResource>> resources;
-    bool overflowFlag = false;
-
     void acquireResource(std::unique_ptr<ExecutionResource> && resource);
+
+    bool overflowFlag = false;
+    branch_id_t branchId = 0;
 };
 
 // TODO distinguish between Compilation and Runtime context

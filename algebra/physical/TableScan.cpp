@@ -56,7 +56,13 @@ void TableScan::produce()
     cg_size_t tid(scanLoop.getLoopVar(0));
     {
         LoopBodyGen bodyGen(scanLoop);
-        produce(tid);
+
+        auto branchId = _context.executionContext.branchId;
+        IfGen visibilityCheck(isVisible(tid, branchId));
+        {
+            produce(tid);
+        }
+        visibilityCheck.EndIf();
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
@@ -102,6 +108,12 @@ void TableScan::produce(cg_tid_t tid)
     }
 
     _parent->consume(values, *this);
+}
+
+cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)
+{
+    auto & branchBitmap = table.getBranchBitmap();
+    return isVisibleInBranch(branchBitmap, tid, branchId);
 }
 
 } // end namespace Physical
