@@ -11,9 +11,6 @@
 
 using branch_id_t = int32_t;
 using cg_branch_id_t = TypeWrappers::UInt32;
-
-using branch_id_t = int32_t;
-using cg_branch_id_t = TypeWrappers::UInt32;
 constexpr branch_id_t master_branch_id = 0;
 
 using tid_t = size_t;
