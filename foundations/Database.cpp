@@ -11,22 +11,22 @@
 //-----------------------------------------------------------------------------
 // NullIndicatorColumn
 
-NullIndicatorTable::NullIndicatorTable() :
-        NullIndicatorTable(8) // FIXME once resize() is implemented this will no longer be necessary
+BitmapTable::BitmapTable() :
+        BitmapTable(8) // FIXME once resize() is implemented this will no longer be necessary
 { }
 
-NullIndicatorTable::NullIndicatorTable(size_t columnCountHint)
+BitmapTable::BitmapTable(size_t columnCountHint)
 {
     unsigned bytesPerTuple = static_cast<unsigned>(std::ceil(columnCountHint / 8.0));
     _availableCount = bytesPerTuple*8;
     _data = std::make_unique<Vector>(bytesPerTuple);
 }
 
-unsigned NullIndicatorTable::addColumn()
+unsigned BitmapTable::addColumn()
 {
-    unsigned column = _nullColumnCount;
-    _nullColumnCount += 1;
-    if (_nullColumnCount > _availableCount) {
+    unsigned column = _columnCount;
+    _columnCount += 1;
+    if (_columnCount > _availableCount) {
         resize(); // allocated one additional byte
     }
 
@@ -37,16 +37,16 @@ unsigned NullIndicatorTable::addColumn()
     return column;
 }
 
-void NullIndicatorTable::addRow()
+void BitmapTable::addRow()
 {
     void * row = _data->reserve_back();
     unsigned byteCount = _availableCount/8;
     memset(row, 0, byteCount);
 }
 
-void NullIndicatorTable::set(tid_t tid, unsigned column, bool value)
+void BitmapTable::set(tid_t tid, unsigned column, bool value)
 {
-    assert(column < _nullColumnCount);
+    assert(column < _columnCount);
 
     uint8_t * tuple = static_cast<uint8_t *>(_data->at(tid));
 
@@ -61,9 +61,9 @@ void NullIndicatorTable::set(tid_t tid, unsigned column, bool value)
     *sectionPtr = section;
 }
 
-bool NullIndicatorTable::isNull(tid_t tid, unsigned column)
+bool BitmapTable::isSet(tid_t tid, unsigned column)
 {
-    assert(column < _nullColumnCount);
+    assert(column < _columnCount);
 
     uint8_t * tuple = static_cast<uint8_t *>(_data->at(tid));
 
@@ -77,12 +77,12 @@ bool NullIndicatorTable::isNull(tid_t tid, unsigned column)
     return static_cast<bool>((section >> sectionIndex) & 1); // test null indicator bit
 }
 
-void NullIndicatorTable::resize()
+void BitmapTable::resize()
 {
-    throw NotImplementedException("NullIndicatorColumn::resize()");
+    throw NotImplementedException("BitmapTable::resize()");
 }
 
-cg_bool_t genNullIndicatorLoad(NullIndicatorTable & table, cg_tid_t tid, cg_unsigned_t column)
+static cg_bool_t retrieveValue(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
@@ -105,8 +105,23 @@ cg_bool_t genNullIndicatorLoad(NullIndicatorTable & table, cg_tid_t tid, cg_unsi
     return result;
 }
 
+cg_bool_t genNullIndicatorLoad(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
+{
+    return retrieveValue(table, tid, column);
+}
+
+cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_id_t branchId)
+{
+    return retrieveValue(branchBitmap, tid, branchId);
+}
+
 //-----------------------------------------------------------------------------
 // Table
+
+Table::Table()
+{
+    createBranch("master");
+}
 
 void Table::addColumn(const std::string & columnName, Sql::SqlType type)
 {
@@ -144,6 +159,14 @@ void Table::addRow()
         column.second.second->reserve_back();
     }
     _nullIndicatorTable.addRow();
+    _branchBitmap.addRow();
+    // TODO update visibility
+}
+
+void Table::createBranch(const std::string & name)
+{
+    _branchBitmap.addColumn();
+    // TODO update visibilities
 }
 
 ci_p_t Table::getCI(const std::string & columnName) const

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "algebra/physical/Operator.hpp"
+#include "foundations/Database.hpp"
 
 namespace Algebra {
 namespace Physical {
@@ -18,6 +19,8 @@ public:
     void produce(cg_tid_t tid);
 
 private:
+    cg_bool_t isVisible(cg_tid_t tid, cg_branch_id_t branchId);
+
     Table & table;
 
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *>;
