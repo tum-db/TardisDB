@@ -680,7 +680,17 @@ void Char::store(llvm::Value * ptr) const
 
         // store the Char's data
         llvm::Value * strPtr = codeGen->CreateStructGEP(valueTy, ptr, 1);
-        codeGen->CreateMemCpy(strPtr, _llvmValue, _length, 0);
+        /* CallInst * CreateMemCpy (
+            Value *Dst, unsigned DstAlign,
+            Value *Src, unsigned SrcAlign,
+            Value *Size,
+            bool isVolatile=false,
+            MDNode *TBAATag=nullptr,
+            MDNode *TBAAStructTag=nullptr,
+            MDNode *ScopeTag=nullptr,
+            MDNode *NoAliasTag=nullptr)
+        */
+        codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
     }
 }
 
@@ -793,7 +803,17 @@ void Varchar::store(llvm::Value * ptr) const
     // store the Varchar's data
     llvm::Value * strPtr = codeGen->CreateStructGEP(valueTy, ptr, 1);
 //    Functions::genPrintfCall("store Varchar at: %p\n", strPtr);
-    codeGen->CreateMemCpy(strPtr, _llvmValue, _length, 0);
+    /* CallInst * CreateMemCpy (
+        Value *Dst, unsigned DstAlign,
+        Value *Src, unsigned SrcAlign,
+        Value *Size,
+        bool isVolatile=false,
+        MDNode *TBAATag=nullptr,
+        MDNode *TBAAStructTag=nullptr,
+        MDNode *ScopeTag=nullptr,
+        MDNode *NoAliasTag=nullptr)
+    */
+    codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
 }
 
 cg_hash_t Varchar::hash() const

@@ -16,6 +16,7 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
+#include <llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm/Target/TargetMachine.h>
 
 #include "codegen/CodeGen.hpp"
