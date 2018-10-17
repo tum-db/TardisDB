@@ -29,47 +29,24 @@ namespace Algebra {
 namespace Physical {
 
 IndexJoin::IndexJoin(
+        const logical_operator_t & logicalOperator,
         std::unique_ptr<Operator> probe, // left
         std::unique_ptr<Operator> indexed, // right
-        const iu_set_t & required,
         ART_unsynchronized::Tree & index,
-        const join_pair_vec_t & joinPairs, // expected to be sorted
+        join_pair_vec_t joinPairs, // expected to be sorted
         LookupMethod method) :
-        BinaryOperator(std::move(probe), std::move(indexed), required),
-        index(index),
-        joinPairs(std::move(joinPairs)),
-        method(method)
-{
-    constructIUSets();
-}
+        BinaryOperator(logicalOperator, std::move(probe), std::move(indexed)),
+        _index(index),
+        _joinPairs(std::move(joinPairs)),
+        _method(method)
+{ }
 
 IndexJoin::~IndexJoin()
 { }
 
-void IndexJoin::constructIUSets()
-{
-    // build a set of required ius that contains only ius from the left side
-    const iu_set_t & leftChildRequired = leftChild->getRequired();
-    std::set_intersection(
-            _required.begin(), _required.end(),
-            leftChildRequired.begin(), leftChildRequired.end(),
-            std::inserter(buildSet, buildSet.end())
-    );
-
-    // build a set of required ius that contains only ius from the right side
-    const iu_set_t & rightChildRequired = rightChild->getRequired();
-    std::set_intersection(
-            _required.begin(), _required.end(),
-            rightChildRequired.begin(), rightChildRequired.end(),
-            std::inserter(probeSet, probeSet.end())
-    );
-
-    // TODO assert required == buildSet union probeSet
-}
-
 void IndexJoin::produce()
 {
-    leftChild->produce();
+    _leftChild->produce();
 }
 
 void IndexJoin::probeCandidate(cg_voidptr_t rawNodePtr)
@@ -77,38 +54,53 @@ void IndexJoin::probeCandidate(cg_voidptr_t rawNodePtr)
 
 }
 
-cg_tid_t performARTLookup(const iu_value_mapping_t & values)
+using toKey = void (*)(SqlTuple & tuple, Key & key);
+
+struct IndexJoinResources : public ExecutionResource {
+    virtual ~IndexJoinResources() { }
+
+    ART_unsynchronized::Tree::LoadKeyFunction loadKeyFunc;
+    Key key;
+
+    std::vector<SqlType> keyType;
+};
+
+cg_tid_t IndexJoin::performARTLookup(const iu_value_mapping_t & values)
 {
     // TODO
-    auto& executionContext = getContext().getExecutionContext();
+    auto & executionContext = _context.executionContext;
 
     auto indexJoinResources = std::make_unique<IndexJoinResources>();
     executionContext.acquireResource(std::move(indexJoinResources));
 
     cg_voidptr_t key = cg_voidptr_t::fromRawPointer(&indexJoinResources->key);
 
+
+    return cg_tid_t(0ul);
 }
 
-cg_tid_t performLookup(const iu_value_mapping_t & values)
+cg_tid_t IndexJoin::performBTreeLookup(const iu_value_mapping_t & values)
+{
+    // TODO
+    return cg_tid_t(0ul);
+}
+
+cg_tid_t IndexJoin::performLookup(const iu_value_mapping_t & values)
 {
     // TODO
 
+    for (auto & pair : _joinPairs) {
+        
+    }
+
+    return cg_tid_t(0ul);
 }
 
-cg_tid_t performRangeLookup(const iu_value_mapping_t & values)
+cg_tid_t IndexJoin::performRangeLookup(const iu_value_mapping_t & values)
 {
     // TODO
     throw NotImplementedException();
 }
-
-using toKey = void (*)(SqlTuple & tuple, Key & key);
-
-struct IndexJoinResources : public ExecutionResource {
-    ART_unsynchronized::Tree::LoadKeyFunction loadKeyFunc;
-    Key key;
-
-    std::vector<SqlType> keyType;
-};
 
 // TODO
 // generic key conversion function
@@ -125,36 +117,44 @@ void IndexJoin::consumeLeft(const iu_value_mapping_t & values)
 {
     // lookup
     cg_tid_t tid;
-    if (method == LookupMethod::Exact) {
+    if (_method == LookupMethod::Exact) {
         tid = performLookup(values);
     } else {
         tid = performRangeLookup(values);
     }
+
+    _leftIncoming = & values;
 
     IfGen check(tid != cg_tid_t(invalid_tid));
     {
         iu_value_mapping_t generatedValues;
 
         // load
-        auto * tableScan = dynamic_cast<TableScan *>(rightChild.get());
+        auto * tableScan = dynamic_cast<TableScan *>(_rightChild.get());
         assert(tableScan);
         tableScan->produce(tid);
     }
     check.EndIf();
+
+    _leftIncoming = nullptr;
 }
 
 void IndexJoin::consumeRight(const iu_value_mapping_t & values)
 {
-    iu_value_mapping_t generatedValues; // TODO
+    assert(_leftIncoming != nullptr);
 
-    for (iu_p_t iu : probeSet) {
+    // concatenate both sides
+    iu_value_mapping_t generatedValues;
+    auto & rightRequired = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator).getRightRequired();
+    for (iu_p_t iu : rightRequired) {
         generatedValues[iu] = values.at(iu);
     }
-    for (auto & pair : tupleMapping) {
-        generatedValues[pair.first] = tuple->values[pair.second].get();
+    auto & leftRequired = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator).getLeftRequired();
+    for (iu_p_t iu : leftRequired) {
+        generatedValues[iu] = _leftIncoming->at(iu);
     }
 
-    parent->consume(generatedValues, *this);
+    _parent->consume(generatedValues, *this);
 }
 
 } // end namespace Physical

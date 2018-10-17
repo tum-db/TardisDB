@@ -19,11 +19,11 @@ public:
     };
 
     IndexJoin(
+        const logical_operator_t & logicalOperator,
         std::unique_ptr<Operator> probe, // left
         std::unique_ptr<Operator> indexed, // right
-        const iu_set_t & required,
         ART_unsynchronized::Tree & index,
-        const join_pair_vec_t & joinPairs, // expected to be sorted
+        join_pair_vec_t joinPairs, // expected to be sorted
         LookupMethod method
     );
 
@@ -32,24 +32,29 @@ public:
     virtual void produce() override;
 
 private:
-    void constructIUSets();
-
     void probeCandidate(cg_voidptr_t nodePtr);
 
     void consumeLeft(const iu_value_mapping_t & values) override;
     void consumeRight(const iu_value_mapping_t & values) override;
 
+    cg_tid_t performARTLookup(const iu_value_mapping_t & values);
+
+    cg_tid_t performBTreeLookup(const iu_value_mapping_t & values);
+
+    cg_tid_t performLookup(const iu_value_mapping_t & values);
+
+    cg_tid_t performRangeLookup(const iu_value_mapping_t & values);
+
     // stored tuple description
 //    std::vector<Sql::SqlType> storedTypes; // used to construct the SqlTuple
 //    std::unordered_map<iu_p_t, size_t> tupleMapping; // iu_p_t -> index into storedTypes
 
-    std::vector<Sql::SqlType> lookupType; // ordered
+    std::vector<Sql::SqlType> _lookupType; // ordered
+    ART_unsynchronized::Tree & _index;
+    join_pair_vec_t _joinPairs;
+    LookupMethod _method;
 
-    ART_unsynchronized::Tree & index;
-
-    join_pair_vec_t joinPairs;
-
-    LookupMethod method;
+    const iu_value_mapping_t * _leftIncoming;
 };
 
 } // end namespace Physical

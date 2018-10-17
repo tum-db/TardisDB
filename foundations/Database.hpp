@@ -110,6 +110,24 @@ private:
 void genTableAddRowCall(cg_voidptr_t table);
 
 //-----------------------------------------------------------------------------
+// Index
+class Index {
+public:
+    virtual ~Index() { }
+
+private:
+    std::vector<ci_p_t> _key;
+};
+
+class ARTIndex : public Index {
+
+};
+
+class BTreeIndex : public Index {
+
+};
+
+//-----------------------------------------------------------------------------
 // Database
 
 class Database {
@@ -120,4 +138,5 @@ public:
 
 private:
     std::unordered_map<std::string, std::unique_ptr<Table>> _tables;
+    std::unordered_map<std::string, std::unique_ptr<Index>> _indexes;
 };
