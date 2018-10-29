@@ -116,6 +116,9 @@ private:
     std::vector<std::string> _columnNames;
     BitmapTable _nullIndicatorTable;
     BitmapTable _branchBitmap;
+
+    // points to the first tuple within the version chain of each tuple
+    std::vector<void *> mv_begin;
 };
 
 void genTableAddRowCall(cg_voidptr_t table);
