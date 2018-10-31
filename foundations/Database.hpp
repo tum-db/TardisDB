@@ -13,10 +13,10 @@
 
 using branch_id_t = int32_t;
 using cg_branch_id_t = TypeWrappers::UInt32;
+constexpr master_branch_id = 0;
 
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
-
 constexpr tid_t invalid_tid = std::numeric_limits<tid_t>::max();
 
 //-----------------------------------------------------------------------------
@@ -113,11 +113,16 @@ private:
             std::string,
             std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>> _columns;
     std::vector<std::string> _columnNames;
+
+    std::vector<std::unique_ptr<Vector>> _columns;
+
     BitmapTable _nullIndicatorTable;
     BitmapTable _branchBitmap;
-
+public: // TODO
     // points to the first tuple within the version chain of each tuple
     std::vector<void *> mv_begin;
+    // next pointer as seen from the master branch (the actual column)
+    std::vector<void *> mv_next;
 };
 
 void genTableAddRowCall(cg_voidptr_t table);
