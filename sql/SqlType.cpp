@@ -212,6 +212,10 @@ llvm::Type * toLLVMTy(SqlType type)
 
 bool equals(SqlType type1, SqlType type2, SqlTypeEqualsMode mode)
 {
+    if (type1.typeID == SqlType::TypeID::TextID) {
+        return (type2.typeID == SqlType::TypeID::TextID);
+    }
+
     switch (mode) {
         case SqlTypeEqualsMode::WithoutNullable:
             type1.nullable = false;

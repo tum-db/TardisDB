@@ -1,0 +1,2 @@
+#include "foundations/StringPool.hpp"
+

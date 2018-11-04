@@ -26,7 +26,6 @@ SqlTuple::SqlTuple(std::vector<value_op_t> && values) :
     for (auto & sqlVal : this->values) {
         types.push_back(sqlVal->type);
     }
-
     name = getTypeName(types);
 }
 
