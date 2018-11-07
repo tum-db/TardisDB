@@ -30,7 +30,9 @@ CodeGen::CodeGen() :
         context(),
 //        currentFunctionGen(nullptr),
         builder(context)
-{ }
+{
+    dataLayout = make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
+}
 
 CodeGen::~CodeGen()
 {
@@ -133,8 +135,11 @@ ModuleGen::ModuleGen(const std::string & moduleName) :
 
     // initialize:
     module = make_unique<llvm::Module>(StringRef(moduleName), context);
-    dataLayout = make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
-    module->setDataLayout(*dataLayout);
+
+    
+//    dataLayout = make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
+//    module->setDataLayout(*dataLayout);
+    module->setDataLayout(codeGen.getDefaultDataLayout());
     codeGen.setCurrentModuleGen(*this);
 }
 
@@ -175,9 +180,9 @@ CodeGen & ModuleGen::getCodeGen()
     return codeGen;
 }
 
-llvm::DataLayout & ModuleGen::getDataLayout()
+const llvm::DataLayout & ModuleGen::getDataLayout() const
 {
-    return *dataLayout.get();
+    return module->getDataLayout();
 }
 
 //-----------------------------------------------------------------------------

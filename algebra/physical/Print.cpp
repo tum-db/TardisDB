@@ -3,7 +3,6 @@
 //
 
 #include "algebra/physical/Print.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlUtils.hpp"
 
 using namespace Sql;

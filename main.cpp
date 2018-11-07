@@ -10,13 +10,13 @@
 #include <llvm/Support/TargetSelect.h>
 
 #include "codegen/CodeGen.hpp"
-#include "foundations/utils.hpp"
 #include "foundations/loader.hpp"
 #include "foundations/exceptions.hpp"
 #include "tests/tests.hpp"
 #include "queries/queries.hpp"
 #include "query_compiler/queryparser.hpp"
 #include "query_compiler/compiler.hpp"
+#include "utils/general.hpp"
 
 using namespace llvm;
 

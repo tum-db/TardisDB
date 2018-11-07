@@ -11,10 +11,14 @@ namespace Sql {
 struct SqlType {
     // data:
     enum class TypeID : uint8_t {
-        UnknownID, BoolID, IntegerID, CharID, VarcharID, NumericID, DateID, TimestampID
+        UnknownID, BoolID, IntegerID, CharID, VarcharID, NumericID, DateID, TimestampID, TextID
     } typeID;
     union {
+        // text specific:
+        bool inplace;
+        // char/varchar specific:
         uint32_t length;
+        // numeric specific:
         struct {
             uint8_t length;
             uint8_t precision;
@@ -56,6 +60,8 @@ SqlType getCharTy(uint32_t length, bool nullable = false);
 SqlType getVarcharTy(uint32_t capacity, bool nullable = false);
 
 SqlType getTimestampTy(bool nullable = false);
+
+SqlType getTextTy(bool inplace, bool nullable = false);
 
 /// \brief calculate the storage size
 size_t getValueSize(SqlType type);

@@ -12,10 +12,10 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/StaticHashtable.hpp"
 #include "foundations/MemoryPool.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"
+#include "utils/llvm.hpp"
 
 using namespace Sql;
 

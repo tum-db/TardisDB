@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <cstdint>
@@ -8,7 +7,6 @@
 
 #include "Database.hpp"
 #include "sql/SqlType.hpp"
-#include "utils.hpp"
 
 namespace Algebra {
 namespace Logical {

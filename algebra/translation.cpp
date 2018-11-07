@@ -1,14 +1,10 @@
-
 #include "algebra/translation.hpp"
 
 #include <memory>
 #include <stack>
 
-#include "foundations/utils.hpp"
-
 #include "algebra/physical/expressions.hpp"
 #include "algebra/physical/operators.hpp"
-
 #include "sql/SqlValues.hpp"
 
 using namespace Algebra;
