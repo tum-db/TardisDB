@@ -3,6 +3,8 @@
 #include <set>
 #include <vector>
 
+#include <llvm/IR/DerivedTypes.h>
+
 #include "native/sql/SqlValues.hpp"
 
 namespace Native {
@@ -11,7 +13,7 @@ namespace Sql {
 /// SqlTuple is a simple storage class for multiple SqlValues
 class SqlTuple {
 public:
-    const std::vector<value_op_t> values;
+    std::vector<value_op_t> values;
 
     SqlTuple(std::vector<value_op_t> && values);
 

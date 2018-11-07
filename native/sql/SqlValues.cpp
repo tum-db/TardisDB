@@ -5,40 +5,16 @@
 
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
-#include "foundations/utils.hpp"
 #include "foundations/StringPool.hpp"
 #include "sql/SqlType.hpp"
+#include "utils/general.hpp"
 
-using Sql::SqlType;
+//using Sql::SqlType;
+
+using namespace HashUtils;
 
 namespace Native {
 namespace Sql {
-
-//-----------------------------------------------------------------------------
-// common functions
-
-// TODO move
-template<class T>
-static hash_t hashInteger(T value) {
-    hash_t x = value;
-    hash_t r = 88172645463325252ul;
-    r = r ^ x;
-    r = r ^ (r << 13ul);
-    r = r ^ (r >> 7ul);
-    r = r ^ (r << 17ul);
-    return r;
-}
-
-// TODO move
-static hash_t hashByteArray(const uint8_t * bytes, size_t len) {
-    // TODO vectorized hash function
-    hash_t h = 0;
-    for (size_t i = 0; i < len; ++i) {
-        h = (h << 5) | (h >> 27);
-        h ^= static_cast<hash_t>(bytes[i]);
-    }
-    return h;
-}
 
 //-----------------------------------------------------------------------------
 // Value
@@ -115,7 +91,7 @@ size_t Value::getSize() const
 
 Integer::Integer(value_type constantValue) :
     Value(::Sql::getIntegerTy()),
-    value(value)
+    value(constantValue)
 { }
 
 value_op_t Integer::clone() const
@@ -174,128 +150,93 @@ bool Integer::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Numeric
 
-Numeric::Numeric(SqlType type, llvm::Value * value) :
-        Value(type)
-{
-    this->_llvmValue = value;
-    assert(type.typeID == SqlType::TypeID::NumericID && !type.nullable);
-}
-
 Numeric::Numeric(SqlType type, value_type constantValue) :
-        Value(type)
+        Value(type),
+        value(constantValue)
 {
-    _llvmValue = cg_value_type(constantValue);
+    assert(type.typeID == SqlType::TypeID::NumericID && !type.nullable);
 }
 
 value_op_t Numeric::clone() const
 {
-    Value * cloned = new Numeric(type, _llvmValue);
+    Value * cloned = new Numeric(type, value);
     return value_op_t(cloned);
 }
 
 value_op_t Numeric::castString(const std::string & str, SqlType type)
 {
-    int64_t raw = castStringToNumericValue(
+    int64_t value = castStringToNumericValue(
             str.c_str(),
             static_cast<uint32_t>(str.size()),
             type.numericLayout.length,
             type.numericLayout.precision
     );
-    llvm::Value * value = cg_value_type(raw);
     value_op_t sqlValue( new Numeric(type, value) );
     return sqlValue;
 }
 
-value_op_t Numeric::castString(cg_ptr8_t str, cg_size_t length, SqlType type)
+value_op_t Numeric::load(void * ptr, SqlType type)
 {
-    cg_i64_t raw = genCastStringToNumericValueCall(
-            str, length,
-            cg_unsigned_t(type.numericLayout.precision),
-            cg_unsigned_t(type.numericLayout.precision)
-    );
-    value_op_t sqlValue( new Numeric(type, raw) );
-    return sqlValue;
-}
-
-value_op_t Numeric::fromRawValues(const std::vector<llvm::Value *> & values, SqlType type)
-{
-    assert(!values.empty());
-    return value_op_t(new Numeric(type, values.front()));
-}
-
-value_op_t Numeric::load(llvm::Value * ptr, SqlType type)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * numericTy = getPointeeType(ptr);
-    assert(numericTy == cg_value_type::getType());
-
-    llvm::Value * value = codeGen->CreateLoad(numericTy, ptr);
+    value_type value = *static_cast<value_type *>(ptr);
     value_op_t sqlValue( new Numeric(type, value) );
     return sqlValue;
 }
 
-void Numeric::store(llvm::Value * ptr) const
+void Numeric::store(void * ptr) const
 {
-    auto & codeGen = getThreadLocalCodeGen();
-    codeGen->CreateStore(_llvmValue, ptr);
+    *static_cast<value_type *>(ptr) = value;
 }
 
-cg_hash_t Numeric::hash() const
+hash_t Numeric::hash() const
 {
     // can be used for all integral types
     return hashInteger(value);
 }
-
+/*
 void Numeric::accept(ValueVisitor & visitor)
 {
     visitor.visit(*this);
 }
-
-cg_bool_t Numeric::equals(const Value & other) const
+*/
+bool Numeric::equals(const Value & other) const
 {
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
     }
 
     if (isNullable(other)) {
         return other.equals(*this);
     }
 
-    auto & codeGen = getThreadLocalCodeGen();
-    return cg_bool_t( codeGen->CreateICmpEQ(_llvmValue, other.getLLVMValue()) );
+    return (value == dynamic_cast<const Numeric &>(other).value);
+}
+
+bool Numeric::compare(const Value & other, ComparisonMode mode) const
+{
+    throw NotImplementedException();
 }
 
 //-----------------------------------------------------------------------------
 // Bool
 
-Bool::Bool(llvm::Value * value) :
-        Value(getBoolTy())
-{
-    this->_llvmValue = value;
-}
-
 Bool::Bool(value_type constantValue) :
-        Value(getBoolTy())
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    _llvmValue = codeGen->getInt1(constantValue);
-}
+        Value(::Sql::getBoolTy()),
+        value(constantValue)
+{ }
 
 value_op_t Bool::clone() const
 {
-    Value * cloned = new Bool(_llvmValue);
+    Value * cloned = new Bool(value);
     return value_op_t(cloned);
 }
 
 value_op_t Bool::castString(const std::string & str)
 {
-    auto & codeGen = getThreadLocalCodeGen();
-
-    llvm::Value * value;
+    bool value;
     if (str == "true") { // TODO case insensitive
-        value = codeGen->getInt1(true);
+        value = true;
     } else if (str == "false") {
-        value = codeGen->getInt1(false);
+        value = false;
     } else {
         throw InvalidOperationException("invalid string representation of a boolean value");
     }
@@ -304,56 +245,44 @@ value_op_t Bool::castString(const std::string & str)
     return sqlValue;
 }
 
-value_op_t Bool::castString(cg_ptr8_t str, cg_size_t length)
+value_op_t Bool::load(void * ptr)
 {
-    throw NotImplementedException();
-}
-
-value_op_t Bool::fromRawValues(const std::vector<llvm::Value *> & values)
-{
-    assert(!values.empty());
-    return value_op_t(new Bool(values.front()));
-}
-
-value_op_t Bool::load(llvm::Value * ptr)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * boolTy = getPointeeType(ptr);
-    assert(boolTy == codeGen->getInt1Ty());
-
-    llvm::Value * value = codeGen->CreateLoad(boolTy, ptr);
+    value_type value = *static_cast<value_type *>(ptr);
     value_op_t sqlValue( new Bool(value) );
     return sqlValue;
 }
 
-void Bool::store(llvm::Value * ptr) const
+void Bool::store(void * ptr) const
 {
-    auto & codeGen = getThreadLocalCodeGen();
-    codeGen->CreateStore(_llvmValue, ptr);
+    *static_cast<value_type *>(ptr) = value;
 }
 
-cg_hash_t Bool::hash() const
+hash_t Bool::hash() const
 {
-    return genIntHash(_llvmValue);
+    return hashInteger(value);
 }
-
+/*
 void Bool::accept(ValueVisitor & visitor)
 {
     visitor.visit(*this);
 }
-
-cg_bool_t Bool::equals(const Value & other) const
+*/
+bool Bool::equals(const Value & other) const
 {
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
     }
 
     if (isNullable(other)) {
         return other.equals(*this);
     }
 
-    auto & codeGen = getThreadLocalCodeGen();
-    return cg_bool_t( codeGen->CreateICmpEQ(_llvmValue, other.getLLVMValue()) );
+    return (value == dynamic_cast<const Bool &>(other).value);
+}
+
+bool Bool::compare(const Value & other, ComparisonMode mode) const
+{
+    throw NotImplementedException();
 }
 
 #if 0
@@ -692,169 +621,125 @@ cg_bool_t Varchar::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Date
 
-Date::Date(llvm::Value * value) :
-        Value(getDateTy())
-{
-    this->_llvmValue = value;
-}
-
 Date::Date(value_type constantValue) :
-        Value(getDateTy())
-{
-    _llvmValue = cg_value_type(constantValue);
-}
+    Value(::Sql::getDateTy()),
+    value(constantValue)
+{ }
 
 value_op_t Date::clone() const
 {
-    Value * cloned = new Date(_llvmValue);
+    Value * cloned = new Date(value);
     return value_op_t(cloned);
 }
 
 value_op_t Date::castString(const std::string & str)
 {
-    value_type raw = castStringToDateValue(str.c_str(), static_cast<uint32_t>(str.length()));
-    llvm::Value * value = cg_value_type(raw);
+    value_type value = castStringToDateValue(str.c_str(), static_cast<uint32_t>(str.length()));
     value_op_t sqlValue( new Date(value) );
     return sqlValue;
 }
 
-value_op_t Date::castString(cg_ptr8_t str, cg_size_t length)
+value_op_t Date::load(void * ptr)
 {
-    cg_value_type raw = genCastStringToDateValueCall(str, length);
-    value_op_t sqlValue( new Date(raw) );
-    return sqlValue;
-}
-
-value_op_t Date::fromRawValues(const std::vector<llvm::Value *> & values)
-{
-    assert(!values.empty());
-    return value_op_t(new Date(values.front()));
-}
-
-value_op_t Date::load(llvm::Value * ptr)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * dateTy = getPointeeType(ptr);
-    assert(dateTy == cg_value_type::getType());
-
-    llvm::Value * value = codeGen->CreateLoad(dateTy, ptr);
+    value_type value = *static_cast<value_type *>(ptr);
     value_op_t sqlValue( new Date(value) );
     return sqlValue;
 }
 
-void Date::store(llvm::Value * ptr) const
+void Date::store(void * ptr) const
 {
-    auto & codeGen = getThreadLocalCodeGen();
-    codeGen->CreateStore(_llvmValue, ptr);
+    *static_cast<value_type *>(ptr) = value;
 }
 
-cg_hash_t Date::hash() const
+hash_t Date::hash() const
 {
     // can be used for all integral types
-    return genIntHash(_llvmValue);
+    return hashInteger(value);
 }
-
+/*
 void Date::accept(ValueVisitor & visitor)
 {
     visitor.visit(*this);
 }
-
-cg_bool_t Date::equals(const Value & other) const
+*/
+bool Date::equals(const Value & other) const
 {
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
     }
 
     if (isNullable(other)) {
         return other.equals(*this);
     }
 
-    auto & codeGen = getThreadLocalCodeGen();
-    return cg_bool_t( codeGen->CreateICmpEQ(_llvmValue, other.getLLVMValue()) );
+    return (value == dynamic_cast<const Date &>(other).value);
+}
+
+bool Date::compare(const Value & other, ComparisonMode mode) const
+{
+    throw NotImplementedException();
 }
 
 //-----------------------------------------------------------------------------
 // Timestamp
 
-Timestamp::Timestamp(llvm::Value * value) :
-        Value(getTimestampTy())
-{
-    this->_llvmValue = value;
-}
-
 Timestamp::Timestamp(value_type constantValue) :
-        Value(getTimestampTy())
-{
-    _llvmValue = cg_value_type(constantValue);
-}
+    Value(::Sql::getTimestampTy()),
+    value(constantValue)
+{ }
 
 value_op_t Timestamp::clone() const
 {
-    Value * cloned = new Timestamp(_llvmValue);
+    Value * cloned = new Timestamp(value);
     return value_op_t(cloned);
 }
 
 value_op_t Timestamp::castString(const std::string & str)
 {
-    value_type raw = castStringToTimestampValue(str.c_str(), static_cast<uint32_t>(str.length()));
-    llvm::Value * value = cg_value_type(raw);
+    value_type value = castStringToTimestampValue(str.c_str(), static_cast<uint32_t>(str.length()));
     value_op_t sqlValue( new Timestamp(value) );
     return sqlValue;
 }
 
-value_op_t Timestamp::castString(cg_ptr8_t str, cg_size_t length)
+value_op_t Timestamp::load(void * ptr)
 {
-    cg_value_type raw = genCastStringToTimestampValueCall(str, length);
-    value_op_t sqlValue( new Timestamp(raw) );
-    return sqlValue;
-}
-
-value_op_t Timestamp::fromRawValues(const std::vector<llvm::Value *> & values)
-{
-    assert(!values.empty());
-    return value_op_t(new Timestamp(values.front()));
-}
-
-value_op_t Timestamp::load(llvm::Value * ptr)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * timestampTy = getPointeeType(ptr);
-    assert(timestampTy == cg_value_type::getType());
-
-    llvm::Value * value = codeGen->CreateLoad(timestampTy, ptr);
+    value_type value = *static_cast<value_type *>(ptr);
     value_op_t sqlValue( new Timestamp(value) );
     return sqlValue;
 }
 
-void Timestamp::store(llvm::Value * ptr) const
+void Timestamp::store(void * ptr) const
 {
-    auto & codeGen = getThreadLocalCodeGen();
-    codeGen->CreateStore(_llvmValue, ptr);
+    *static_cast<value_type *>(ptr) = value;
 }
 
-cg_hash_t Timestamp::hash() const
+hash_t Timestamp::hash() const
 {
     // can be used for all integral types
-    return genIntHash(_llvmValue);
+    return hashInteger(value);
 }
-
+/*
 void Timestamp::accept(ValueVisitor & visitor)
 {
     visitor.visit(*this);
 }
-
-cg_bool_t Timestamp::equals(const Value & other) const
+*/
+bool Timestamp::equals(const Value & other) const
 {
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
     }
 
     if (isNullable(other)) {
         return other.equals(*this);
     }
 
-    auto & codeGen = getThreadLocalCodeGen();
-    return cg_bool_t( codeGen->CreateICmpEQ(_llvmValue, other.getLLVMValue()) );
+    return (value == dynamic_cast<const Timestamp &>(other).value);
+}
+
+bool Timestamp::compare(const Value & other, ComparisonMode mode) const
+{
+    throw NotImplementedException();
 }
 
 //-----------------------------------------------------------------------------
@@ -868,8 +753,8 @@ Text::Text(bool inplace, value_type raw) :
 Text::Text(const uint8_t * begin, const uint8_t * end) :
     Value(::Sql::getTextTy(false))
 {
-    value[0] = reinterpret_cast<intptr_t>(begin);
-    value[1] = reinterpret_cast<intptr_t>(end);
+    value[0] = reinterpret_cast<uintptr_t>(begin);
+    value[1] = reinterpret_cast<uintptr_t>(end);
 }
 
 Text::Text(uint8_t len, const uint8_t * bytes) :
@@ -894,14 +779,11 @@ value_op_t Text::castString(const std::string & str)
     if (len > 15) {
         std::unique_ptr<uint8_t[]> data(new uint8_t[len]);
         std::memcpy(data.get(), bytes, len);
-//        uint8_t * begin = data.get();
-//        uint8_t * end = begin+len;
-//        auto sqlStr = std::make_unique<sql_string_t>(len, std::move(data));
-        auto sqlStr = sql_string_t(len, std::move(data));
-        auto storedStr = StringPool::instance().put(std::move(sqlStr));
+        auto & storedStr = StringPool::instance().put(sql_string_t(len, std::move(data)));
         uint8_t * begin = storedStr.second.get();
         uint8_t * end = begin+len;
         value_op_t sqlValue( new Text(begin, end) );
+        return sqlValue;
     } else {
         value_op_t sqlValue( new Text(static_cast<uint8_t>(len), bytes) );
         return sqlValue;
@@ -910,18 +792,18 @@ value_op_t Text::castString(const std::string & str)
 
 value_op_t Text::load(void * ptr)
 {
-    intptr_t * raw = static_cast<intptr_t *>(ptr);
+    uintptr_t * raw = static_cast<uintptr_t *>(ptr);
 
     // retrieve the leftmost bit
-    bool inplace = (0 == (raw[0] >> 8*sizeof(intptr_t)-1));
+    bool inplace = (0 == (raw[0] >> 8*sizeof(uintptr_t)-1));
     if (inplace) {
         uint8_t * data = static_cast<uint8_t *>(ptr);
         value_op_t sqlValue( new Text(data[0], data+1) );
         return sqlValue;
     } else {
-        intptr_t begin = raw[0];
+        uintptr_t begin = raw[0];
         // untag the leftmost bit
-        begin ^= 1 << (8*sizeof(intptr_t)-1);
+        begin ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
         uint8_t * beginPtr = reinterpret_cast<uint8_t *>(begin);
         uint8_t * endPtr = reinterpret_cast<uint8_t *>(raw[1]);
         value_op_t sqlValue( new Text(beginPtr, endPtr) );
@@ -932,13 +814,13 @@ value_op_t Text::load(void * ptr)
 void Text::store(void * ptr) const
 {
     if (type.inplace) {
-        std::memcpy(ptr, value.data(), value.size()*sizeof(intptr_t));
+        std::memcpy(ptr, value.data(), value.size()*sizeof(uintptr_t));
     } else {
         // tag the leftmost bit
-        intptr_t begin = value[0];
-        begin ^= 1 << (8*sizeof(intptr_t)-1);
+        uintptr_t begin = value[0];
+        begin ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
 
-        intptr_t * raw = static_cast<intptr_t *>(ptr);
+        uintptr_t * raw = static_cast<uintptr_t *>(ptr);
         raw[0] = begin;
         raw[1] = value[1];
     }
@@ -976,12 +858,13 @@ bool Text::equals(const Value & other) const
     if (len != otherText.length()) {
         return false;
     }
-throw NotImplementedException();
-    // TODO
+
     if (type.inplace) {
-
+        return std::equal(value.begin(), value.end(), otherText.value.begin());
     } else {
-
+        const void * buf1 = reinterpret_cast<const void *>(value[0]);
+        const void * buf2 = reinterpret_cast<const void *>(otherText.value[0]);
+        return (0 == std::memcmp(buf1, buf2, len));
     }
 }
 
@@ -1050,16 +933,14 @@ bool UnknownValue::compare(const Value & other, ComparisonMode mode) const
 #ifndef USE_INTERNAL_NULL_INDICATOR
 
 /// NullableValue (with external null indicator)
-NullableValue::NullableValue(value_op_t sqlValue, cg_bool_t nullIndicator) :
-        Value( Sql::toNullableTy( sqlValue->type ) ),
+NullableValue::NullableValue(value_op_t sqlValue, bool nullIndicator) :
+        Value( ::Sql::toNullableTy( sqlValue->type ) ),
         _sqlValue(std::move(sqlValue)),
         _nullIndicator(nullIndicator)
 {
 //    Functions::genPrintfCall("NullableValue ctor nullable %d\n", _nullIndicator.llvmValue);
     assert(!_sqlValue->type.nullable && type.typeID != SqlType::TypeID::UnknownID);
     assert(dynamic_cast<NullableValue *>(_sqlValue.get()) == nullptr); // do not nest NullableValues
-
-    this->_llvmValue = _sqlValue->getLLVMValue();
 }
 
 value_op_t NullableValue::getNull(SqlType type)
@@ -1079,6 +960,7 @@ value_op_t NullableValue::getNull(SqlType type)
             value_op_t nullNumeric = Numeric::castString("0", notNullableType);
             return create(std::move(nullNumeric), cg_bool_t(true));
         }
+        /*
         case SqlType::TypeID::VarcharID: {
             value_op_t nullVarchar = Varchar::castString(std::string(type.length, ' '), notNullableType);
             return create(std::move(nullVarchar), cg_bool_t(true));
@@ -1087,6 +969,7 @@ value_op_t NullableValue::getNull(SqlType type)
             value_op_t nullChar = Char::castString(std::string(type.length, ' '), notNullableType);
             return create(std::move(nullChar), cg_bool_t(true));
         }
+        */
         case SqlType::TypeID::DateID: // TODO
         case SqlType::TypeID::TimestampID: // TODO
             throw NotImplementedException();
@@ -1095,19 +978,21 @@ value_op_t NullableValue::getNull(SqlType type)
     }
 }
 
-value_op_t NullableValue::create(value_op_t value, cg_bool_t nullIndicator)
+value_op_t NullableValue::create(value_op_t value, bool nullIndicator)
 {
     return value_op_t( new NullableValue(std::move(value), nullIndicator) );
 }
 
-value_op_t NullableValue::create(const Value & value, cg_bool_t nullIndicator)
+value_op_t NullableValue::create(const Value & value, bool nullIndicator)
 {
     const Value & assoc = getAssociatedValue(value);
     return create(assoc.clone(), nullIndicator);
 }
 
-value_op_t NullableValue::load(llvm::Value * ptr, SqlType type)
+value_op_t NullableValue::load(void * ptr, SqlType type)
 {
+    throw NotImplementedException();
+    /*
     assert(type.nullable);
 
     auto & codeGen = getThreadLocalCodeGen();
@@ -1121,6 +1006,7 @@ value_op_t NullableValue::load(llvm::Value * ptr, SqlType type)
     cg_bool_t nullIndicator( codeGen->CreateLoad(cg_bool_t::getType(), nullIndicatorPtr) );
 
     return NullableValue::create(std::move(sqlValue), cg_bool_t(nullIndicator));
+    */
 }
 
 value_op_t NullableValue::clone() const
@@ -1129,15 +1015,10 @@ value_op_t NullableValue::clone() const
     return create(std::move(cloned), _nullIndicator);
 }
 
-std::vector<llvm::Value *> NullableValue::getRawValues() const
+void NullableValue::store(void * ptr) const
 {
-    auto values = _sqlValue->getRawValues();
-    values.push_back(_nullIndicator.llvmValue);
-    return values;
-}
-
-void NullableValue::store(llvm::Value * ptr) const
-{
+    throw NotImplementedException();
+    /*
     assert(type.nullable);
 
     auto & codeGen = getThreadLocalCodeGen();
@@ -1149,23 +1030,20 @@ void NullableValue::store(llvm::Value * ptr) const
 
     llvm::Value * nullIndicatorPtr = codeGen->CreateStructGEP(valueTy, ptr, 1);
     codeGen->CreateStore(_nullIndicator.llvmValue, nullIndicatorPtr);
+    */
 }
 
-cg_hash_t NullableValue::hash() const
+hash_t NullableValue::hash() const
 {
-    cg_hash_t nullHash = 0x4d1138f9dd82ae2f; // arbitrary random number
-
-    PhiNode<llvm::Value> result(nullHash, "hash");
-    IfGen nullCheck(!isNull());
-    {
-        result = _sqlValue->hash();
+    constexpr hash_t nullHash = 0x4d1138f9dd82ae2f; // arbitrary random number
+    if (!isNull()) {
+        return _sqlValue->hash();
+    } else {
+        return nullHash;
     }
-    nullCheck.EndIf();
-
-    return cg_hash_t( result.get() );
 }
 
-cg_bool_t NullableValue::isNull() const
+bool NullableValue::isNull() const
 {
     return _nullIndicator;
 }
@@ -1174,232 +1052,40 @@ Value & NullableValue::getValue() const
 {
     return *_sqlValue;
 }
-
+/*
 void NullableValue::accept(ValueVisitor & visitor)
 {
     visitor.visit(*this);
 }
-
-cg_bool_t NullableValue::equals(const Value & other) const
+*/
+bool NullableValue::equals(const Value & other) const
 {
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
     }
 
-    PhiNode<llvm::Value> result(cg_bool_t(false), "equals");
-    IfGen nullCheck(!isNull());
-    {
-        result = _sqlValue->equals(other);
+    if (isNull()) {
+        return false;
+    } else {
+        return _sqlValue->equals(other);
     }
-    nullCheck.EndIf();
-
-    return cg_bool_t(result.get());
 }
 
-cg_bool_t NullableValue::compare(const Value & other, ComparisonMode mode) const
+bool NullableValue::compare(const Value & other, ComparisonMode mode) const
 {
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
     }
 
-    PhiNode<llvm::Value> result(cg_bool_t(false), "result");
-    IfGen nullCheck(!isNull());
-    {
-        result = _sqlValue->compare(other, mode);
+    if (isNull()) {
+        return false;
+    } else {
+        return _sqlValue->compare(other, mode);
     }
-    nullCheck.EndIf();
-
-    return cg_bool_t(result.get());
 }
 
 #else
-
-// null constants
-static Integer::value_type integerNullIndicator = std::numeric_limits<typename Integer::value_type>::min();
-static Numeric::value_type numericNullIndicator = std::numeric_limits<typename Numeric::value_type>::min();
-// bool: nothing
-// TODO: static Char::length_type charNullIndicator = numeric_limits<typename Char::length_type>::max();
-// TODO: static Varchar::length_type varcharNullIndicator = numeric_limits<typename Varchar::length_type>::max();
-static Date::value_type dateNullIndicator = std::numeric_limits<typename Date::value_type>::max();
-static Timestamp::value_type timestampNullIndicator = std::numeric_limits<typename Timestamp::value_type>::max();
-
-/// NullableValue (with internal null indicator)
-NullableValue::NullableValue(value_op_t sqlValue) :
-        Value( Sql::toNullableTy( sqlValue->type ) ),
-        _sqlValue(std::move(sqlValue))
-{
-    assert(!_sqlValue->type.nullable && type.typeID != SqlType::TypeID::UnknownID);
-    assert(dynamic_cast<NullableValue *>(_sqlValue.get()) == nullptr); // do not nest NullableValues
-
-    this->_llvmValue = _sqlValue->getLLVMValue();
-}
-
-value_op_t NullableValue::getNull(SqlType type)
-{
-    SqlType notNullableType = toNotNullableTy(type);
-
-    switch (type.typeID) {
-        case SqlType::TypeID::BoolID: {
-            throw InvalidOperationException("use an external null indicator instead");
-        }
-        case SqlType::TypeID::IntegerID: {
-            value_op_t nullInteger( new Integer(integerNullIndicator) );
-            return create(std::move(nullInteger));
-        }
-        case SqlType::TypeID::NumericID: {
-            value_op_t nullNumeric( new Numeric(notNullableType, numericNullIndicator) );
-            return create(std::move(nullNumeric));
-        }
-        case SqlType::TypeID::VarcharID: {
-            throw NotImplementedException();
-        }
-        case SqlType::TypeID::CharID: {
-            throw NotImplementedException();
-        }
-        case SqlType::TypeID::DateID: {
-            value_op_t nullDate( new Date(dateNullIndicator) );
-            return create(std::move(nullDate));
-        }
-        case SqlType::TypeID::TimestampID: {
-            value_op_t nullTimestamp( new Timestamp(timestampNullIndicator) );
-            return create(std::move(nullTimestamp));
-        }
-        default:
-            unreachable();
-    }
-}
-
-value_op_t NullableValue::create(value_op_t value)
-{
-    return value_op_t( new NullableValue(std::move(value)) );
-}
-
-value_op_t NullableValue::create(const Value & value)
-{
-    const Value & assoc = getAssociatedValue(value);
-    return create(assoc.clone());
-}
-
-value_op_t NullableValue::load(llvm::Value * ptr, SqlType type)
-{
-    assert(type.nullable);
-
-    SqlType notNullableType = Sql::toNotNullableTy(type);
-    value_op_t sqlValue = Value::load(ptr, notNullableType);
-
-    return NullableValue::create(std::move(sqlValue));
-}
-
-value_op_t NullableValue::clone() const
-{
-    value_op_t cloned = _sqlValue->clone();
-    return create(std::move(cloned));
-}
-
-std::vector<llvm::Value *> NullableValue::getRawValues() const
-{
-    return _sqlValue->getRawValues();
-}
-
-void NullableValue::store(llvm::Value * ptr) const
-{
-    assert(type.nullable);
-    _sqlValue->store(ptr);
-}
-
-cg_hash_t NullableValue::hash() const
-{
-    cg_hash_t nullHash = 0x4d1138f9dd82ae2f; // arbitrary random number
-
-    PhiNode<llvm::Value> result(nullHash, "hash");
-    IfGen nullCheck(!isNull());
-    {
-        result = _sqlValue->hash();
-    }
-    nullCheck.EndIf();
-
-    return cg_hash_t( result.get() );
-}
-
-cg_bool_t NullableValue::isNull() const
-{
-    switch (type.typeID) {
-        case SqlType::TypeID::BoolID: {
-            throw InvalidOperationException("use an external null indicator instead");
-        }
-        case SqlType::TypeID::IntegerID: {
-            Integer::cg_value_type a(integerNullIndicator);
-            Integer::cg_value_type b(_sqlValue->getLLVMValue());
-            return (a == b);
-        }
-        case SqlType::TypeID::NumericID: {
-            Numeric::cg_value_type a(numericNullIndicator);
-            Numeric::cg_value_type b(_sqlValue->getLLVMValue());
-            return (a == b);
-        }
-        case SqlType::TypeID::VarcharID: {
-            throw NotImplementedException();
-        }
-        case SqlType::TypeID::CharID: {
-            throw NotImplementedException();
-        }
-        case SqlType::TypeID::DateID: {
-            Date::cg_value_type a(dateNullIndicator);
-            Date::cg_value_type b(_sqlValue->getLLVMValue());
-            return (a == b);
-        }
-        case SqlType::TypeID::TimestampID: {
-            Timestamp::cg_value_type a(timestampNullIndicator);
-            Timestamp::cg_value_type b(_sqlValue->getLLVMValue());
-            return (a == b);
-        }
-        default:
-            unreachable();
-    }
-}
-
-Value & NullableValue::getValue() const
-{
-    return *_sqlValue;
-}
-
-void NullableValue::accept(ValueVisitor & visitor)
-{
-    visitor.visit(*this);
-}
-
-cg_bool_t NullableValue::equals(const Value & other) const
-{
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
-    }
-
-    PhiNode<llvm::Value> result(cg_bool_t(false), "equals");
-    IfGen nullCheck(!isNull());
-    {
-        result = _sqlValue->equals(other);
-    }
-    nullCheck.EndIf();
-
-    return cg_bool_t(result.get());
-}
-
-cg_bool_t NullableValue::compare(const Value & other, ComparisonMode mode) const
-{
-    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
-        return cg_bool_t(false);
-    }
-
-    PhiNode<llvm::Value> result(cg_bool_t(false), "result");
-    IfGen nullCheck(!isNull());
-    {
-        result = _sqlValue->compare(other, mode);
-    }
-    nullCheck.EndIf();
-
-    return cg_bool_t(result.get());
-}
-
+static_assert(false);
 #endif // USE_INTERNAL_NULL_INDICATOR
 
 //-----------------------------------------------------------------------------

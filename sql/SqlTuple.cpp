@@ -1,4 +1,3 @@
-
 #include "SqlTuple.hpp"
 
 #include <llvm/IR/Module.h>
@@ -11,7 +10,6 @@
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/LegacyTypes.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlUtils.hpp"
 
 namespace Sql {

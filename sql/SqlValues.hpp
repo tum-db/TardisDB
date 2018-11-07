@@ -1,12 +1,9 @@
-
-#ifndef SQLVALUES_HPP
-#define SQLVALUES_HPP
+#pragma once
 
 #include <cstdint>
 #include <memory>
 
 #include "codegen/CodeGen.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
 
 namespace Sql {
@@ -458,5 +455,3 @@ llvm::Value * getNullIndicator(SqlType type);
 #endif
 
 } // end namespace Sql
-
-#endif // SQLVALUES_HPP

@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <memory>
 
-#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
+#include "utils/hashing.hpp"
 
 namespace Native {
 namespace Sql {
@@ -14,6 +14,7 @@ class Value;
 class ValueVisitor;
 
 using value_op_t = std::unique_ptr<Value>;
+using ::Sql::SqlType;
 
 enum class ComparisonMode { less, leq, eq, geq, gtr };
 
@@ -225,7 +226,7 @@ protected:
 
 class Text : public Value {
 public:
-    using value_type = std::array<intptr_t, 2>;
+    using value_type = std::array<uintptr_t, 2>;
 
     static value_op_t castString(const std::string & str);
 
@@ -345,7 +346,7 @@ public:
 
     static value_op_t create(const Value & value, bool nullIndicator);
 
-    static value_op_t load(llvm::Value * ptr, SqlType type);
+    static value_op_t load(void * ptr, SqlType type);
 
     value_op_t clone() const override;
 

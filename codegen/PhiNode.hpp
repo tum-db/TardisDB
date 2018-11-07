@@ -1,11 +1,9 @@
-
 #pragma once
 
 #include <string>
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 

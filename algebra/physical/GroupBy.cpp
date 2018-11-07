@@ -1,10 +1,8 @@
-
 #include "GroupBy.hpp"
 
 #include <llvm/IR/DerivedTypes.h>
 
 #include "codegen/PhiNode.hpp"
-#include "foundations/utils.hpp"
 #include "foundations/Hashtable.hpp"
 #include "foundations/LegacyTypes.hpp"
 #include "sql/SqlTuple.hpp"

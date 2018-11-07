@@ -1,4 +1,3 @@
-
 #include "sql/SqlType.hpp"
 
 #include <algorithm>
@@ -7,7 +6,6 @@
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlValues.hpp"
 
 namespace Sql {
@@ -74,6 +72,13 @@ SqlType getVarcharTy(uint32_t capacity, bool nullable)
 SqlType getTimestampTy(bool nullable)
 {
     SqlType type(TypeID::TimestampID, nullable);
+    return type;
+}
+
+SqlType getTextTy(bool inplace, bool nullable)
+{
+    SqlType type(TypeID::TextID, nullable);
+    type.inplace = inplace;
     return type;
 }
 

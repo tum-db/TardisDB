@@ -13,8 +13,9 @@
 #include "codegen/PhiNode.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
+#include "utils/general.hpp"
+#include "utils/llvm.hpp"
 
 namespace Sql {
 

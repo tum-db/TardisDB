@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <unordered_map>
@@ -6,7 +5,6 @@
 #include "codegen/CodeGen.hpp"
 #include "codegen/PhiNode.hpp"
 #include "foundations/exceptions.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlValues.hpp"
 
 namespace Sql {

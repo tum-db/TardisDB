@@ -1,7 +1,3 @@
-//
-// Created by josef on 30.12.16.
-//
-
 #include "IndexJoin.hpp"
 
 #include <algorithm>
@@ -13,7 +9,6 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/StaticHashtable.hpp"
 #include "foundations/MemoryPool.hpp"
-#include "foundations/utils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"

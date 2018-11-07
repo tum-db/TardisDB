@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <vector>
@@ -9,7 +8,6 @@
 
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
-#include "utils.hpp"
 
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
