@@ -8,7 +8,6 @@
 
 #include "codegen/CodeGen.hpp"
 #include "codegen/PhiNode.hpp"
-#include "foundations/utils.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
 #include "foundations/QueryContext.hpp"

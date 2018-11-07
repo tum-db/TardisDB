@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <vector>
@@ -9,7 +8,6 @@
 
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
-#include "utils.hpp"
 
 using branch_id_t = int32_t;
 using cg_branch_id_t = TypeWrappers::UInt32;

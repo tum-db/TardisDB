@@ -1,14 +1,13 @@
-
 #include "loader.hpp"
 
 #include <fstream>
 #include <llvm/IR/TypeBuilder.h>
 
 #include "codegen/CodeGen.hpp"
-#include "foundations/utils.hpp"
 #include "foundations/Database.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
+#include "utils/general.hpp"
 
 using namespace Sql;
 

@@ -1,10 +1,10 @@
-
 #include "sql/SqlUtils.hpp"
 
 #include <llvm/IR/TypeBuilder.h>
 
 #include "foundations/LegacyTypes.hpp"
 #include "sql/SqlValues.hpp"
+#include "utils/general.hpp"
 
 namespace Sql {
 

@@ -1,17 +1,20 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
-#include "codegen/CodeGen.hpp"
 #include "sql/SqlType.hpp"
+#include "utils/hashing.hpp"
 
+namespace Native {
 namespace Sql {
 
 class Value;
 class ValueVisitor;
 
-using value_op_t = std::unique_ptr<Value>; // owner ptr
+using value_op_t = std::unique_ptr<Value>;
+using ::Sql::SqlType;
 
 enum class ComparisonMode { less, leq, eq, geq, gtr };
 
@@ -30,39 +33,26 @@ public:
     /// \brief Use the given string to construct a SQL value with the given type
     static value_op_t castString(const std::string & str, SqlType type);
 
-    /// \brief Runtime version
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length, SqlType type);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values, SqlType type);
-
     /// \brief Construct a SQL value out of the data at the address given by ptr
-    static value_op_t load(llvm::Value * ptr, SqlType type);
-
-    llvm::Value * getLLVMValue() const;
-
-    virtual std::vector<llvm::Value *> getRawValues() const;
+    static value_op_t load(void * ptr, SqlType type);
 
     virtual size_t getSize() const;
 
-    virtual llvm::Type * getLLVMType() const final;
-
     virtual value_op_t clone() const = 0;
 
-    virtual void store(llvm::Value * ptr) const = 0;
+    virtual void store(void * ptr) const = 0;
 
-    virtual cg_hash_t hash() const = 0;
+    virtual hash_t hash() const = 0;
 
-    virtual void accept(ValueVisitor & visitor) = 0;
+//    virtual void accept(ValueVisitor & visitor) = 0;
 
     /// \note Only Values with matching types are considered to be comparable.
     /// Therefore a type cast may be necessary prior to calling equals().
-    virtual cg_bool_t equals(const Value & other) const = 0;
+    virtual bool equals(const Value & other) const = 0;
 
-    virtual cg_bool_t compare(const Value & other, ComparisonMode mode) const;
+    virtual bool compare(const Value & other, ComparisonMode mode) const = 0;
 
 protected:
-    llvm::Value * _llvmValue = nullptr;
-
     Value(SqlType type);
 };
 
@@ -72,31 +62,25 @@ protected:
 class Integer : public Value {
 public:
     using value_type = int32_t;
-    using cg_value_type = cg_i32_t;
-    static_assert(sizeof(value_type) == sizeof(cg_value_type::native_type), "types don't match");
+    const value_type value;
 
-    Integer(value_type constantValue);
+    explicit Integer(value_type constantValue);
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values);
-
-    static value_op_t load(llvm::Value * ptr);
+    static value_op_t load(void * ptr);
 
     value_op_t clone() const override;
 
-    void store(llvm::Value * ptr) const override;
+    void store(void * ptr) const override;
 
-    cg_hash_t hash() const override;
+    hash_t hash() const override;
 
-    void accept(ValueVisitor & visitor) override;
+//    void accept(ValueVisitor & visitor) override;
 
-    cg_bool_t equals(const Value & other) const override;
+    bool equals(const Value & other) const override;
 
-protected:
-    Integer(llvm::Value * value);
+    bool compare(const Value & other, ComparisonMode mode) const override;
 };
 
 //-----------------------------------------------------------------------------
@@ -105,31 +89,25 @@ protected:
 class Numeric : public Value {
 public:
     using value_type = int64_t;
-    using cg_value_type = cg_i64_t;
-    static_assert(sizeof(value_type) == sizeof(cg_value_type::native_type), "types don't match");
+    const value_type value;
 
     Numeric(SqlType type, value_type constantValue);
 
     static value_op_t castString(const std::string & str, SqlType type);
 
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length, SqlType type);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values, SqlType type);
-
-    static value_op_t load(llvm::Value * ptr, SqlType type);
+    static value_op_t load(void * ptr, SqlType type);
 
     value_op_t clone() const override;
 
-    void store(llvm::Value * ptr) const override;
+    void store(void * ptr) const override;
 
-    cg_hash_t hash() const override;
+    hash_t hash() const override;
 
-    void accept(ValueVisitor & visitor) override;
+//    void accept(ValueVisitor & visitor) override;
 
-    cg_bool_t equals(const Value & other) const override;
+    bool equals(const Value & other) const override;
 
-protected:
-    Numeric(SqlType type, llvm::Value * value);
+    bool compare(const Value & other, ComparisonMode mode) const override;
 };
 
 //-----------------------------------------------------------------------------
@@ -138,33 +116,28 @@ protected:
 class Bool : public Value {
 public:
     using value_type = bool;
-    using cg_value_type = cg_bool_t;
-    static_assert(sizeof(value_type) == sizeof(cg_value_type::native_type), "types don't match");
+    const value_type value;
 
     Bool(value_type constantValue);
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values);
-
-    static value_op_t load(llvm::Value * ptr);
+    static value_op_t load(void * ptr);
 
     value_op_t clone() const override;
 
-    void store(llvm::Value * ptr) const override;
+    void store(void * ptr) const override;
 
-    cg_hash_t hash() const override;
+    hash_t hash() const override;
 
-    void accept(ValueVisitor & visitor) override;
+//    void accept(ValueVisitor & visitor) override;
 
-    cg_bool_t equals(const Value & other) const override;
+    bool equals(const Value & other) const override;
 
-protected:
-    Bool(llvm::Value * value);
+    bool compare(const Value & other, ComparisonMode mode) const override;
 };
 
+#if 0
 //-----------------------------------------------------------------------------
 // BasicString
 
@@ -246,6 +219,40 @@ public:
 protected:
     Varchar(SqlType type, llvm::Value * value, llvm::Value * length);
 };
+#endif
+
+//-----------------------------------------------------------------------------
+// Text
+
+class Text : public Value {
+public:
+    using value_type = std::array<uintptr_t, 2>;
+
+    static value_op_t castString(const std::string & str);
+
+    static value_op_t load(void * ptr);
+
+    value_op_t clone() const override;
+
+    void store(void * ptr) const override;
+
+    hash_t hash() const override;
+
+//    void accept(ValueVisitor & visitor) override;
+
+    bool equals(const Value & other) const override;
+
+    bool compare(const Value & other, ComparisonMode mode) const override;
+
+    size_t length() const;
+
+private:
+    value_type value;
+
+    Text(bool inplace, value_type raw);
+    Text(const uint8_t * begin, const uint8_t * end);
+    Text(uint8_t len, const uint8_t * bytes);
+};
 
 //-----------------------------------------------------------------------------
 // Date
@@ -253,31 +260,25 @@ protected:
 class Date : public Value {
 public:
     using value_type = uint32_t;
-    using cg_value_type = cg_u32_t;
-    static_assert(sizeof(value_type) == sizeof(cg_value_type::native_type), "types don't match");
+    const value_type value;
 
     Date(value_type constantValue);
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values);
-
-    static value_op_t load(llvm::Value * ptr);
+    static value_op_t load(void * ptr);
 
     value_op_t clone() const override;
 
-    void store(llvm::Value * ptr) const override;
+    void store(void * ptr) const override;
 
-    cg_hash_t hash() const override;
+    hash_t hash() const override;
 
-    void accept(ValueVisitor & visitor) override;
+//    void accept(ValueVisitor & visitor) override;
 
-    cg_bool_t equals(const Value & other) const override;
+    bool equals(const Value & other) const override;
 
-protected:
-    Date(llvm::Value * value);
+    bool compare(const Value & other, ComparisonMode mode) const override;
 };
 
 //-----------------------------------------------------------------------------
@@ -286,31 +287,25 @@ protected:
 class Timestamp : public Value {
 public:
     using value_type = uint64_t;
-    using cg_value_type = cg_u64_t;
-    static_assert(sizeof(value_type) == sizeof(cg_value_type::native_type), "types don't match");
+    const value_type value;
 
     Timestamp(value_type constantValue);
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values);
-
-    static value_op_t load(llvm::Value * ptr);
+    static value_op_t load(void * ptr);
 
     value_op_t clone() const override;
 
-    void store(llvm::Value * ptr) const override;
+    void store(void * ptr) const override;
 
-    cg_hash_t hash() const override;
+    hash_t hash() const override;
 
-    void accept(ValueVisitor & visitor) override;
+//    void accept(ValueVisitor & visitor) override;
 
-    cg_bool_t equals(const Value & other) const override;
+    bool equals(const Value & other) const override;
 
-protected:
-    Timestamp(llvm::Value * value);
+    bool compare(const Value & other, ComparisonMode mode) const override;
 };
 
 //-----------------------------------------------------------------------------
@@ -321,19 +316,17 @@ class UnknownValue : public Value {
 public:
     static value_op_t create();
 
-    void store(llvm::Value * ptr) const override; // nop
+    void store(void * ptr) const override; // nop
 
-    std::vector<llvm::Value *> getRawValues() const override;
-
-    cg_hash_t hash() const override; // arbitrary constant
+    hash_t hash() const override; // arbitrary constant
 
     value_op_t clone() const override;
 
-    void accept(ValueVisitor & visitor) override;
+//    void accept(ValueVisitor & visitor) override;
 
-    cg_bool_t equals(const Value & other) const override;
+    bool equals(const Value & other) const override;
 
-    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
+    bool compare(const Value & other, ComparisonMode mode) const override;
 
 protected:
     UnknownValue();
@@ -349,35 +342,33 @@ class NullableValue : public Value {
 public:
     static value_op_t getNull(SqlType type);
 
-    static value_op_t create(value_op_t value, cg_bool_t nullIndicator);
+    static value_op_t create(value_op_t value, bool nullIndicator);
 
-    static value_op_t create(const Value & value, cg_bool_t nullIndicator);
+    static value_op_t create(const Value & value, bool nullIndicator);
 
-    static value_op_t load(llvm::Value * ptr, SqlType type);
-
-    std::vector<llvm::Value *> getRawValues() const override;
+    static value_op_t load(void * ptr, SqlType type);
 
     value_op_t clone() const override;
 
-    void store(llvm::Value * ptr) const override;
+    void store(void * ptr) const override;
 
-    cg_hash_t hash() const override;
+    hash_t hash() const override;
 
-    cg_bool_t isNull() const;
+    bool isNull() const;
 
     Value & getValue() const;
 
-    void accept(ValueVisitor & visitor) override;
+//    void accept(ValueVisitor & visitor) override;
 
-    cg_bool_t equals(const Value & other) const override;
+    bool equals(const Value & other) const override;
 
-    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
+    bool compare(const Value & other, ComparisonMode mode) const override;
 
 protected:
-    NullableValue(value_op_t sqlValue, cg_bool_t nullIndicator);
+    NullableValue(value_op_t sqlValue, bool nullIndicator);
 
     value_op_t _sqlValue;
-    cg_bool_t _nullIndicator;
+    bool _nullIndicator;
 };
 
 #else
@@ -419,6 +410,7 @@ protected:
 
 #endif // USE_INTERNAL_NULL_INDICATOR
 
+#if 0
 //-----------------------------------------------------------------------------
 // ValueVisitor
 
@@ -434,6 +426,7 @@ public:
     virtual void visit(Varchar & value) = 0;
     virtual void visit(NullableValue & value) = 0;
 };
+#endif
 
 //-----------------------------------------------------------------------------
 // utilities
@@ -450,8 +443,5 @@ const Value & getAssociatedValue(const Value & value);
 
 bool isNumerical(const Value & value);
 
-#ifdef USE_INTERNAL_NULL_INDICATOR
-llvm::Value * getNullIndicator(SqlType type);
-#endif
-
 } // end namespace Sql
+} // end namespace Native

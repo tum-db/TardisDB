@@ -10,7 +10,7 @@
 #include <llvm/IR/TypeBuilder.h>
 
 #include "codegen/CodeGen.hpp"
-#include "foundations/utils.hpp"
+#include "utils/general.hpp"
 
 //-----------------------------------------------------------------------------
 // MemoryPool

@@ -34,6 +34,8 @@ public:
     CodeGen & operator =(const CodeGen &) = delete;
     CodeGen(const CodeGen &) = delete;
 
+    const llvm::DataLayout & getDefaultDataLayout() const { return *dataLayout.get(); }
+
     llvm::IRBuilder<> & getIRBuilder();
 
     llvm::LLVMContext & getLLVMContext();
@@ -84,6 +86,7 @@ private:
     std::stack<FunctionGen *> functionGens;
     llvm::IRBuilder<> builder;
     TypeCache typeCache;
+    std::unique_ptr<llvm::DataLayout> dataLayout;
 };
 
 //-----------------------------------------------------------------------------
@@ -101,7 +104,7 @@ public:
 
     llvm::Module & getModule();
 
-    llvm::DataLayout & getDataLayout();
+    const llvm::DataLayout & getDataLayout() const;
 
     void addFunctionMapping(llvm::Function * func, void * funcPtr);
     void applyMapping(llvm::ExecutionEngine * ee);
@@ -109,10 +112,7 @@ public:
 private:
     llvm::LLVMContext & context;
     CodeGen & codeGen; // cache to avoid thread_local access overhead
-
     std::unique_ptr<llvm::Module> module;
-    std::unique_ptr<llvm::DataLayout> dataLayout;
-
     std::vector<std::pair<llvm::Function *, void *>> functionMapping;
 };
 

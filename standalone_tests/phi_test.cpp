@@ -21,7 +21,7 @@
 
 #include "codegen/CodeGen.hpp"
 #include "codegen/PhiNode.hpp"
-#include "foundations/utils.hpp"
+#include "utils/general.hpp"
 
 /* TODO
 #undef DISABLE_OPTIMIZATIONS

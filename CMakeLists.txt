@@ -27,19 +27,23 @@ llvm_map_components_to_libnames(LLVM_LIBS
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
 file(GLOB_RECURSE CODEGEN_FILES "codegen/*.cpp" "codegen/*.hpp" "codegen/*.tcc")
 file(GLOB_RECURSE FOUNDATIONS_FILES "foundations/*.cpp" "foundations/*.hpp" "foundations/*.tcc")
+file(GLOB_RECURSE NATIVE_FILES "native/*.cpp" "native/*.hpp" "native/*.tcc")
 file(GLOB_RECURSE SQL_FILES "sql/*.cpp" "sql/*.hpp" "sql/*.tcc")
 file(GLOB_RECURSE QUERIES_FILES "queries/*.cpp" "queries/*.hpp" "queries/*.tcc")
 file(GLOB_RECURSE QUERY_COMPILER_FILES "query_compiler/*.cpp" "query_compiler/*.hpp" "query_compiler/*.tcc")
 #file(GLOB_RECURSE TESTS_FILES "tests/*.cpp" "tests/*.hpp" "tests/*.tcc")
+file(GLOB_RECURSE UTILS_FILES "utils/*.cpp" "utils/*.hpp" "utils/*.tcc")
 
 set(SOURCE_FILES
 	main.cpp
 	${ALGEBRA_FILES}
 	${CODEGEN_FILES}
 	${FOUNDATIONS_FILES}
+	${NATIVE_FILES}
 	${SQL_FILES}
 	${QUERIES_FILES}
 	${QUERY_COMPILER_FILES}
+	${UTILS_FILES}
 )
 
 set(THIRD_PARTY third_party/hexdump.cpp third_party/hexdump.hpp)

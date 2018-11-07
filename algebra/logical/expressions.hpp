@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <memory>
@@ -14,6 +13,7 @@
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlOperators.hpp"
+#include "utils/general.hpp"
 
 namespace Algebra {
 namespace Logical {
