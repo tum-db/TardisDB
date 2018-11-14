@@ -11,7 +11,7 @@
 
 using branch_id_t = int32_t;
 using cg_branch_id_t = TypeWrappers::UInt32;
-constexpr master_branch_id = 0;
+constexpr branch_id_t master_branch_id = 0;
 
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
@@ -56,7 +56,7 @@ public:
 
     void set(tid_t tid, unsigned column, bool value);
 
-    bool isSet(tid_t tid, unsigned column);
+    bool isSet(tid_t tid, unsigned column) const;
 
     void * data() const { return _data->front(); }
 
@@ -102,6 +102,10 @@ public:
     BitmapTable & getNullIndicatorTable() { return _nullIndicatorTable; }
 
     BitmapTable & getBranchBitmap() { return _branchBitmap; }
+
+    Database & getDatabase() const;
+
+    const std::vector<Sql::SqlType> & getTupleType() const;
 
     size_t size() const;
 
@@ -152,7 +156,12 @@ public:
 
     Table * getTable(const std::string & tableName);
 
+    branch_id_t getLargesBranchId() const;
+
 private:
     std::unordered_map<std::string, std::unique_ptr<Table>> _tables;
     std::unordered_map<std::string, std::unique_ptr<Index>> _indexes;
+
+    std::unordered_map<branch_id_t, std::string> _branches;
+    branch_id_t _next_branch_id;
 };

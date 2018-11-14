@@ -19,7 +19,7 @@ public:
 
     SqlTuple & operator =(const SqlTuple & rhs) = delete;
 
-    static std::unique_ptr<SqlTuple> load(void * ptr, const std::vector<SqlType> & types);
+    static std::unique_ptr<SqlTuple> load(const void * ptr, const std::vector<SqlType> & types);
 
     void store(void * ptr);
 
