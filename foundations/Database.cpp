@@ -61,7 +61,7 @@ void BitmapTable::set(tid_t tid, unsigned column, bool value)
     *sectionPtr = section;
 }
 
-bool BitmapTable::isSet(tid_t tid, unsigned column)
+bool BitmapTable::isSet(tid_t tid, unsigned column) const
 {
     assert(column < _columnCount);
 

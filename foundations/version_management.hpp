@@ -1,8 +1,10 @@
 #pragma once
 
 #include "foundations/Database.hpp"
+#include "native/sql/SqlValues.hpp"
+#include "native/sql/SqlTuple.hpp"
 
-#include <bitset>
+//#include <bitset>
 
 /* TODO
 implement C++ SQL type interface
@@ -17,7 +19,7 @@ in Table:
 std::vector<VersionedTupleStorage> newest;
 */
 
-
+/*
 namespace Cpp {
 namespace Sql {
 
@@ -29,14 +31,20 @@ class SqlValue {
 
 };
 };
-
+*/
 
 struct DynamicBitvector {
     unsigned cnt; // bit cnt
-    std::bitset bits;
+//    std::bitset bits;
+    uint32_t data[0];
+
+    static size_t get_alloc_size(unsigned branch_cnt);
+
+    static DynamicBitvector & construct(unsigned branch_cnt, void * dst);
 
     void set(unsigned idx);
-    bool test(unsigned idx) {
+
+    bool test(unsigned idx) const {
         if (idx >= cnt) {
             return true;
         }
@@ -46,26 +54,27 @@ struct DynamicBitvector {
 
 struct VersionedTupleStorage {
     void * next; // use pointer tagging
-    DynamicBitvector branchIndicators;
+    size_t tuple_offset;
+//    DynamicBitvector branchIndicators;
 //    void * tuple;
     uint8_t data[0];
 };
 
 branch_id_t create_branch(std::string name);
 
-tid_t insert(std::vector<Cpp::Sql::SqlValue> tuple, branch_id_t branch, Table & table);
+tid_t insert_tuple(Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table);
 
-void update(tid_t tid, std::vector<Cpp::Sql::SqlValue> tuple, branch_id_t branch, Table & table);
+void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table);
 
 // FIXME
 // tuple aus master branch loeschen fuehrt zu konflikt!
 
-void delete_tuple(tid_t tid, std::vector<Cpp::Sql::SqlValue> tuple, branch_id_t branch, Table & table);
+void delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table);
 
 
-Cpp::Sql::SqlTuple get_latest_tuple(tid_t tid, branch_id_t branch, Tale & table);
+std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, branch_id_t branch, Table & table);
 
 // revision_offset == 0 => latest revision
-Cpp::Sql::SqlTuple get_tuple(tid_t tid, branch_id_t branch, unsigned revision_offset, Table & table);
+std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, branch_id_t branch, unsigned revision_offset, Table & table);
 
 void scan_relation(branch_id_t branch, Table & table, std::function<> consumer);
