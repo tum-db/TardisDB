@@ -34,7 +34,7 @@ public:
     static value_op_t castString(const std::string & str, SqlType type);
 
     /// \brief Construct a SQL value out of the data at the address given by ptr
-    static value_op_t load(void * ptr, SqlType type);
+    static value_op_t load(const void * ptr, SqlType type);
 
     virtual size_t getSize() const;
 
@@ -68,7 +68,7 @@ public:
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t load(void * ptr);
+    static value_op_t load(const void * ptr);
 
     value_op_t clone() const override;
 
@@ -95,7 +95,7 @@ public:
 
     static value_op_t castString(const std::string & str, SqlType type);
 
-    static value_op_t load(void * ptr, SqlType type);
+    static value_op_t load(const void * ptr, SqlType type);
 
     value_op_t clone() const override;
 
@@ -122,7 +122,7 @@ public:
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t load(void * ptr);
+    static value_op_t load(const void * ptr);
 
     value_op_t clone() const override;
 
@@ -230,7 +230,7 @@ public:
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t load(void * ptr);
+    static value_op_t load(const void * ptr);
 
     value_op_t clone() const override;
 
@@ -266,7 +266,7 @@ public:
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t load(void * ptr);
+    static value_op_t load(const void * ptr);
 
     value_op_t clone() const override;
 
@@ -293,7 +293,7 @@ public:
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t load(void * ptr);
+    static value_op_t load(const void * ptr);
 
     value_op_t clone() const override;
 
@@ -346,7 +346,7 @@ public:
 
     static value_op_t create(const Value & value, bool nullIndicator);
 
-    static value_op_t load(void * ptr, SqlType type);
+    static value_op_t load(const void * ptr, SqlType type);
 
     value_op_t clone() const override;
 

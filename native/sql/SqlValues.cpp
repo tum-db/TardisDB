@@ -107,9 +107,9 @@ value_op_t Integer::castString(const std::string & str)
     return sqlValue;
 }
 
-value_op_t Integer::load(void * ptr)
+value_op_t Integer::load(const void * ptr)
 {
-    value_type value = *static_cast<value_type *>(ptr);
+    value_type value = *static_cast<const value_type *>(ptr);
     value_op_t sqlValue( new Integer(value) );
     return sqlValue;
 }
@@ -175,9 +175,9 @@ value_op_t Numeric::castString(const std::string & str, SqlType type)
     return sqlValue;
 }
 
-value_op_t Numeric::load(void * ptr, SqlType type)
+value_op_t Numeric::load(const void * ptr, SqlType type)
 {
-    value_type value = *static_cast<value_type *>(ptr);
+    value_type value = *static_cast<const value_type *>(ptr);
     value_op_t sqlValue( new Numeric(type, value) );
     return sqlValue;
 }
@@ -245,9 +245,9 @@ value_op_t Bool::castString(const std::string & str)
     return sqlValue;
 }
 
-value_op_t Bool::load(void * ptr)
+value_op_t Bool::load(const void * ptr)
 {
-    value_type value = *static_cast<value_type *>(ptr);
+    value_type value = *static_cast<const value_type *>(ptr);
     value_op_t sqlValue( new Bool(value) );
     return sqlValue;
 }
@@ -639,9 +639,9 @@ value_op_t Date::castString(const std::string & str)
     return sqlValue;
 }
 
-value_op_t Date::load(void * ptr)
+value_op_t Date::load(const void * ptr)
 {
-    value_type value = *static_cast<value_type *>(ptr);
+    value_type value = *static_cast<const value_type *>(ptr);
     value_op_t sqlValue( new Date(value) );
     return sqlValue;
 }
@@ -701,9 +701,9 @@ value_op_t Timestamp::castString(const std::string & str)
     return sqlValue;
 }
 
-value_op_t Timestamp::load(void * ptr)
+value_op_t Timestamp::load(const void * ptr)
 {
-    value_type value = *static_cast<value_type *>(ptr);
+    value_type value = *static_cast<const value_type *>(ptr);
     value_op_t sqlValue( new Timestamp(value) );
     return sqlValue;
 }
@@ -790,14 +790,14 @@ value_op_t Text::castString(const std::string & str)
     }
 }
 
-value_op_t Text::load(void * ptr)
+value_op_t Text::load(const void * ptr)
 {
-    uintptr_t * raw = static_cast<uintptr_t *>(ptr);
+    const uintptr_t * raw = static_cast<const uintptr_t *>(ptr);
 
     // retrieve the leftmost bit
     bool inplace = (0 == (raw[0] >> 8*sizeof(uintptr_t)-1));
     if (inplace) {
-        uint8_t * data = static_cast<uint8_t *>(ptr);
+        const uint8_t * data = static_cast<const uint8_t *>(ptr);
         value_op_t sqlValue( new Text(data[0], data+1) );
         return sqlValue;
     } else {
@@ -989,7 +989,7 @@ value_op_t NullableValue::create(const Value & value, bool nullIndicator)
     return create(assoc.clone(), nullIndicator);
 }
 
-value_op_t NullableValue::load(void * ptr, SqlType type)
+value_op_t NullableValue::load(const void * ptr, SqlType type)
 {
     throw NotImplementedException();
     /*

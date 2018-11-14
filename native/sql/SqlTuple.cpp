@@ -94,7 +94,7 @@ void SqlTuple::store(void * ptr)
     }
 }
 
-std::unique_ptr<SqlTuple> SqlTuple::load(void * ptr, const std::vector<SqlType> & types)
+std::unique_ptr<SqlTuple> SqlTuple::load(const void * ptr, const std::vector<SqlType> & types)
 {
     std::string typeName;
     llvm::StructType * structTy;
@@ -105,13 +105,13 @@ std::unique_ptr<SqlTuple> SqlTuple::load(void * ptr, const std::vector<SqlType> 
     auto structLayout = dataLayout.getStructLayout(structTy);
 
     std::vector<value_op_t> values;
-    uint8_t * bytePtr = static_cast<uint8_t *>(ptr);
+    const uint8_t * bytePtr = static_cast<const uint8_t *>(ptr);
 
     // load each member value
     unsigned i = 0;
     for (SqlType type : types) {
         size_t offset = structLayout->getElementOffset(i);
-        void * valuePtr = bytePtr + offset;
+        const void * valuePtr = bytePtr + offset;
         values.push_back( Value::load(valuePtr, type) );
         i += 1;
     }
