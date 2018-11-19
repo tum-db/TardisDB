@@ -76,6 +76,8 @@ cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_
 //-----------------------------------------------------------------------------
 // Table
 
+class Database;
+
 /// AbstractTable is a base class which provides an interface to lookup columns at runtime
 class Table {
 public:
@@ -125,6 +127,8 @@ public: // TODO
     std::vector<void *> mv_begin;
     // next pointer as seen from the master branch (the actual column)
     std::vector<void *> mv_next;
+
+    std::vector<void *> dangling_chains;
 };
 
 void genTableAddRowCall(cg_voidptr_t table);
@@ -147,6 +151,16 @@ class BTreeIndex : public Index {
 
 };
 
+
+//-----------------------------------------------------------------------------
+// Branch
+
+struct Branch {
+    branch_id_t id;
+    std::string name;
+    Branch * parent;
+};
+
 //-----------------------------------------------------------------------------
 // Database
 
@@ -162,6 +176,6 @@ private:
     std::unordered_map<std::string, std::unique_ptr<Table>> _tables;
     std::unordered_map<std::string, std::unique_ptr<Index>> _indexes;
 
-    std::unordered_map<branch_id_t, std::string> _branches;
+    std::unordered_map<branch_id_t, std::unique_ptr<Branch>> _branches;
     branch_id_t _next_branch_id;
 };

@@ -33,6 +33,10 @@ class SqlValue {
 };
 */
 
+struct ExecutionContext {
+    std::unordered_map<branch_id_t, branch_id_t> offspring_mapping; // mapping: parent -> offspring
+};
+
 struct DynamicBitvector {
     unsigned cnt; // bit cnt
 //    std::bitset bits;
@@ -45,15 +49,21 @@ struct DynamicBitvector {
     void set(unsigned idx);
 
     bool test(unsigned idx) const {
+        /*
         if (idx >= cnt) {
             return true;
         }
         return bits.test(idx);
+        */
+
     }
 };
 
 struct VersionedTupleStorage {
-    void * next; // use pointer tagging
+    VersionedTupleStorage * next; // use pointer tagging
+    VersionedTupleStorage * next_in_branch;
+    branch_id_t branch_id;
+//    branch_id_t creation_ts; // latest branch id during the time of creation
     size_t tuple_offset;
 //    DynamicBitvector branchIndicators;
 //    void * tuple;
@@ -62,13 +72,13 @@ struct VersionedTupleStorage {
 
 branch_id_t create_branch(std::string name);
 
+// FIXME tuple has to exist in the master branch!
 tid_t insert_tuple(Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table);
 
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table);
 
 // FIXME
 // tuple aus master branch loeschen fuehrt zu konflikt!
-
 void delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table);
 
 
