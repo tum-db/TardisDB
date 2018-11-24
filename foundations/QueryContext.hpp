@@ -5,6 +5,8 @@
 #include "foundations/Database.hpp"
 #include "foundations/InformationUnit.hpp"
 
+#include <unordered_map>
+
 using scope_level_t = size_t;
 
 struct ExecutionResource {
@@ -17,6 +19,7 @@ struct ExecutionContext {
 
     bool overflowFlag = false;
     branch_id_t branchId = 0;
+    std::unordered_map<branch_id_t, branch_id_t> branch_lineage; // mapping: parent -> offspring
 };
 
 // TODO distinguish between Compilation and Runtime context
