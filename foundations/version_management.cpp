@@ -4,20 +4,36 @@
 #include "utils/general.hpp"
 #include "utils/tagged_ptr.hpp"
 
-static std::unique_ptr<DynamicBitvector> construct_heritage_vector(branch_id_t branch) {
+static std::unique_ptr<DynamicBitvector> construct_lineage_vector(QueryContext & ctx) {
 
 }
-
+/*
 static bool interset(const DynamicBitvector & a, const DynamicBitvector & b) {
     
 }
+*/
+static branch_id_t first_match(const DynamicBitvector & a, const DynamicBitvector & b) {
+//    std::min();
 
-static bool is_visible(const DynamicBitvector & tuple_vector, const DynamicBitvector & heritage) {
-
+    return invalid_branch_id;
 }
 
-static bool is_visible(const BitmapTable & table, tid_t tid, const DynamicBitvector & heritage) {
-    
+
+static bool is_visible(const DynamicBitvector & tuple_vector, const DynamicBitvector & lineage, QueryContext & ctx) {
+    branch_id_t current_branch = ctx.executionContext.branchId;
+    if (tuple_vector.test(current_branch)) {
+        return true;
+    }
+    branch_id_t epoch = static_cast<branch_id_t>(tuple_vector.cnt);
+    branch_id_t first_match = first_match(tuple_vector, lineage);
+    const auto & branch_lineage = ctx.executionContext.branch_lineage;
+    if (first_match != invalid_branch_id && epoch < branch_lineage.at(first_match)) {
+        return true;
+    }
+    return false;
+}
+
+static bool is_visible(const BitmapTable & table, tid_t tid, const DynamicBitvector & lineage) {
 }
 
 
@@ -60,7 +76,21 @@ static bool is_visible(VersionedTupleStorage * storage, branch_id_t branch) {
 }
 */
 
-tid_t insert_tuple(Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table) {
+tid_t mark_as_dangling_tid(tid_t tid) {
+    return (tid | static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
+}
+
+tid_t unmark_dangling_tid(tid_t tid) {
+    return (tid & ~(static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1)));
+}
+
+tid_t is_marked_as_dangling_tid(tid_t tid) {
+    return (0 < tid & static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
+}
+
+tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
+    branch_id_t branch = ctx.executionContext.branchId;
+
     if (branch == master_branch_id) {
         throw 0; // use the regular insert method
     }
@@ -81,7 +111,10 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & ta
     return tid;
 }
 
-void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table) {
+void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
+
+    branch_id_t branch = ctx.executionContext.branchId;
+
     // TODO
 
     if (is_marked_as_dangling_tid(tid) && branch == master_branch_id) {
@@ -95,38 +128,42 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, branch_id_t branch, 
         tid_t unmarked = unmark_dangling_tid(tid);
         head = static_cast<VersionedTupleStorage *>(table.dangling_chains[unmarked]);
     } else {
-        head = static_cast<VersionedTupleStorage *>(table.mv_begin[tid]);
+//        head = static_cast<VersionedTupleStorage *>(table.mv_begin[tid]);
+        head = static_cast<VersionedTupleStorage *>(table._version_mgmt_column[tid].first);
     }
 
 //    VersionedTupleStorage * head = static_cast<VersionedTupleStorage *>(table.mv_begin[tid]);
-    const DynamicBitvector & branch_indicator_vec = get_branch_indicator_vector(head);
-    while (!is_visible(branch_indicator_vec, branch)) {
+    const DynamicBitvector & branch_indicator_vec = *get_branch_indicator_vector(head);
+    while (!is_visible(branch_indicator_vec, branch, ctx)) {
         // TODO
-        head = head->next;
+        void * next = head->next;
+        // TODO inspect tag
+
     }
 }
 
-void delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, branch_id_t branch, Table & table) {
+void delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
     // TODO
     throw NotImplementedException();
 }
 
-std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, branch_id_t branch, Table & table) {
+std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx) {
+    branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
         throw 0; // use a regular scan
     }
 
+    auto lineage = construct_lineage_vector(ctx);
 
-    auto heritage = construct_heritage_vector(branch);
-/*
-    void * next = table.mv_begin[tid];
+//    void * next = table.mv_begin[tid];
+    void * next = table._version_mgmt_column[tid].first;
     while (next != nullptr) {
         tagged_ptr chain(next);
 
         if (likely(chain.is_tagged())) {
             const auto storage = static_cast<const VersionedTupleStorage *>(chain.untag().get());
             const auto branch_indicator_vec = get_branch_indicator_vector(storage);
-            if (branch_indicator_vec->test(branch)) {
+            if (is_visible(*branch_indicator_vec, *lineage, ctx)) {
                 const void * tuple_ptr = get_tuple_ptr(storage);
                 auto & tuple_type = table.getTupleType();
                 return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
@@ -134,34 +171,12 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, branch_id_t b
             next = storage->next;
         } else {
             const auto & branchBitmap = table.getBranchBitmap();
-            if (branchBitmap.isSet(tid, branch)) {
+            if (is_visible(branchBitmap, tid, *lineage)) {
                 // TODO
                 throw 0;
             }
-            next = table.mv_next[tid];
-        }
-    }
-*/
-    void * next = table.mv_begin[tid];
-    while (next != nullptr) {
-        tagged_ptr chain(next);
-
-        if (likely(chain.is_tagged())) {
-            const auto storage = static_cast<const VersionedTupleStorage *>(chain.untag().get());
-            const auto branch_indicator_vec = get_branch_indicator_vector(storage);
-            if (is_visible(*branch_indicator_vec, *heritage)) {
-                const void * tuple_ptr = get_tuple_ptr(storage);
-                auto & tuple_type = table.getTupleType();
-                return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
-            }
-            next = storage->next;
-        } else {
-            const auto & branchBitmap = table.getBranchBitmap();
-            if (is_visible(branchBitmap, tid, *heritage)) {
-                // TODO
-                throw 0;
-            }
-            next = table.mv_next[tid];
+//            next = table.mv_next[tid];
+            next = table._version_mgmt_column[tid].next;
         }
     }
 }

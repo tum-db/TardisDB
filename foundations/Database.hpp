@@ -9,9 +9,12 @@
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
 
+#include "foundations/version_management.hpp"
+
 using branch_id_t = int32_t;
 using cg_branch_id_t = TypeWrappers::UInt32;
 constexpr branch_id_t master_branch_id = 0;
+constexpr branch_id_t invalid_branch_id = std::numeric_limits<branch_id_t>::max();
 
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
@@ -124,9 +127,11 @@ private:
     BitmapTable _branchBitmap;
 public: // TODO
     // points to the first tuple within the version chain of each tuple
-    std::vector<void *> mv_begin;
+//    std::vector<void *> mv_begin;
     // next pointer as seen from the master branch (the actual column)
-    std::vector<void *> mv_next;
+//    std::vector<void *> mv_next;
+
+    std::vector<VersionEntry> _version_mgmt_column;
 
     std::vector<void *> dangling_chains;
 };
