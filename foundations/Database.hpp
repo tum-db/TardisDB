@@ -97,6 +97,7 @@ public:
 
     ci_p_t getCI(const std::string & columnName) const;
 
+    const Vector & getColumn(size_t idx) const;
     const Vector & getColumn(const std::string & columnName) const;
 
     /// The count of SQL columns without any null indicator column
@@ -131,9 +132,12 @@ public: // TODO
     // next pointer as seen from the master branch (the actual column)
 //    std::vector<void *> mv_next;
 
-    std::vector<VersionEntry> _version_mgmt_column;
+    std::vector<std::unique_ptr<VersionEntry>> _version_mgmt_column;
+    std::vector<std::unique_ptr<VersionEntry>> _dangling_version_mgmt_column;
 
-    std::vector<void *> dangling_chains;
+    size_t _lock_granularity = 1024;
+    std::vector<int64_t> _locks;
+//    std::vector<void *> dangling_chains;
 };
 
 void genTableAddRowCall(cg_voidptr_t table);
@@ -175,7 +179,7 @@ public:
 
     Table * getTable(const std::string & tableName);
 
-    branch_id_t getLargesBranchId() const;
+    branch_id_t getLargestBranchId() const;
 
 private:
     std::unordered_map<std::string, std::unique_ptr<Table>> _tables;
