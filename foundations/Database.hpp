@@ -135,8 +135,9 @@ public: // TODO
     std::vector<std::unique_ptr<VersionEntry>> _version_mgmt_column;
     std::vector<std::unique_ptr<VersionEntry>> _dangling_version_mgmt_column;
 
-    size_t _lock_granularity = 1024;
-    std::vector<int64_t> _locks;
+//    size_t _lock_granularity = 1024;
+//     std::vector<int64_t> _locks;
+
 //    std::vector<void *> dangling_chains;
 };
 
