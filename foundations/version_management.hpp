@@ -4,6 +4,7 @@
 #include "foundations/QueryContext.hpp"
 #include "native/sql/SqlValues.hpp"
 #include "native/sql/SqlTuple.hpp"
+#include "utils/optimistic_lock.hpp"
 
 #include <boost/dynamic_bitset.hpp>
 
@@ -64,6 +65,7 @@ struct VersionEntry {
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation (same as the length of the branch bitvector)
 //    int64_t lock;
+    opt_lock::lock_t lock;
     boost::dynamic_bitset<> branch_visibility;
 };
 
@@ -97,3 +99,12 @@ std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_of
 //void scan_relation(branch_id_t branch, Table & table, std::function<> consumer);
 template<typename Consumer>
 void scan_relation(branch_id_t branch, Table & table, Consumer consumer);
+
+template<typename Consumer>
+void scan_relation(branch_id_t branch, Table & table, Consumer consumer) {
+    if (branch == master_branch_id) {
+
+    } else {
+        
+    }
+}

@@ -2,10 +2,6 @@
 
 #include "foundations/exceptions.hpp"
 #include "utils/general.hpp"
-#include "utils/tagged_ptr.hpp"
-
-static std::unique_ptr<DynamicBitvector> construct_lineage_vector(QueryContext & ctx) {
-}
 
 template<typename T>
 static bool is_visible(const T & elem, QueryContext & ctx) {
@@ -22,7 +18,6 @@ static bool is_visible(const T & elem, QueryContext & ctx) {
 }
 
 static VersionedTupleStorage * create_chain_element(Table & table, size_t tuple_size) {
-
     Database & db = table.getDatabase();
 
     size_t size = sizeof(VersionedTupleStorage) + + tuple_size;
@@ -59,11 +54,10 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
         throw 0; // use the regular insert method
     }
 
-    // TODO
     Database & db = table.getDatabase();
     auto storage = create_chain_element(table, tuple.getSize());
 
-    tid_t tid = table.dangling_chains.size();
+    tid_t tid = table._dangling_version_mgmt_column.size();
     tid = mark_as_dangling_tid(tid);
 
     // branch visibility
@@ -72,40 +66,23 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
 
     tuple.store(get_tuple_ptr(storage));
 
+    // version entry
+    table._dangling_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+    VersionEntry * version_entry = table._dangling_version_mgmt_column.back().get();
+    version_entry->first = storage;
+    version_entry->next = storage;
+    version_entry->next_in_branch = storage;
+
+    /*
+    not used in this case:
+    version_entry->branch_id;
+    version_entry->branch_visibility;
+    */
+
+    version_entry->branch_visibility.set(branch);
+
     return tid;
 }
-
-#if 0
-void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
-
-    branch_id_t branch = ctx.executionContext.branchId;
-
-    // TODO
-
-    if (is_marked_as_dangling_tid(tid) && branch == master_branch_id) {
-        throw std::runtime_error("no such tuple in the given branch");
-    }
-
-
-    VersionedTupleStorage * head;
-    if (is_marked_as_dangling_tid(tid)) {
-        //
-        tid_t unmarked = unmark_dangling_tid(tid);
-        head = static_cast<VersionedTupleStorage *>(table.dangling_chains[unmarked]);
-    } else {
-//        head = static_cast<VersionedTupleStorage *>(table.mv_begin[tid]);
-        head = static_cast<VersionedTupleStorage *>(table._version_mgmt_column[tid]->first);
-    }
-
-
-    while (!is_visible(storage, ctx)) {
-        // TODO
-        void * next = head->next;
-        // TODO inspect tag
-
-    }
-}
-#endif
 
 VersionEntry * get_version_entry(tid_t tid, Table & table) {
     if (is_marked_as_dangling_tid(tid)) {
@@ -117,10 +94,7 @@ VersionEntry * get_version_entry(tid_t tid, Table & table) {
 }
 
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
-
     branch_id_t branch = ctx.executionContext.branchId;
-
-    // TODO
 
     if (is_marked_as_dangling_tid(tid) && branch == master_branch_id) {
         throw std::runtime_error("no such tuple in the given branch");
@@ -133,7 +107,7 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
 
     Database & db = table.getDatabase();
     if (branch == master_branch_id) {
-        auto current_tuple = get_latest_tuple(tid, table, ctx);
+        auto current_tuple = get_current_master(tid, table);
 
         auto storage = create_chain_element(table, current_tuple->getSize());
 
@@ -143,14 +117,14 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
 
         current_tuple->store(get_tuple_ptr(storage));
 
-        if (untagged_ptr(version_entry->first) == master...) {
-
-        } else {
-            
+        // version entry update
+        if (version_entry->first != version_entry) {
+            // chain head != current master
+           version_entry->first = version_entry; 
         }
-
+        version_entry->next = storage;
+        version_entry->next_in_branch = storage;
     } else {
-
         auto next_in_branch = get_latest_chain_element(version_entry, table, ctx);
 
         auto storage = create_chain_element(table, tuple.getSize());
@@ -172,24 +146,31 @@ tid_t delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Quer
     // TODO
     throw NotImplementedException();
 }
-#if 0
-const VersionedTupleStorage * get_latest_chain_element(tid_t tid, Table & table, QueryContext & ctx) {
+
+const void * get_latest_chain_element(const VersionEntry * version_entry, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
 
-    auto version_entry = get_version_entry(tid, table);
-
-    if (!version_entry->branch_visibility.test(branch)) {
-        throw std::runtime_error("no such tuple in the given branch");
+    if (branch == master_branch_id) {
+        return version_entry;
     }
 
-
-}
-#endif
-const VersionedTupleStorage * get_latest_chain_element(VersionEntry * version_entry, Table & table, QueryContext & ctx) {
-    branch_id_t branch = ctx.executionContext.branchId;
-
-
-
+    const void * next = version_entry->first;
+    while (next != nullptr) {
+        if (next == version_entry) {
+            // this is the current master branch
+            if (is_visible(version_entry, ctx)) {
+                return version_entry;
+            }
+            next = version_entry->next;
+        } else {
+            const auto storage = static_cast<const VersionedTupleStorage *>(next);
+            if (is_visible(*storage, ctx)) {
+                return storage;
+            }
+            next = storage->next;
+        }
+    }
+    return nullptr;
 }
 
 template<SqlType...>
@@ -197,33 +178,35 @@ class Register {
     std::max(...);
 };
 
+
+std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
+    std::vector<Native::Sql::value_op_t> values;
+    auto & tuple_type = table.getTupleType();
+    for (size_t i = 0; i < tuple_type.size(); ++i) {
+        const void * ptr = table.getColumn(i).at(tid);
+        values.push_back(Native::Sql::Value::load(ptr, tuple_type[tid]));
+    }
+    return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
+}
+
+#if 0
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
-        std::vector<Native::Sql::value_op_t> values;
-        auto & tuple_type = table.getTupleType();
-        for (size_t i = 0; i < tuple_type.size(); ++i) {
-            const void * ptr = table.getColumn(i).at(tid);
-            values.push_back(Native::Sql::Value::load(ptr, tuple_type[tid]));
-        }
-        return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
+        return get_current_master(tid, table);
     }
 
-    const auto entry = get_version_entry(tid, table);
-    const void * next = entry->first;
+    const auto version_entry = get_version_entry(tid, table);
+    const void * next = version_entry->first;
     while (next != nullptr) {
-        tagged_ptr chain(next);
-
-        if (likely(chain.is_tagged())) {
-            // master column
-            if (is_visible(entry, ctx)) {
-                // TODO
-                throw 0;
+        if (next == version_entry) {
+            // this is the current master branch
+            if (is_visible(version_entry, ctx)) {
+                return get_current_master(tid, table);
             }
-            next = entry->next;
-
+            next = version_entry->next;
         } else {
-            const auto storage = static_cast<const VersionedTupleStorage *>(chain.untag().get());
+            const auto storage = static_cast<const VersionedTupleStorage *>(next);
             if (is_visible(*storage, ctx)) {
                 const void * tuple_ptr = get_tuple_ptr(storage);
                 auto & tuple_type = table.getTupleType();
@@ -231,5 +214,25 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
             }
             next = storage->next;
         }
+    }
+}
+#endif
+std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx) {
+    branch_id_t branch = ctx.executionContext.branchId;
+    if (branch == master_branch_id) {
+        return get_current_master(tid, table);
+    }
+
+    const auto version_entry = get_version_entry(tid, table);
+    const void * element = get_latest_chain_element(version_entry, table, ctx);
+    if (element == nullptr) {
+        throw std::runtime_error("no such tuple in the given branch");
+    } else if (element == version_entry) {
+        return get_current_master(tid, table);
+    } else {
+        const auto storage = static_cast<const VersionedTupleStorage *>(element);
+        const void * tuple_ptr = get_tuple_ptr(storage);
+        auto & tuple_type = table.getTupleType();
+        return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
     }
 }
