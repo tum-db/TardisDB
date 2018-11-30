@@ -173,11 +173,95 @@ const void * get_latest_chain_element(const VersionEntry * version_entry, Table 
     return nullptr;
 }
 
-template<SqlType...>
-class Register {
-    std::max(...);
-};
+//template<SqlType...>
+/*
+SqlType getBoolTy(bool nullable = false);
 
+SqlType getDateTy(bool nullable = false);
+
+SqlType getIntegerTy(bool nullable = false);
+
+SqlType getNumericFullLengthTy(uint8_t precision, bool nullable = false);
+
+SqlType getNumericTy(uint8_t length, uint8_t precision, bool nullable = false);
+
+SqlType getCharTy(uint32_t length, bool nullable = false);
+
+SqlType getVarcharTy(uint32_t capacity, bool nullable = false);
+
+SqlType getTimestampTy(bool nullable = false);
+
+SqlType getTextTy(bool inplace, bool nullable = false);
+*/
+#if 0
+class Register {
+    static constexpr size_t max_size = std::max({
+        sizeof(Native::Sql::Bool),
+        sizeof(Native::Sql::Date),
+        sizeof(Native::Sql::Integer),
+        sizeof(Native::Sql::NullableValue),
+//        sizeof(Native::Sql::Char), // TODO
+//        sizeof(Native::Sql::Varchar), // TODO
+        sizeof(Native::Sql::Timestamp),
+        sizeof(Native::Sql::Text)
+    });
+    Sql::SqlType type;
+    size_t size;
+    uint8_t data[max_size];
+//    void store(Native::Sql::Value ...);
+    void load_from(const void * ptr) {
+        std::memcpy(data, ptr, size);
+    }
+
+
+};
+#endif
+
+class Register {
+    Sql::SqlType type;
+    bool is_null;
+    Native::Sql::Bool bool_value;
+    Native::Sql::Date date_value;
+
+    void load_from(const void * ptr) {
+        if (is_null) {
+            throw NotImplementedException();
+        }
+
+        switch (type.typeID) {
+            case Sql::SqlType::TypeID::UnknownID:
+                assert(false);
+            case Sql::SqlType::TypeID::BoolID:
+                throw NotImplementedException(); // TODO
+
+/*
+                new (&bool_value) ();
+*/
+
+            case Sql::SqlType::TypeID::IntegerID:
+                return Integer::load(ptr);
+    //        case SqlType::TypeID::VarcharID:
+    //        case SqlType::TypeID::CharID:
+            case Sql::SqlType::TypeID::NumericID:
+                return Numeric::load(ptr, type);
+            case Sql::SqlType::TypeID::DateID:
+                return Date::load(ptr);
+            case Sql::SqlType::TypeID::TimestampID:
+                return Timestamp::load(ptr);
+            default:
+                unreachable();
+        }
+    }
+
+    Native::Sql::Value & get_value() {
+        switch (type.typeID) {
+            case Sql::SqlType::TypeID::UnknownID:
+                assert(false);
+            case Sql::SqlType::TypeID::BoolID:
+                return bool_value;
+        }
+    }
+};
 
 std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
     std::vector<Native::Sql::value_op_t> values;
@@ -189,34 +273,6 @@ std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & tab
     return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
 }
 
-#if 0
-std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx) {
-    branch_id_t branch = ctx.executionContext.branchId;
-    if (branch == master_branch_id) {
-        return get_current_master(tid, table);
-    }
-
-    const auto version_entry = get_version_entry(tid, table);
-    const void * next = version_entry->first;
-    while (next != nullptr) {
-        if (next == version_entry) {
-            // this is the current master branch
-            if (is_visible(version_entry, ctx)) {
-                return get_current_master(tid, table);
-            }
-            next = version_entry->next;
-        } else {
-            const auto storage = static_cast<const VersionedTupleStorage *>(next);
-            if (is_visible(*storage, ctx)) {
-                const void * tuple_ptr = get_tuple_ptr(storage);
-                auto & tuple_type = table.getTupleType();
-                return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
-            }
-            next = storage->next;
-        }
-    }
-}
-#endif
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
