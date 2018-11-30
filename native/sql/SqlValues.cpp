@@ -63,7 +63,7 @@ value_op_t Value::load(const void * ptr, SqlType type)
         case SqlType::TypeID::UnknownID:
             return UnknownValue::create();
         case SqlType::TypeID::BoolID:
-            throw NotImplementedException(); // TODO
+            return Bool::load(ptr);
         case SqlType::TypeID::IntegerID:
             return Integer::load(ptr);
 //        case SqlType::TypeID::VarcharID:
@@ -89,6 +89,11 @@ size_t Value::getSize() const
 //-----------------------------------------------------------------------------
 // Integer
 
+Integer::Integer(const void * src) :
+    Value(::Sql::getIntegerTy()),
+    value(*static_cast<const value_type *>(src))
+{ }
+
 Integer::Integer(value_type constantValue) :
     Value(::Sql::getIntegerTy()),
     value(constantValue)
@@ -109,8 +114,7 @@ value_op_t Integer::castString(const std::string & str)
 
 value_op_t Integer::load(const void * ptr)
 {
-    value_type value = *static_cast<const value_type *>(ptr);
-    value_op_t sqlValue( new Integer(value) );
+    value_op_t sqlValue( new Integer(ptr) );
     return sqlValue;
 }
 
@@ -150,6 +154,13 @@ bool Integer::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Numeric
 
+Numeric::Numeric(const void * src, SqlType type) :
+    Value(type),
+    value(*static_cast<const value_type *>(src))
+{
+    assert(type.typeID == SqlType::TypeID::NumericID && !type.nullable);
+}
+
 Numeric::Numeric(SqlType type, value_type constantValue) :
         Value(type),
         value(constantValue)
@@ -177,8 +188,7 @@ value_op_t Numeric::castString(const std::string & str, SqlType type)
 
 value_op_t Numeric::load(const void * ptr, SqlType type)
 {
-    value_type value = *static_cast<const value_type *>(ptr);
-    value_op_t sqlValue( new Numeric(type, value) );
+    value_op_t sqlValue( new Numeric(ptr, type) );
     return sqlValue;
 }
 
@@ -219,6 +229,12 @@ bool Numeric::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Bool
 
+Bool::Bool(const void * src) :
+        Value(::Sql::getBoolTy()),
+        value(*static_cast<const value_type *>(src))
+{ }
+
+
 Bool::Bool(value_type constantValue) :
         Value(::Sql::getBoolTy()),
         value(constantValue)
@@ -247,8 +263,7 @@ value_op_t Bool::castString(const std::string & str)
 
 value_op_t Bool::load(const void * ptr)
 {
-    value_type value = *static_cast<const value_type *>(ptr);
-    value_op_t sqlValue( new Bool(value) );
+    value_op_t sqlValue( new Bool(ptr) );
     return sqlValue;
 }
 
@@ -621,6 +636,11 @@ cg_bool_t Varchar::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Date
 
+Date::Date(const void * src) :
+    Value(::Sql::getDateTy()),
+    value(*static_cast<const value_type *>(src))
+{ }
+
 Date::Date(value_type constantValue) :
     Value(::Sql::getDateTy()),
     value(constantValue)
@@ -641,8 +661,7 @@ value_op_t Date::castString(const std::string & str)
 
 value_op_t Date::load(const void * ptr)
 {
-    value_type value = *static_cast<const value_type *>(ptr);
-    value_op_t sqlValue( new Date(value) );
+    value_op_t sqlValue( new Date(ptr) );
     return sqlValue;
 }
 
@@ -683,6 +702,11 @@ bool Date::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Timestamp
 
+Timestamp::Timestamp(const void * src) :
+    Value(::Sql::getTimestampTy()),
+    value(*static_cast<const value_type *>(src))
+{ }
+
 Timestamp::Timestamp(value_type constantValue) :
     Value(::Sql::getTimestampTy()),
     value(constantValue)
@@ -703,8 +727,7 @@ value_op_t Timestamp::castString(const std::string & str)
 
 value_op_t Timestamp::load(const void * ptr)
 {
-    value_type value = *static_cast<const value_type *>(ptr);
-    value_op_t sqlValue( new Timestamp(value) );
+    value_op_t sqlValue( new Timestamp(ptr) );
     return sqlValue;
 }
 
