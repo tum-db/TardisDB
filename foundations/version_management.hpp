@@ -93,15 +93,39 @@ tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, Que
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
 
+template<typename Consumer>
+void get_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer);
+
+template<typename Consumer>
+void get_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer) {
+    // set up
+    std::vector<Register> registers;
+    registers.resize(to_produce.size());
+    for (auto ci : to_produce) {
+
+    }
+    if (is_marked_as_dangling_tid(tid)) {
+
+    } else {
+        for (;;) {
+            // load
+//            Native::Sql::Value::load(ptr, type)
+            registers[i].load_from(ptr);
+        }
+        consumer(registers)
+    }
+}
+
+
 // revision_offset == 0 => latest revision
 std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx);
 
 //void scan_relation(branch_id_t branch, Table & table, std::function<> consumer);
 template<typename Consumer>
-void scan_relation(branch_id_t branch, Table & table, Consumer consumer);
+void scan_relation(branch_id_t branch, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer);
 
 template<typename Consumer>
-void scan_relation(branch_id_t branch, Table & table, Consumer consumer) {
+void scan_relation(branch_id_t branch, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer) {
     if (branch == master_branch_id) {
 
     } else {
