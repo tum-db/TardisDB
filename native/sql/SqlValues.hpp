@@ -227,6 +227,9 @@ protected:
 class Text : public Value {
 public:
     using value_type = std::array<uintptr_t, 2>;
+    using string_ref_t = std::pair<size_t, const uint8_t *>;
+
+    Text(const void * src);
 
     static value_op_t castString(const std::string & str);
 
@@ -244,13 +247,18 @@ public:
 
     bool compare(const Value & other, ComparisonMode mode) const override;
 
+    const uint8_t * begin() const;
+
+    string_ref_t getString() const;
+
+    bool isInplace() const;
+
     size_t length() const;
 
 private:
     value_type value;
 
-    Text(bool inplace, value_type raw);
-    Text(const uint8_t * begin, const uint8_t * end);
+    Text(const uint8_t * beginPtr, const uint8_t * endPtr);
     Text(uint8_t len, const uint8_t * bytes);
 };
 

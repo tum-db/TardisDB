@@ -14,8 +14,6 @@ struct SqlType {
         UnknownID, BoolID, IntegerID, CharID, VarcharID, NumericID, DateID, TimestampID, TextID
     } typeID;
     union {
-        // text specific:
-        bool inplace;
         // char/varchar specific:
         uint32_t length;
         // numeric specific:
@@ -61,7 +59,7 @@ SqlType getVarcharTy(uint32_t capacity, bool nullable = false);
 
 SqlType getTimestampTy(bool nullable = false);
 
-SqlType getTextTy(bool inplace, bool nullable = false);
+SqlType getTextTy(bool nullable = false);
 
 /// \brief calculate the storage size
 size_t getValueSize(SqlType type);

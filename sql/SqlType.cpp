@@ -75,10 +75,9 @@ SqlType getTimestampTy(bool nullable)
     return type;
 }
 
-SqlType getTextTy(bool inplace, bool nullable)
+SqlType getTextTy(bool nullable)
 {
     SqlType type(TypeID::TextID, nullable);
-    type.inplace = inplace;
     return type;
 }
 

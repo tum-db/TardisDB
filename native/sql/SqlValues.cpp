@@ -52,7 +52,7 @@ value_op_t Value::castString(const std::string & str, SqlType type)
     }
 }
 
-value_op_t Value::load(void * ptr, SqlType type)
+value_op_t Value::load(const void * ptr, SqlType type)
 {
     if (type.nullable) {
 //        return NullableValue::load(ptr, type);
@@ -745,20 +745,25 @@ bool Timestamp::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Text
 
-Text::Text(bool inplace, value_type raw) :
-    Value(::Sql::getTextTy(inplace)),
-    value(raw)
-{ }
-
-Text::Text(const uint8_t * begin, const uint8_t * end) :
-    Value(::Sql::getTextTy(false))
+Text::Text(const void * src) :
+    Value(::Sql::getTextTy())
 {
-    value[0] = reinterpret_cast<uintptr_t>(begin);
-    value[1] = reinterpret_cast<uintptr_t>(end);
+    const uintptr_t * src_array = reinterpret_cast<const uintptr_t *>(src);
+    value[0] = src_array[0];
+    value[1] = src_array[1];
+}
+
+Text::Text(const uint8_t * beginPtr, const uint8_t * endPtr) :
+    Value(::Sql::getTextTy())
+{
+    uintptr_t first_value = reinterpret_cast<uintptr_t>(beginPtr);
+    first_value ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
+    value[0] = first_value;
+    value[1] = reinterpret_cast<uintptr_t>(endPtr);
 }
 
 Text::Text(uint8_t len, const uint8_t * bytes) :
-    Value(::Sql::getTextTy(true))
+    Value(::Sql::getTextTy())
 {
     assert(len <= 15);
     uint8_t * data = reinterpret_cast<uint8_t *>(value.data());
@@ -768,7 +773,7 @@ Text::Text(uint8_t len, const uint8_t * bytes) :
 
 value_op_t Text::clone() const
 {
-    Value * cloned = new Text(type.inplace, value);
+    Value * cloned = new Text(value.data());
     return value_op_t(cloned);
 }
 
@@ -780,9 +785,9 @@ value_op_t Text::castString(const std::string & str)
         std::unique_ptr<uint8_t[]> data(new uint8_t[len]);
         std::memcpy(data.get(), bytes, len);
         auto & storedStr = StringPool::instance().put(sql_string_t(len, std::move(data)));
-        uint8_t * begin = storedStr.second.get();
-        uint8_t * end = begin+len;
-        value_op_t sqlValue( new Text(begin, end) );
+        uint8_t * beginPtr = storedStr.second.get();
+        uint8_t * endPtr = beginPtr+len;
+        value_op_t sqlValue( new Text(beginPtr, endPtr) );
         return sqlValue;
     } else {
         value_op_t sqlValue( new Text(static_cast<uint8_t>(len), bytes) );
@@ -792,50 +797,21 @@ value_op_t Text::castString(const std::string & str)
 
 value_op_t Text::load(const void * ptr)
 {
-    const uintptr_t * raw = static_cast<const uintptr_t *>(ptr);
-
-    // retrieve the leftmost bit
-    bool inplace = (0 == (raw[0] >> 8*sizeof(uintptr_t)-1));
-    if (inplace) {
-        const uint8_t * data = static_cast<const uint8_t *>(ptr);
-        value_op_t sqlValue( new Text(data[0], data+1) );
-        return sqlValue;
-    } else {
-        uintptr_t begin = raw[0];
-        // untag the leftmost bit
-        begin ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
-        uint8_t * beginPtr = reinterpret_cast<uint8_t *>(begin);
-        uint8_t * endPtr = reinterpret_cast<uint8_t *>(raw[1]);
-        value_op_t sqlValue( new Text(beginPtr, endPtr) );
-        return sqlValue;
-    }
+    value_op_t sqlValue( new Text(ptr));
+    return sqlValue;
 }
 
 void Text::store(void * ptr) const
 {
-    if (type.inplace) {
-        std::memcpy(ptr, value.data(), value.size()*sizeof(uintptr_t));
-    } else {
-        // tag the leftmost bit
-        uintptr_t begin = value[0];
-        begin ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
-
-        uintptr_t * raw = static_cast<uintptr_t *>(ptr);
-        raw[0] = begin;
-        raw[1] = value[1];
-    }
+    uintptr_t * dst_array = reinterpret_cast<uintptr_t *>(ptr);
+    dst_array[0] = value[0];
+    dst_array[1] = value[1];
 }
 
 hash_t Text::hash() const
 {
     size_t len = length();
-    if (type.inplace) {
-        const uint8_t * data = reinterpret_cast<const uint8_t *>(value.data());
-        return hashByteArray(&data[1], len);
-    } else {
-        const uint8_t * begin = reinterpret_cast<const uint8_t *>(value[0]);
-        return hashByteArray(begin, len);
-    }
+    return hashByteArray(begin(), len);
 }
 /*
 void Text::accept(ValueVisitor & visitor)
@@ -859,11 +835,11 @@ bool Text::equals(const Value & other) const
         return false;
     }
 
-    if (type.inplace) {
+    if (isInplace()) {
         return std::equal(value.begin(), value.end(), otherText.value.begin());
     } else {
-        const void * buf1 = reinterpret_cast<const void *>(value[0]);
-        const void * buf2 = reinterpret_cast<const void *>(otherText.value[0]);
+        const void * buf1 = begin();
+        const void * buf2 = otherText.begin();
         return (0 == std::memcmp(buf1, buf2, len));
     }
 }
@@ -873,13 +849,37 @@ bool Text::compare(const Value & other, ComparisonMode mode) const
     throw NotImplementedException();
 }
 
+const uint8_t * Text::begin() const {
+    if (isInplace()) {
+        const uint8_t * data = reinterpret_cast<const uint8_t *>(value.data());
+        return &data[1];
+    } else {
+        uintptr_t begin = value[0];
+        // untag the leftmost bit
+        begin ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
+        uint8_t * beginPtr = reinterpret_cast<uint8_t *>(begin);
+        return beginPtr;
+    }
+}
+
+Text::string_ref_t Text::getString() const {
+    return std::make_pair(length(), begin());
+}
+
+bool Text::isInplace() const {
+    bool inplace = (0 == (value[0] >> 8*sizeof(uintptr_t)-1));
+    return inplace;
+}
+
 size_t Text::length() const
 {
-    if (type.inplace) {
+    if (isInplace()) {
         const uint8_t * data = reinterpret_cast<const uint8_t *>(value.data());
         return data[0];
     } else {
-        ptrdiff_t diff = value[1] - value[0];
+        // remove tag
+        uintptr_t beginValue = reinterpret_cast<uintptr_t>(begin());
+        ptrdiff_t diff = value[1] - beginValue;
         return diff;
     }
 }
