@@ -59,9 +59,9 @@ struct DynamicBitvector {
 
 // similar to VersionedTupleStorage; used by the current 'master' branch entry
 struct VersionEntry {
-    void * first = nullptr; // use pointer tagging
-    void * next = nullptr; // use pointer tagging
-    VersionedTupleStorage * next_in_branch;
+    void * first = nullptr;
+    void * next = nullptr;
+    VersionedTupleStorage * next_in_branch = nullptr;
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation (same as the length of the branch bitvector)
 //    int64_t lock;
@@ -70,7 +70,7 @@ struct VersionEntry {
 };
 
 struct VersionedTupleStorage {
-    const void * next = nullptr; // use pointer tagging
+    const void * next = nullptr;
     const void * next_in_branch = nullptr;
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation
@@ -93,12 +93,13 @@ tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, Que
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
 
+#if 0
 template<typename Consumer>
 void get_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer);
 
 template<typename Consumer>
 void get_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer) {
-    // set up
+    // set up registers
     std::vector<Register> registers;
     registers.resize(to_produce.size());
     for (auto ci : to_produce) {
@@ -116,10 +117,48 @@ void get_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, std::vector<
     }
 }
 
+// T : std::tuple<Register *, size_t /* tuple index */, Vector *>
+struct ScanItem {
+//    size_t tuple_index;
+    size_t offset;
+    Vector & column;
+    Register & reg;
+};
+#endif
+
+template<typename Consumer, typename... Ts>
+void get_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+    if (is_marked_as_dangling_tid(tid)) {
+
+    } else {
+
+        auto * element;
+
+        if (element is latest master) {
+            std::apply([&tid] (const auto &... item) {
+                ((item->reg.load_from(item->column.at(tid)), ...);
+            },
+            scan_items);
+        } else {
+            uint8_t * tuple_ptr;
+            std::apply([] (const auto &... item) {
+                ((item->reg.load_from(ptr + item->offset), ...);
+            },
+            scan_items);
+        }
+        consumer(std::forward(scan_items));
+    }
+}
+
 
 // revision_offset == 0 => latest revision
 std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx);
 
+template<typename Consumer, typename... Ts>
+void get_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+}
+
+#if 0
 //void scan_relation(branch_id_t branch, Table & table, std::function<> consumer);
 template<typename Consumer>
 void scan_relation(branch_id_t branch, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer);
@@ -131,4 +170,19 @@ void scan_relation(branch_id_t branch, Table & table, std::vector<ci_p_t> & to_p
     } else {
         
     }
+}
+#endif
+template<typename Consumer, typename... Ts>
+void scan_relation(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+    branch_id_t branch = ctx.executionContext.branchId;
+    if (branch == master_branch_id) {
+
+    } else {
+        
+    }
+}
+
+
+namespace CppCodeGen {
+
 }

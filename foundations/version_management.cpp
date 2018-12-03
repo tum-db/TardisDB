@@ -173,6 +173,21 @@ const void * get_latest_chain_element(const VersionEntry * version_entry, Table 
     return nullptr;
 }
 
+const void * get_chain_element(const VersionEntry * version_entry, unsigned revision_offset, Table & table, QueryContext & ctx) {
+    const void * latest = get_latest_chain_element(version_entry, table, ctx);
+
+    auto current = latest;
+    auto current_offset = revision_offset;
+    while (current_offset != 0 && current != nullptr) {
+        if (current == version_entry) {
+            current = version_entry->next_in_branch;
+        } else {
+            current = static_cast<const VersionedTupleStorage *>(current)->next_in_branch;
+        }
+    }
+    return current;
+}
+
 //template<SqlType...>
 /*
 SqlType getBoolTy(bool nullable = false);
@@ -222,6 +237,10 @@ class Register {
     bool is_null;
     Native::Sql::Bool bool_value;
     Native::Sql::Date date_value;
+    Native::Sql::Integer integer_value;
+    Native::Sql::Numeric numeric_value;
+    Native::Sql::Text text_value;
+    Native::Sql::Timestamp timestamp_value;
 
     void load_from(const void * ptr) {
         if (is_null) {
@@ -232,33 +251,54 @@ class Register {
             case Sql::SqlType::TypeID::UnknownID:
                 assert(false);
             case Sql::SqlType::TypeID::BoolID:
-                throw NotImplementedException(); // TODO
-
-/*
-                new (&bool_value) ();
-*/
-
+                new (&bool_value) Native::Sql::Bool(ptr);
+                break;
+            case Sql::SqlType::TypeID::DateID:
+                new (&date_value) Native::Sql::Date(ptr);
+                break;
             case Sql::SqlType::TypeID::IntegerID:
-                return Integer::load(ptr);
+                new (&integer_value) Native::Sql::Integer(ptr);
+                break;
     //        case SqlType::TypeID::VarcharID:
     //        case SqlType::TypeID::CharID:
             case Sql::SqlType::TypeID::NumericID:
-                return Numeric::load(ptr, type);
-            case Sql::SqlType::TypeID::DateID:
-                return Date::load(ptr);
+                new (&numeric_value) Native::Sql::Numeric(ptr, type);
+                break;
+            case Sql::SqlType::TypeID::TextID:
+                new (&text_value) Native::Sql::Text(ptr);
+                break;
             case Sql::SqlType::TypeID::TimestampID:
-                return Timestamp::load(ptr);
+                new (&timestamp_value) Native::Sql::Timestamp(ptr);
+                break;
             default:
                 unreachable();
         }
     }
 
     Native::Sql::Value & get_value() {
+        if (is_null) {
+            assert(false);
+        }
+
         switch (type.typeID) {
             case Sql::SqlType::TypeID::UnknownID:
                 assert(false);
             case Sql::SqlType::TypeID::BoolID:
                 return bool_value;
+            case Sql::SqlType::TypeID::DateID:
+                return date_value;
+            case Sql::SqlType::TypeID::IntegerID:
+                return integer_value;
+    //        case SqlType::TypeID::VarcharID:
+    //        case SqlType::TypeID::CharID:
+            case Sql::SqlType::TypeID::NumericID:
+                return numeric_value;
+            case Sql::SqlType::TypeID::TextID:
+                return text_value;
+            case Sql::SqlType::TypeID::TimestampID:
+                return timestamp_value;
+            default:
+                unreachable();
         }
     }
 };
