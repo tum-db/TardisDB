@@ -170,6 +170,26 @@ const void * get_latest_chain_element(const VersionEntry * version_entry, Table 
     return nullptr;
 }
 
+const void * get_earliest_chain_element(const VersionEntry * version_entry, Table & table, QueryContext & ctx) {
+    const void * latest = get_latest_chain_element(version_entry, table, ctx);
+
+    auto current = latest;
+    auto next = current;
+    for (;;) {
+        if (next == nullptr) {
+            return current;
+        }
+
+        current = next;
+        if (current == version_entry) {
+            next = version_entry->next_in_branch;
+        } else {
+            next = static_cast<const VersionedTupleStorage *>(current)->next_in_branch;
+        }
+    }
+    return current;
+}
+
 const void * get_chain_element(const VersionEntry * version_entry, unsigned revision_offset, Table & table, QueryContext & ctx) {
     const void * latest = get_latest_chain_element(version_entry, table, ctx);
 

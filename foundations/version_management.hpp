@@ -86,6 +86,22 @@ void produce_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer
 }
 
 
+template<typename Consumer, typename... Ts>
+void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+    const auto version_entry = get_version_entry(tid, table);
+    const void * element = get_earliest_chain_element(version_entry, table, ctx);
+
+    if (element == nullptr) {
+        throw std::runtime_error("no such tuple in the given branch");
+    } else if (element == version_entry) { // current master
+        produce_current_master(tid, table, consumer, std::forward(scan_items));
+    } else {
+        auto storage = static_cast<const VersionedTupleStorage *>(element);
+        produce(storage, consumer, std::forward(scan_items));
+    }
+}
+
+
 // revision_offset == 0 => latest revision
 std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx);
 
