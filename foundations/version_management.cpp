@@ -18,12 +18,9 @@ static bool is_visible(const T & elem, QueryContext & ctx) {
 }
 
 static VersionedTupleStorage * create_chain_element(Table & table, size_t tuple_size) {
-    Database & db = table.getDatabase();
-
-    size_t size = sizeof(VersionedTupleStorage) + + tuple_size;
+    size_t size = sizeof(VersionedTupleStorage) + tuple_size;
     void * mem = std::malloc(size);
     VersionedTupleStorage * storage = new (mem) VersionedTupleStorage();
-
     return storage;
 }
 
