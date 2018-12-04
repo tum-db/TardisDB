@@ -8,54 +8,7 @@
 
 #include <boost/dynamic_bitset.hpp>
 
-//#include <bitset>
-
 class Table;
-
-/* TODO
-implement C++ SQL type interface
-
-reuse branch identifiers?
-*/
-
-// updating the master branches moves the whole structure entirely to the right
-
-/*
-in Table:
-std::vector<VersionedTupleStorage> newest;
-*/
-
-/*
-namespace Cpp {
-namespace Sql {
-
-class SqlTuple {
-};
-
-class SqlValue {
-};
-
-};
-};
-
-struct ExecutionContext {
-    std::unordered_map<branch_id_t, branch_id_t> branch_lineage; // mapping: parent -> offspring
-};
-*/
-
-struct DynamicBitvector {
-    unsigned cnt; // bit cnt
-//    std::bitset bits;
-    uint64_t data[0];
-
-    static size_t get_alloc_size(unsigned branch_cnt);
-
-    static DynamicBitvector & construct(unsigned branch_cnt, void * dst);
-
-    void set(unsigned idx);
-
-    bool test(unsigned idx) const;
-};
 
 // similar to VersionedTupleStorage; used by the current 'master' branch entry
 struct VersionEntry {
@@ -64,7 +17,6 @@ struct VersionEntry {
     VersionedTupleStorage * next_in_branch = nullptr;
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation (same as the length of the branch bitvector)
-//    int64_t lock;
     opt_lock::lock_t lock;
     boost::dynamic_bitset<> branch_visibility;
 };
@@ -74,7 +26,6 @@ struct VersionedTupleStorage {
     const void * next_in_branch = nullptr;
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation
-//    size_t tuple_offset;
     uint8_t data[0];
 };
 
@@ -153,20 +104,7 @@ void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Tabl
     }
 }
 
-#if 0
-//void scan_relation(branch_id_t branch, Table & table, std::function<> consumer);
-template<typename Consumer>
-void scan_relation(branch_id_t branch, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer);
 
-template<typename Consumer>
-void scan_relation(branch_id_t branch, Table & table, std::vector<ci_p_t> & to_produce, Consumer consumer) {
-    if (branch == master_branch_id) {
-
-    } else {
-        
-    }
-}
-#endif
 template<typename Consumer, typename... Ts>
 void scan_relation(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     branch_id_t branch = ctx.executionContext.branchId;
