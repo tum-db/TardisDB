@@ -332,3 +332,18 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
         return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
     }
 }
+
+std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx) {
+    const auto version_entry = get_version_entry(tid, table);
+    const void * element = get_chain_element(version_entry, revision_offset, table, ctx);
+    if (element == nullptr) {
+        throw std::runtime_error("no such tuple in the given branch");
+    } else if (element == version_entry) {
+        return get_current_master(tid, table);
+    } else {
+        const auto storage = static_cast<const VersionedTupleStorage *>(element);
+        const void * tuple_ptr = get_tuple_ptr(storage);
+        auto & tuple_type = table.getTupleType();
+        return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
+    }
+}
