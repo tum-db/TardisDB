@@ -58,7 +58,7 @@ template<typename Consumer, typename... Ts>
 inline void produce(const VersionedTupleStorage * storage, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     uint8_t * tuple_ptr = storage->data;
     std::apply([] (const auto &... item) {
-        ((item->reg.load_from(ptr + item->offset), ...);
+        ((item->reg.load_from(tuple_ptr + item->offset), ...);
     },
     scan_items);
     consumer(std::forward(scan_items));
