@@ -45,38 +45,55 @@ tid_t is_marked_as_dangling_tid(tid_t tid) {
 }
 
 tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
+    tid_t tid;
     branch_id_t branch = ctx.executionContext.branchId;
+    Database & db = table.getDatabase();
 
     if (branch == master_branch_id) {
-        throw 0; // use the regular insert method
+        tid = table._version_mgmt_column.size();
+
+        table._version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+        VersionEntry * version_entry = table._dangling_version_mgmt_column.back().get();
+        version_entry->first = version_entry;
+        version_entry->next = nullptr;
+        version_entry->next_in_branch = nullptr;
+
+        // branch visibility
+        version_entry->branch_id = master_branch_id;
+        version_entry->branch_visibility.set(master_branch_id);
+        version_entry->creation_ts = db.getLargestBranchId();
+
+        // store tuple
+        table.addRow();
+        size_t column_idx = 0;
+        for (auto & value : tuple.values) {
+            value->store(table.getColumn(column_idx).back());
+            column_idx += 1;
+        }
+    } else {
+        auto storage = create_chain_element(table, tuple.getSize());
+
+        tid = table._dangling_version_mgmt_column.size();
+        tid = mark_as_dangling_tid(tid);
+
+        // branch visibility
+        storage->branch_id = branch;
+        storage->creation_ts = db.getLargestBranchId();
+
+        tuple.store(get_tuple_ptr(storage));
+
+        // version entry
+        table._dangling_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+        VersionEntry * version_entry = table._dangling_version_mgmt_column.back().get();
+        version_entry->first = storage;
+        version_entry->next = storage;
+        version_entry->next_in_branch = nullptr;
+        /*
+        not used in this case:
+        version_entry->branch_id;
+        version_entry->branch_visibility;
+        */
     }
-
-    Database & db = table.getDatabase();
-    auto storage = create_chain_element(table, tuple.getSize());
-
-    tid_t tid = table._dangling_version_mgmt_column.size();
-    tid = mark_as_dangling_tid(tid);
-
-    // branch visibility
-    storage->branch_id = branch;
-    storage->creation_ts = db.getLargestBranchId();
-
-    tuple.store(get_tuple_ptr(storage));
-
-    // version entry
-    table._dangling_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-    VersionEntry * version_entry = table._dangling_version_mgmt_column.back().get();
-    version_entry->first = storage;
-    version_entry->next = storage;
-    version_entry->next_in_branch = storage;
-
-    /*
-    not used in this case:
-    version_entry->branch_id;
-    version_entry->branch_visibility;
-    */
-
-    version_entry->branch_visibility.set(branch);
 
     return tid;
 }
@@ -204,121 +221,6 @@ const void * get_chain_element(const VersionEntry * version_entry, unsigned revi
     }
     return current;
 }
-
-//template<SqlType...>
-/*
-SqlType getBoolTy(bool nullable = false);
-
-SqlType getDateTy(bool nullable = false);
-
-SqlType getIntegerTy(bool nullable = false);
-
-SqlType getNumericFullLengthTy(uint8_t precision, bool nullable = false);
-
-SqlType getNumericTy(uint8_t length, uint8_t precision, bool nullable = false);
-
-SqlType getCharTy(uint32_t length, bool nullable = false);
-
-SqlType getVarcharTy(uint32_t capacity, bool nullable = false);
-
-SqlType getTimestampTy(bool nullable = false);
-
-SqlType getTextTy(bool inplace, bool nullable = false);
-*/
-#if 0
-class Register {
-    static constexpr size_t max_size = std::max({
-        sizeof(Native::Sql::Bool),
-        sizeof(Native::Sql::Date),
-        sizeof(Native::Sql::Integer),
-        sizeof(Native::Sql::NullableValue),
-//        sizeof(Native::Sql::Char), // TODO
-//        sizeof(Native::Sql::Varchar), // TODO
-        sizeof(Native::Sql::Timestamp),
-        sizeof(Native::Sql::Text)
-    });
-    Sql::SqlType type;
-    size_t size;
-    uint8_t data[max_size];
-//    void store(Native::Sql::Value ...);
-    void load_from(const void * ptr) {
-        std::memcpy(data, ptr, size);
-    }
-
-
-};
-#endif
-
-class Register {
-    Sql::SqlType type;
-    bool is_null;
-    Native::Sql::Bool bool_value;
-    Native::Sql::Date date_value;
-    Native::Sql::Integer integer_value;
-    Native::Sql::Numeric numeric_value;
-    Native::Sql::Text text_value;
-    Native::Sql::Timestamp timestamp_value;
-
-    void load_from(const void * ptr) {
-        if (is_null) {
-            throw NotImplementedException();
-        }
-
-        switch (type.typeID) {
-            case Sql::SqlType::TypeID::UnknownID:
-                assert(false);
-            case Sql::SqlType::TypeID::BoolID:
-                new (&bool_value) Native::Sql::Bool(ptr);
-                break;
-            case Sql::SqlType::TypeID::DateID:
-                new (&date_value) Native::Sql::Date(ptr);
-                break;
-            case Sql::SqlType::TypeID::IntegerID:
-                new (&integer_value) Native::Sql::Integer(ptr);
-                break;
-    //        case SqlType::TypeID::VarcharID:
-    //        case SqlType::TypeID::CharID:
-            case Sql::SqlType::TypeID::NumericID:
-                new (&numeric_value) Native::Sql::Numeric(ptr, type);
-                break;
-            case Sql::SqlType::TypeID::TextID:
-                new (&text_value) Native::Sql::Text(ptr);
-                break;
-            case Sql::SqlType::TypeID::TimestampID:
-                new (&timestamp_value) Native::Sql::Timestamp(ptr);
-                break;
-            default:
-                unreachable();
-        }
-    }
-
-    Native::Sql::Value & get_value() {
-        if (is_null) {
-            assert(false);
-        }
-
-        switch (type.typeID) {
-            case Sql::SqlType::TypeID::UnknownID:
-                assert(false);
-            case Sql::SqlType::TypeID::BoolID:
-                return bool_value;
-            case Sql::SqlType::TypeID::DateID:
-                return date_value;
-            case Sql::SqlType::TypeID::IntegerID:
-                return integer_value;
-    //        case SqlType::TypeID::VarcharID:
-    //        case SqlType::TypeID::CharID:
-            case Sql::SqlType::TypeID::NumericID:
-                return numeric_value;
-            case Sql::SqlType::TypeID::TextID:
-                return text_value;
-            case Sql::SqlType::TypeID::TimestampID:
-                return timestamp_value;
-            default:
-                unreachable();
-        }
-    }
-};
 
 std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
     std::vector<Native::Sql::value_op_t> values;

@@ -2,6 +2,7 @@
 
 #include "foundations/Database.hpp"
 #include "foundations/QueryContext.hpp"
+#include "native/sql/Register.hpp"
 #include "native/sql/SqlValues.hpp"
 #include "native/sql/SqlTuple.hpp"
 #include "utils/optimistic_lock.hpp"
@@ -120,9 +121,29 @@ void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Tabl
     }
 }
 
+template<typename Consumer, typename... Ts>
+void scan_relation_yielding_earliest(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+    branch_id_t branch = ctx.executionContext.branchId;
+    if (branch == master_branch_id) {
+        auto size = table._version_mgmt_column->size();
+        for (tid_t tid = 0; tid < size; ++tid) {
+            produce_earliest_tuple(ctx, tid, consumer, std::forward(scan_items));
+        }
+    } else {
+        auto size = table._version_mgmt_column->size();
+        for (tid_t tid = 0; tid < size; ++tid) {
+            produce_earliest_tuple(ctx, tid, consumer, std::forward(scan_items));
+        }
+        size = table._dangling_version_mgmt_column->size();
+        for (tid_t tid = 0; tid < size; ++tid) {
+            tid_t marked = mark_as_dangling_tid(tid);
+            produce_earliest_tuple(ctx, marked, consumer, std::forward(scan_items));
+        }
+    }
+}
 
 template<typename Consumer, typename... Ts>
-void scan_relation(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+void scan_relation_yielding_latest(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
         auto size = table._version_mgmt_column->size();
