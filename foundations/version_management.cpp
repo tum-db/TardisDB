@@ -67,7 +67,8 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
         table.addRow();
         size_t column_idx = 0;
         for (auto & value : tuple.values) {
-            value->store(table.getColumn(column_idx).back());
+            void * ptr = const_cast<void *>(table.getColumn(column_idx).back());
+            value->store(ptr);
             column_idx += 1;
         }
     } else {
@@ -91,8 +92,8 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
         /*
         not used in this case:
         version_entry->branch_id;
-        version_entry->branch_visibility;
         */
+        version_entry->branch_visibility.set(branch);
     }
 
     return tid;
@@ -114,12 +115,8 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         throw std::runtime_error("no such tuple in the given branch");
     }
 
-    auto version_entry = get_version_entry(tid, table);
-    if (!version_entry->branch_visibility.test(branch)) {
-        throw std::runtime_error("no such tuple in the given branch");
-    }
-
     Database & db = table.getDatabase();
+    auto version_entry = get_version_entry(tid, table);
     if (branch == master_branch_id) {
         auto current_tuple = get_current_master(tid, table);
 
@@ -139,18 +136,22 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         version_entry->next = storage;
         version_entry->next_in_branch = storage;
     } else {
-        auto next_in_branch = get_latest_chain_element(version_entry, table, ctx);
+        auto predecessor = get_latest_chain_element(version_entry, table, ctx);
+        if (predecessor == nullptr) {
+            throw std::runtime_error("no such tuple in the given branch");
+        }
 
         auto storage = create_chain_element(table, tuple.getSize());
 
         // branch visibility
         storage->branch_id = branch;
         storage->creation_ts = db.getLargestBranchId();
+        version_entry->branch_visibility.set(branch);
 
         tuple.store(get_tuple_ptr(storage));
 
         storage->next = version_entry->first;
-        storage->next_in_branch = next_in_branch;
+        storage->next_in_branch = predecessor;
 
         version_entry->first = storage;
     }

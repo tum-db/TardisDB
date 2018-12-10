@@ -30,7 +30,7 @@ struct VersionedTupleStorage {
     uint8_t data[0];
 };
 
-branch_id_t create_branch(std::string name);
+//branch_id_t create_branch(std::string name, branch_id_t parent);
 
 // FIXME tuple has to exist in the master branch!
 tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
@@ -45,6 +45,9 @@ tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, Que
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
 
+inline bool has_lineage_intersection(QueryContext & ctx, VersionEntry * version_entry) {
+    return (ctx.executionContext.branch_lineage_bitset.intersects(version_entry->branch_visibility));
+}
 
 template<typename Consumer, typename... Ts>
 inline void produce_current_master(tid_t tid, Consumer consumer, const std::tuple<Ts...> & scan_items) {
@@ -74,10 +77,14 @@ void produce_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer
     }
 
     const auto version_entry = get_version_entry(tid, table);
+    if (!has_lineage_intersection(ctx, version_entry)) {
+        return;
+    }
     const void * element = get_latest_chain_element(version_entry, table, ctx);
 
     if (element == nullptr) {
-        throw std::runtime_error("no such tuple in the given branch");
+//        throw std::runtime_error("no such tuple in the given branch");
+        return;
     } else if (element == version_entry) { // current master
         produce_current_master(tid, table, consumer, std::forward(scan_items));
     } else {
@@ -90,10 +97,14 @@ void produce_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer
 template<typename Consumer, typename... Ts>
 void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     const auto version_entry = get_version_entry(tid, table);
+    if (!has_lineage_intersection(ctx, version_entry)) {
+        return;
+    }
     const void * element = get_earliest_chain_element(version_entry, table, ctx);
 
     if (element == nullptr) {
-        throw std::runtime_error("no such tuple in the given branch");
+//        throw std::runtime_error("no such tuple in the given branch");
+        return;
     } else if (element == version_entry) { // current master
         produce_current_master(tid, table, consumer, std::forward(scan_items));
     } else {
@@ -109,10 +120,14 @@ std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_of
 template<typename Consumer, typename... Ts>
 void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     const auto version_entry = get_version_entry(tid, table);
+    if (!has_lineage_intersection(ctx, version_entry)) {
+        return;
+    }
     const void * element = get_chain_element(version_entry, revision_offset, table, ctx);
 
     if (element == nullptr) {
-        throw std::runtime_error("no such tuple in the given branch");
+//        throw std::runtime_error("no such tuple in the given branch");
+        return;
     } else if (element == version_entry) { // current master
         produce_current_master(tid, table, consumer, std::forward(scan_items));
     } else {

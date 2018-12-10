@@ -167,8 +167,8 @@ class BTreeIndex : public Index {
 
 struct Branch {
     branch_id_t id;
+    branch_id_t parent_id;
     std::string name;
-    Branch * parent;
 };
 
 //-----------------------------------------------------------------------------
@@ -186,6 +186,11 @@ private:
     std::unordered_map<std::string, std::unique_ptr<Table>> _tables;
     std::unordered_map<std::string, std::unique_ptr<Index>> _indexes;
 
+public:
+    branch_id_t createBranch(const std::string & name, branch_id_t parent);
+    void constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx);
+
     std::unordered_map<branch_id_t, std::unique_ptr<Branch>> _branches;
+    std::unordered_map<std::string, branch_id_t> _branchMapping;
     branch_id_t _next_branch_id;
 };

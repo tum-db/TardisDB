@@ -220,6 +220,8 @@ void genTableAddRowCall(cg_voidptr_t table)
 void Database::addTable(std::unique_ptr<Table> table, const std::string & name)
 {
     _tables.emplace(name, std::move(table));
+    auto branch = createBranch("master", invalid_branch_id);
+    assert(branch == master_branch_id);
 }
 
 Table * Database::getTable(const std::string & tableName)
@@ -231,4 +233,17 @@ Table * Database::getTable(const std::string & tableName)
     } else {
         return nullptr;
     }
+}
+
+branch_id_t Database::createBranch(const std::string & name, branch_id_t parent) {
+    if (parent != invalid_branch_id) {
+
+    }
+
+    throw 0;
+}
+
+void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx) {
+
+    throw 0;
 }

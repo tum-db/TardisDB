@@ -7,6 +7,8 @@
 
 #include <unordered_map>
 
+#include <boost/dynamic_bitset.hpp>
+
 using scope_level_t = size_t;
 
 struct ExecutionResource {
@@ -20,6 +22,7 @@ struct ExecutionContext {
     bool overflowFlag = false;
     branch_id_t branchId = 0;
     std::unordered_map<branch_id_t, branch_id_t> branch_lineage; // mapping: parent -> offspring
+    boost::dynamic_bitset<> branch_lineage_bitset;
 };
 
 // TODO distinguish between Compilation and Runtime context
