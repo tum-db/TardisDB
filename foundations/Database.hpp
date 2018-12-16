@@ -113,7 +113,7 @@ public:
 
     Database & getDatabase() const;
 
-    const std::vector<Sql::SqlType> & getTupleType() const;
+    std::vector<Sql::SqlType> getTupleType() const;
 
     size_t size() const;
 

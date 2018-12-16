@@ -207,8 +207,3 @@ void scan_relation_yielding_latest(QueryContext & ctx, Table & table, Consumer c
         }
     }
 }
-
-
-namespace CppCodeGen {
-
-}

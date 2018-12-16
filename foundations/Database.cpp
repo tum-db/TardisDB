@@ -186,6 +186,10 @@ ci_p_t Table::getCI(const std::string & columnName) const
     return ci.get();
 }
 
+const Vector & Table::getColumn(size_t idx) const {
+    return *_columns.at(idx).second;
+}
+
 const Vector & Table::getColumn(const std::string & columnName) const
 {
 //    return *_columns.at(columnName).second;
@@ -216,11 +220,13 @@ Database & Table::getDatabase() const {
     return _db;
 }
 
-/*
-const std::vector<Sql::SqlType> & Table::getTupleType() const {
-    // TODO
+std::vector<Sql::SqlType> Table::getTupleType() const {
+    std::vector<Sql::SqlType> tupleType;
+    for (const auto & [ci, vec] : _columns) {
+        tupleType.push_back(ci->type);
+    }
+    return tupleType;
 }
-*/
 
 size_t Table::size() const
 {
@@ -278,6 +284,10 @@ Table * Database::getTable(const std::string & tableName)
     } else {
         return nullptr;
     }
+}
+
+branch_id_t Database::getLargestBranchId() const {
+    return _next_branch_id - 1;
 }
 
 branch_id_t Database::createBranch(const std::string & name, branch_id_t parent) {
