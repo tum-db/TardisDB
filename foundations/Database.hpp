@@ -9,9 +9,9 @@
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
 
-#include "foundations/version_management.hpp"
+//#include "foundations/version_management.hpp"
 
-using branch_id_t = int32_t;
+using branch_id_t = uint32_t;
 using cg_branch_id_t = TypeWrappers::UInt32;
 constexpr branch_id_t master_branch_id = 0;
 constexpr branch_id_t invalid_branch_id = std::numeric_limits<branch_id_t>::max();
@@ -80,11 +80,12 @@ cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_
 // Table
 
 class Database;
+struct VersionEntry;
 
 /// AbstractTable is a base class which provides an interface to lookup columns at runtime
 class Table {
 public:
-    Table();
+    Table(Database & db);
     ~Table() = default;
 
     void addColumn(const std::string & columnName, Sql::SqlType type);
@@ -103,7 +104,8 @@ public:
     /// The count of SQL columns without any null indicator column
     size_t getColumnCount() const;
 
-    const std::vector<std::string> & getColumnNames() const;
+//    const std::vector<std::string> & getColumnNames() const;
+    std::vector<std::string> getColumnNames() const;
 
     BitmapTable & getNullIndicatorTable() { return _nullIndicatorTable; }
 
@@ -116,13 +118,18 @@ public:
     size_t size() const;
 
 private:
+    Database & _db;
 //    std::string _name;
+/*
     std::unordered_map<
             std::string,
             std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>> _columns;
     std::vector<std::string> _columnNames;
-
-    std::vector<std::unique_ptr<Vector>> _columns;
+*/
+    std::unordered_map<std::string, size_t> _columnsByName; // name -> column index
+    std::vector<
+        std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>
+        > _columns;
 
     BitmapTable _nullIndicatorTable;
     BitmapTable _branchBitmap;
@@ -174,9 +181,14 @@ struct Branch {
 //-----------------------------------------------------------------------------
 // Database
 
+struct ExecutionContext;
+
 class Database {
 public:
-    void addTable(std::unique_ptr<Table> table, const std::string & name);
+    Database();
+
+//    void addTable(std::unique_ptr<Table> table, const std::string & name);
+    Table & createTable(const std::string & name);
 
     Table * getTable(const std::string & tableName);
 

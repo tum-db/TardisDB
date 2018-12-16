@@ -89,6 +89,11 @@ size_t Value::getSize() const
 //-----------------------------------------------------------------------------
 // Integer
 
+Integer::Integer() :
+    Value(::Sql::getIntegerTy()),
+    value(0)
+{ }
+
 Integer::Integer(const void * src) :
     Value(::Sql::getIntegerTy()),
     value(*static_cast<const value_type *>(src))
@@ -153,6 +158,11 @@ bool Integer::compare(const Value & other, ComparisonMode mode) const
 
 //-----------------------------------------------------------------------------
 // Numeric
+
+Numeric::Numeric() :
+    Value(::Sql::getNumericFullLengthTy(2)),
+    value(0)
+{ }
 
 Numeric::Numeric(const void * src, SqlType type) :
     Value(type),
@@ -229,15 +239,20 @@ bool Numeric::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Bool
 
+Bool::Bool() :
+    Value(::Sql::getBoolTy()),
+    value(false)
+{ }
+
 Bool::Bool(const void * src) :
-        Value(::Sql::getBoolTy()),
-        value(*static_cast<const value_type *>(src))
+    Value(::Sql::getBoolTy()),
+    value(*static_cast<const value_type *>(src))
 { }
 
 
 Bool::Bool(value_type constantValue) :
-        Value(::Sql::getBoolTy()),
-        value(constantValue)
+    Value(::Sql::getBoolTy()),
+    value(constantValue)
 { }
 
 value_op_t Bool::clone() const
@@ -636,6 +651,11 @@ cg_bool_t Varchar::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Date
 
+Date::Date() :
+    Value(::Sql::getDateTy()),
+    value(0)
+{ }
+
 Date::Date(const void * src) :
     Value(::Sql::getDateTy()),
     value(*static_cast<const value_type *>(src))
@@ -702,6 +722,11 @@ bool Date::compare(const Value & other, ComparisonMode mode) const
 //-----------------------------------------------------------------------------
 // Timestamp
 
+Timestamp::Timestamp() :
+    Value(::Sql::getTimestampTy()),
+    value(0)
+{ }
+
 Timestamp::Timestamp(const void * src) :
     Value(::Sql::getTimestampTy()),
     value(*static_cast<const value_type *>(src))
@@ -767,6 +792,13 @@ bool Timestamp::compare(const Value & other, ComparisonMode mode) const
 
 //-----------------------------------------------------------------------------
 // Text
+
+Text::Text() :
+    Value(::Sql::getTextTy())
+{
+    value[0] = 0;
+    value[1] = 0;
+}
 
 Text::Text(const void * src) :
     Value(::Sql::getTextTy())

@@ -1,12 +1,15 @@
-
-#include "Database.hpp"
+#include "foundations/Database.hpp"
 
 #include <cmath>
 #include <climits>
+#include <algorithm>
+#include <vector>
 
 #include <llvm/IR/TypeBuilder.h>
 
-#include "exceptions.hpp"
+#include "foundations/exceptions.hpp"
+#include "foundations/QueryContext.hpp"
+#include "foundations/version_management.hpp"
 
 //-----------------------------------------------------------------------------
 // NullIndicatorColumn
@@ -118,14 +121,18 @@ cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_
 //-----------------------------------------------------------------------------
 // Table
 
-Table::Table()
+Table::Table(Database & db) :
+    _db(db)
 {
     createBranch("master");
 }
 
 void Table::addColumn(const std::string & columnName, Sql::SqlType type)
 {
-    _columnNames.push_back(columnName);
+//    _columnNames.push_back(columnName);
+    if (_columnsByName.count(columnName) > 0) {
+        throw InvalidOperationException("name already in use");
+    }
 
     // the null indicator is not part of the permanent storage layout (for both types)
 #ifndef USE_INTERNAL_NULL_INDICATOR
@@ -150,13 +157,15 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
 #endif
     }
 
-    _columns.emplace(columnName, std::make_pair(std::move(ci), std::move(column)));
+//    _columns.emplace(columnName, std::make_pair(std::move(ci), std::move(column)));
+    _columnsByName.emplace(columnName, _columns.size());
+    _columns.emplace_back(std::move(ci), std::move(column));
 }
 
 void Table::addRow()
 {
-    for (auto & column : _columns) {
-        column.second.second->reserve_back();
+    for (auto & [ci, vec] : _columns) {
+        vec->reserve_back();
     }
     _nullIndicatorTable.addRow();
     _branchBitmap.addRow();
@@ -171,12 +180,18 @@ void Table::createBranch(const std::string & name)
 
 ci_p_t Table::getCI(const std::string & columnName) const
 {
-    return _columns.at(columnName).first.get();
+//    return _columns.at(columnName).first.get();
+    auto idx = _columnsByName.at(columnName);
+    auto & [ci, vec] = _columns[idx];
+    return ci.get();
 }
 
 const Vector & Table::getColumn(const std::string & columnName) const
 {
-    return *_columns.at(columnName).second;
+//    return *_columns.at(columnName).second;
+    auto idx = _columnsByName.at(columnName);
+    auto & [ci, vec] = _columns[idx];
+    return *vec;
 }
 
 size_t Table::getColumnCount() const
@@ -184,17 +199,36 @@ size_t Table::getColumnCount() const
     return _columns.size();
 }
 
-const std::vector<std::string> & Table::getColumnNames() const
+//const std::vector<std::string> & Table::getColumnNames() const
+std::vector<std::string> Table::getColumnNames() const
 {
-    return _columnNames;
+//    return _columnNames;
+    using namespace std;
+    vector<std::string> names;
+    transform(begin(_columnsByName), end(_columnsByName), back_inserter(names),
+        [](const auto & pair) {
+            return pair.first;
+    });
+    return names;
 }
+
+Database & Table::getDatabase() const {
+    return _db;
+}
+
+/*
+const std::vector<Sql::SqlType> & Table::getTupleType() const {
+    // TODO
+}
+*/
 
 size_t Table::size() const
 {
     if (_columns.empty()) {
         return 0;
     } else {
-        return _columns.begin()->second.second->size();
+//        return _columns.begin()->second.second->size();
+        return _version_mgmt_column.size();
     }
 }
 
@@ -217,11 +251,22 @@ void genTableAddRowCall(cg_voidptr_t table)
 //-----------------------------------------------------------------------------
 // Database
 
+Database::Database() :
+    _next_branch_id(master_branch_id)
+{
+    auto branch = createBranch("master", invalid_branch_id);
+    assert(branch == master_branch_id);
+}
+/*
 void Database::addTable(std::unique_ptr<Table> table, const std::string & name)
 {
     _tables.emplace(name, std::move(table));
-    auto branch = createBranch("master", invalid_branch_id);
-    assert(branch == master_branch_id);
+}
+*/
+Table & Database::createTable(const std::string & name) {
+    auto [it, ok] = _tables.emplace(name, std::make_unique<Table>(*this));
+    assert(ok);
+    return *it->second;
 }
 
 Table * Database::getTable(const std::string & tableName)
@@ -236,14 +281,30 @@ Table * Database::getTable(const std::string & tableName)
 }
 
 branch_id_t Database::createBranch(const std::string & name, branch_id_t parent) {
-    if (parent != invalid_branch_id) {
-
-    }
-
-    throw 0;
+    branch_id_t branch_id = _next_branch_id++;
+    auto branch = std::make_unique<Branch>();
+    branch->id = branch_id;
+    branch->name = name;
+    branch->parent_id = parent;
+    _branches.insert({branch_id, std::move(branch)});
+    _branchMapping.insert({name, branch_id});
+    return branch_id;
 }
 
 void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx) {
+    assert(branch != invalid_branch_id);
 
-    throw 0;
+    dstCtx.branch_lineage.clear();
+    dstCtx.branch_lineage_bitset.clear();
+
+    branch_id_t current = branch;
+    for (;;) {
+        dstCtx.branch_lineage_bitset.set(current);
+        auto & branch_obj = _branches[current];
+        if (branch_obj->parent_id == invalid_branch_id) {
+            break;
+        }
+        dstCtx.branch_lineage.insert({branch_obj->parent_id, current});
+        current = branch_obj->parent_id;
+    }
 }

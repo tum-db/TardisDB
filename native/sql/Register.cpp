@@ -1,4 +1,6 @@
+#include "foundations/exceptions.hpp"
 #include "native/sql/Register.hpp"
+#include "utils/general.hpp"
 
 namespace Native {
 namespace Sql {

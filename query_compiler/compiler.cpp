@@ -24,6 +24,7 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/loader.hpp"
+#include "foundations/version_management.hpp"
 #include "query_compiler/queryparser.hpp"
 #include "query_compiler/semantic_analysis.hpp"
 

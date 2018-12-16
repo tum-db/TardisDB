@@ -5,6 +5,7 @@
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
+#include "foundations/version_management.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
@@ -144,115 +145,108 @@ std::unique_ptr<Database> loadUniDb()
     {
         ModuleGen moduleGen("LoadTableModule");
 
-        auto professoren = std::make_unique<Table>();
-        professoren->addColumn("persnr", Sql::getIntegerTy());
-        professoren->addColumn("name", Sql::getVarcharTy(20));
-        professoren->addColumn("rang", Sql::getVarcharTy(2));
-        professoren->addColumn("raum", Sql::getIntegerTy());
+        auto & professoren = uniDb->createTable("professoren");
+        professoren.addColumn("persnr", Sql::getIntegerTy());
+        professoren.addColumn("name", Sql::getVarcharTy(20));
+        professoren.addColumn("rang", Sql::getVarcharTy(2));
+        professoren.addColumn("raum", Sql::getIntegerTy());
 
         std::ifstream fs("tables/uni/professoren.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
 
-        loadTable(fs, *professoren);
-        uniDb->addTable(std::move(professoren), "professoren");
+        loadTable(fs, professoren);
     }
 
     // load studenten.tbl
     {
         ModuleGen moduleGen("LoadTableModule");
 
-        auto studenten = std::make_unique<Table>();
-        studenten->addColumn("matrnr", Sql::getIntegerTy());
-        studenten->addColumn("name", Sql::getVarcharTy(20));
+        auto & studenten = uniDb->createTable("studenten");
+        studenten.addColumn("matrnr", Sql::getIntegerTy());
+        studenten.addColumn("name", Sql::getVarcharTy(20));
 //        studenten->addColumn("semester", Sql::getIntegerTy(true));
-        studenten->addColumn("semester", Sql::getIntegerTy());
+        studenten.addColumn("semester", Sql::getIntegerTy());
 
         std::ifstream fs("tables/uni/studenten.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
 
-        loadTable(fs, *studenten);
-        uniDb->addTable(std::move(studenten), "studenten");
+        loadTable(fs, studenten);
     }
 
     // load vorlesungen.tbl
     {
         ModuleGen moduleGen("LoadTableModule");
 
-        auto vorlesungen = std::make_unique<Table>();
-        vorlesungen->addColumn("vorlnr", Sql::getIntegerTy());
-        vorlesungen->addColumn("titel", Sql::getVarcharTy(40));
-        vorlesungen->addColumn("sws", Sql::getIntegerTy());
-        vorlesungen->addColumn("gelesenvon", Sql::getIntegerTy());
+        auto & vorlesungen = uniDb->createTable("vorlesungen");
+        vorlesungen.addColumn("vorlnr", Sql::getIntegerTy());
+        vorlesungen.addColumn("titel", Sql::getVarcharTy(40));
+        vorlesungen.addColumn("sws", Sql::getIntegerTy());
+        vorlesungen.addColumn("gelesenvon", Sql::getIntegerTy());
 
         std::ifstream fs("tables/uni/vorlesungen.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
 
-        loadTable(fs, *vorlesungen);
-        uniDb->addTable(std::move(vorlesungen), "vorlesungen");
+        loadTable(fs, vorlesungen);
     }
 
     // load voraussetzen.tbl
     {
         ModuleGen moduleGen("LoadTableModule");
 
-        auto voraussetzen = std::make_unique<Table>();
-        voraussetzen->addColumn("vorgaenger", Sql::getIntegerTy());
-        voraussetzen->addColumn("nachfolger", Sql::getIntegerTy());
+        auto & voraussetzen = uniDb->createTable("voraussetzen");
+        voraussetzen.addColumn("vorgaenger", Sql::getIntegerTy());
+        voraussetzen.addColumn("nachfolger", Sql::getIntegerTy());
 
         std::ifstream fs("tables/uni/voraussetzen.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
 
-        loadTable(fs, *voraussetzen);
-        uniDb->addTable(std::move(voraussetzen), "voraussetzen");
+        loadTable(fs, voraussetzen);
     }
 
     // load hoeren.tbl
     {
         ModuleGen moduleGen("LoadTableModule");
 
-        auto hoeren = std::make_unique<Table>();
-        hoeren->addColumn("matrnr", Sql::getIntegerTy());
-        hoeren->addColumn("vorlnr", Sql::getIntegerTy());
+        auto & hoeren = uniDb->createTable("hoeren");
+        hoeren.addColumn("matrnr", Sql::getIntegerTy());
+        hoeren.addColumn("vorlnr", Sql::getIntegerTy());
 
         std::ifstream fs("tables/uni/hoeren.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
 
-        loadTable(fs, *hoeren);
-        uniDb->addTable(std::move(hoeren), "hoeren");
+        loadTable(fs, hoeren);
     }
 
     // load assistenten.tbl
     {
         ModuleGen moduleGen("LoadTableModule");
 
-        auto assistenten = std::make_unique<Table>();
-        assistenten->addColumn("persnr", Sql::getIntegerTy());
-        assistenten->addColumn("name", Sql::getVarcharTy(20));
-        assistenten->addColumn("fachgebiet", Sql::getVarcharTy(40));
-        assistenten->addColumn("boss", Sql::getIntegerTy());
+        auto & assistenten = uniDb->createTable("assistenten");
+        assistenten.addColumn("persnr", Sql::getIntegerTy());
+        assistenten.addColumn("name", Sql::getVarcharTy(20));
+        assistenten.addColumn("fachgebiet", Sql::getVarcharTy(40));
+        assistenten.addColumn("boss", Sql::getIntegerTy());
 
         std::ifstream fs("tables/uni/assistenten.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
 
-        loadTable(fs, *assistenten);
-        uniDb->addTable(std::move(assistenten), "assistenten");
+        loadTable(fs, assistenten);
     }
 
     // load pruefen.tbl
     {
         ModuleGen moduleGen("LoadTableModule");
 
-        auto pruefen = std::make_unique<Table>();
-        pruefen->addColumn("matrnr", Sql::getIntegerTy());
-        pruefen->addColumn("vorlnr", Sql::getIntegerTy());
-        pruefen->addColumn("persnr", Sql::getIntegerTy());
-        pruefen->addColumn("note", Sql::getNumericTy(2, 1));
+        auto & pruefen = uniDb->createTable("pruefen");
+        pruefen.addColumn("matrnr", Sql::getIntegerTy());
+        pruefen.addColumn("vorlnr", Sql::getIntegerTy());
+        pruefen.addColumn("persnr", Sql::getIntegerTy());
+        pruefen.addColumn("note", Sql::getNumericTy(2, 1));
 
         std::ifstream fs("tables/uni/pruefen.tbl");
         if (!fs) { throw std::runtime_error("file not found"); }
 
-        loadTable(fs, *pruefen);
-        uniDb->addTable(std::move(pruefen), "pruefen");
+        loadTable(fs, pruefen);
     }
 
     return uniDb;

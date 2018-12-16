@@ -7,6 +7,7 @@
 #include "foundations/Database.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/loader.hpp"
+#include "foundations/version_management.hpp"
 #include "sql/SqlValues.hpp"
 
 std::unique_ptr<Database> load_tables()

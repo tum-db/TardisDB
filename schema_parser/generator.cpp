@@ -53,9 +53,9 @@ static void generateTableLoadCode(const Schema & schema, const Schema::Relation 
     std::cout << "{\n"
                  "ModuleGen moduleGen(\"LoadTableModule\");\n";
 
-    std::cout << "auto " << rel.name << " = std::make_unique<Table>();\n";
+    std::cout << "auto & " << rel.name << " = db->createTable(\"" << rel.name << "\");\n";
     for (const auto & attr : rel.attributes) {
-        std::cout << rel.name << "->addColumn(\"" << attr->name << "\", ";
+        std::cout << rel.name << ".addColumn(\"" << attr->name << "\", ";
         generateGetSqlTypeCall(*attr);
         std::cout << ");\n";
     }
@@ -63,8 +63,7 @@ static void generateTableLoadCode(const Schema & schema, const Schema::Relation 
     std::cout << "std::ifstream fs(\"tables/" << rel.name << ".tbl\");\n"
               << "if (!fs) { throw std::runtime_error(\"file not found\"); }\n";
 
-    std::cout << "loadTable(fs, *" << rel.name << ");\n"
-              << "db->addTable(std::move(" << rel.name << "), \"" << rel.name << "\");\n"
+    std::cout << "loadTable(fs, " << rel.name << ");\n"
               << "}\n";
 }
 
@@ -72,6 +71,7 @@ void generateLoadCode(const SchemaParser::Schema & schema)
 {
     // intro
     std::cout << "#include \"foundations/loader.hpp\"\n"
+                 "#include \"foundations/version_management.hpp\"\n" // FIXME
                  "#include <fstream>\n"
                  "std::unique_ptr<Database> loadDatabase()\n"
                  "{\n"

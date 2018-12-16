@@ -6,6 +6,7 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
 #include "foundations/loader.hpp"
+#include "foundations/version_management.hpp"
 #include "query_compiler/compiler.hpp"
 #include "queries/common.hpp"
 

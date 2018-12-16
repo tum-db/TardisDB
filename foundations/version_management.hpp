@@ -1,5 +1,7 @@
 #pragma once
 
+#include <tuple>
+
 #include "foundations/Database.hpp"
 #include "foundations/QueryContext.hpp"
 #include "native/sql/Register.hpp"
@@ -10,6 +12,14 @@
 #include <boost/dynamic_bitset.hpp>
 
 class Table;
+
+struct VersionedTupleStorage {
+    const void * next = nullptr;
+    const void * next_in_branch = nullptr;
+    branch_id_t branch_id;
+    branch_id_t creation_ts; // latest branch id during the time of creation
+    uint8_t data[0];
+};
 
 // similar to VersionedTupleStorage; used by the current 'master' branch entry
 struct VersionEntry {
@@ -22,13 +32,29 @@ struct VersionEntry {
     boost::dynamic_bitset<> branch_visibility;
 };
 
-struct VersionedTupleStorage {
-    const void * next = nullptr;
-    const void * next_in_branch = nullptr;
-    branch_id_t branch_id;
-    branch_id_t creation_ts; // latest branch id during the time of creation
-    uint8_t data[0];
-};
+inline tid_t mark_as_dangling_tid(tid_t tid) {
+    return (tid | static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
+}
+
+inline tid_t unmark_dangling_tid(tid_t tid) {
+    return (tid & ~(static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1)));
+}
+
+inline tid_t is_marked_as_dangling_tid(tid_t tid) {
+    return (0 < tid & static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
+}
+
+inline bool has_lineage_intersection(QueryContext & ctx, VersionEntry * version_entry) {
+    return (ctx.executionContext.branch_lineage_bitset.intersects(version_entry->branch_visibility));
+}
+
+VersionEntry * get_version_entry(tid_t tid, Table & table);
+
+const void * get_latest_chain_element(const VersionEntry * version_entry, Table & table, QueryContext & ctx);
+
+const void * get_earliest_chain_element(const VersionEntry * version_entry, Table & table, QueryContext & ctx);
+
+const void * get_chain_element(const VersionEntry * version_entry, unsigned revision_offset, Table & table, QueryContext & ctx);
 
 //branch_id_t create_branch(std::string name, branch_id_t parent);
 
@@ -45,26 +71,30 @@ tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, Que
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
 
-inline bool has_lineage_intersection(QueryContext & ctx, VersionEntry * version_entry) {
-    return (ctx.executionContext.branch_lineage_bitset.intersects(version_entry->branch_visibility));
-}
+struct ScanItem {
+    const Vector & column;
+    size_t offset;
+    Native::Sql::Register reg;
+    ScanItem(const Vector & column, size_t offset)
+        : column(column)
+        , offset(offset)
+    { }
+};
 
 template<typename Consumer, typename... Ts>
 inline void produce_current_master(tid_t tid, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     std::apply([&tid] (const auto &... item) {
-        ((item->reg.load_from(item->column.at(tid)), ...);
-    },
-    scan_items);
+        (item->reg.load_from(item->column.at(tid)), ...);
+    }, scan_items);
     consumer(std::forward(scan_items));
 }
 
 template<typename Consumer, typename... Ts>
 inline void produce(const VersionedTupleStorage * storage, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     uint8_t * tuple_ptr = storage->data;
-    std::apply([] (const auto &... item) {
-        ((item->reg.load_from(tuple_ptr + item->offset), ...);
-    },
-    scan_items);
+    std::apply([tuple_ptr] (const auto &... item) {
+        (item->reg.load_from(tuple_ptr + item->offset), ...);
+    }, scan_items);
     consumer(std::forward(scan_items));
 }
 
@@ -140,16 +170,16 @@ template<typename Consumer, typename... Ts>
 void scan_relation_yielding_earliest(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
-        auto size = table._version_mgmt_column->size();
+        auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             produce_earliest_tuple(ctx, tid, consumer, std::forward(scan_items));
         }
     } else {
-        auto size = table._version_mgmt_column->size();
+        auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             produce_earliest_tuple(ctx, tid, consumer, std::forward(scan_items));
         }
-        size = table._dangling_version_mgmt_column->size();
+        size = table._dangling_version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             tid_t marked = mark_as_dangling_tid(tid);
             produce_earliest_tuple(ctx, marked, consumer, std::forward(scan_items));
@@ -161,16 +191,16 @@ template<typename Consumer, typename... Ts>
 void scan_relation_yielding_latest(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
-        auto size = table._version_mgmt_column->size();
+        auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             produce_current_master(tid, consumer, std::forward(scan_items));
         }
     } else {
-        auto size = table._version_mgmt_column->size();
+        auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             produce_latest_tuple(ctx, tid, consumer, std::forward(scan_items));
         }
-        size = table._dangling_version_mgmt_column->size();
+        size = table._dangling_version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             tid_t marked = mark_as_dangling_tid(tid);
             produce_latest_tuple(ctx, marked, consumer, std::forward(scan_items));

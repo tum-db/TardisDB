@@ -64,6 +64,8 @@ public:
     using value_type = int32_t;
     const value_type value;
 
+    explicit Integer();
+
     explicit Integer(const void * src);
 
     explicit Integer(value_type constantValue);
@@ -93,6 +95,8 @@ public:
     using value_type = int64_t;
     const value_type value;
 
+    explicit Numeric();
+
     explicit Numeric(const void * src, SqlType type);
 
     explicit Numeric(SqlType type, value_type constantValue);
@@ -121,6 +125,8 @@ class Bool : public Value {
 public:
     using value_type = bool;
     const value_type value;
+
+    explicit Bool();
 
     explicit Bool(const void * src);
 
@@ -235,6 +241,8 @@ public:
     using value_type = std::array<uintptr_t, 2>;
     using string_ref_t = std::pair<size_t, const uint8_t *>;
 
+    explicit Text();
+
     explicit Text(const void * src);
 
     static value_op_t castString(const std::string & str);
@@ -276,6 +284,8 @@ public:
     using value_type = uint32_t;
     const value_type value;
 
+    explicit Date();
+
     explicit Date(const void * src);
 
     explicit Date(value_type constantValue);
@@ -304,6 +314,8 @@ class Timestamp : public Value {
 public:
     using value_type = uint64_t;
     const value_type value;
+
+    explicit Timestamp();
 
     explicit Timestamp(const void * src);
 

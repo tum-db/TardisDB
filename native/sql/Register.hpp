@@ -7,6 +7,7 @@ namespace Native {
 namespace Sql {
 
 class Register {
+public:
     Sql::SqlType type;
     bool is_null;
     Native::Sql::Bool bool_value;

@@ -32,18 +32,6 @@ inline const void * get_tuple_ptr(const VersionedTupleStorage * storage) {
     return storage->data;
 }
 
-tid_t mark_as_dangling_tid(tid_t tid) {
-    return (tid | static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
-}
-
-tid_t unmark_dangling_tid(tid_t tid) {
-    return (tid & ~(static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1)));
-}
-
-tid_t is_marked_as_dangling_tid(tid_t tid) {
-    return (0 < tid & static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
-}
-
 tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
     tid_t tid;
     branch_id_t branch = ctx.executionContext.branchId;
@@ -106,6 +94,16 @@ VersionEntry * get_version_entry(tid_t tid, Table & table) {
     } else {
         return table._version_mgmt_column[tid].get();
     }
+}
+
+static std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
+    std::vector<Native::Sql::value_op_t> values;
+    auto & tuple_type = table.getTupleType();
+    for (size_t i = 0; i < tuple_type.size(); ++i) {
+        const void * ptr = table.getColumn(i).at(tid);
+        values.push_back(Native::Sql::Value::load(ptr, tuple_type[tid]));
+    }
+    return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
 }
 
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
@@ -173,7 +171,7 @@ const void * get_latest_chain_element(const VersionEntry * version_entry, Table 
     while (next != nullptr) {
         if (next == version_entry) {
             // this is the current master branch
-            if (is_visible(version_entry, ctx)) {
+            if (is_visible(*version_entry, ctx)) {
                 return version_entry;
             }
             next = version_entry->next;
@@ -221,16 +219,6 @@ const void * get_chain_element(const VersionEntry * version_entry, unsigned revi
         }
     }
     return current;
-}
-
-std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
-    std::vector<Native::Sql::value_op_t> values;
-    auto & tuple_type = table.getTupleType();
-    for (size_t i = 0; i < tuple_type.size(); ++i) {
-        const void * ptr = table.getColumn(i).at(tid);
-        values.push_back(Native::Sql::Value::load(ptr, tuple_type[tid]));
-    }
-    return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
 }
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx) {
