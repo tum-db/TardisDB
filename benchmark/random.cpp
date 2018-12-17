@@ -18,32 +18,6 @@ static std::mt19937 rd_engine(seed);
 using namespace Native::Sql;
 
 void insert_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table) {
-#if 0
-    // Seed with a real random value, if available
-    std::random_device r;
- 
-    // Choose a random mean between 1 and 6
-    std::default_random_engine e1(r());
-    std::uniform_int_distribution<int> uniform_dist(1, 6);
-    int mean = uniform_dist(e1);
-    std::cout << "Randomly-chosen mean: " << mean << '\n';
- 
-    // Generate a normal distribution around that mean
-    std::seed_seq seed2{r(), r(), r(), r(), r(), r(), r(), r()}; 
-    std::mt19937 e2(seed2);
-    std::normal_distribution<> normal_dist(mean, 2);
- 
-    std::map<int, int> hist;
-    for (int n = 0; n < 10000; ++n) {
-        ++hist[std::round(normal_dist(e2))];
-    }
-    std::cout << "Normal distribution around " << mean << ":\n";
-    for (auto p : hist) {
-        std::cout << std::fixed << std::setprecision(1) << std::setw(2)
-                  << p.first << ' ' << std::string(p.second/200, '*') << '\n';
-    }
-#endif
-
     QueryContext ctx(db);
     db.constructBranchLineage(master_branch_id, ctx.executionContext);
 
@@ -113,14 +87,9 @@ void update_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table)
     values.push_back(std::make_unique<Integer>(3));
     SqlTuple tuple(std::move(values));
 
-
-//std::default_random_engine generator;
-std::uniform_int_distribution<size_t> distribution(0, tids.size());
-
-
-
+    std::uniform_int_distribution<size_t> distribution(0, tids.size());
     for (size_t updated = 0; updated < cnt; ++updated) {
-        tid_t tid = tids[distribution(rd_engine)];// generator)];
+        tid_t tid = tids[distribution(rd_engine)];
 
         VersionEntry * version_entry;
         if (is_marked_as_dangling_tid(tid)) {
@@ -162,8 +131,6 @@ void perform_bunch_inserts(Database & db, Table & table) {
 }
 
 void perform_bunch_updates(Database & db, Table & table) {
-//    std::uniform_int_distribution<branch_id_t> distribution(0, max_branch);
-
     auto branches_dist = get_branches_dist(db);
     size_t table_size = table._version_mgmt_column.size() + table._dangling_version_mgmt_column.size();
     size_t total_cnt = table_size*update_factor;
@@ -173,19 +140,7 @@ void perform_bunch_updates(Database & db, Table & table) {
     }
 }
 
-/*
-template<typename Ts...>
-void print_consumer(const std::tuple<Ts...> & scan_items) {
-}
-*/
-#if 0
-inline void print_integers(const std::tuple<ScanItem, ScanItem, ScanItem> & scan_items) {
-    printf("%d\n", //"%d\t%d\t%d\n",
-        std::get<0>(scan_items).reg.integer_value.value
-    );
-}
-#endif
-inline void print_integers(const std::tuple<TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>> & scan_items) {
+inline void print_result(const std::tuple<TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>> & scan_items) {
     printf("%d\t%d\t%d\n",
         std::get<0>(scan_items).reg.sql_value.value,
         std::get<1>(scan_items).reg.sql_value.value,
@@ -193,7 +148,6 @@ inline void print_integers(const std::tuple<TmplScanItem<Integer>, TmplScanItem<
     );
 }
 
-//void scan_relation_yielding_latest(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
 void measure_master_scan(Database & db, Table & table) {
     QueryContext ctx(db);
     db.constructBranchLineage(master_branch_id, ctx.executionContext);
@@ -201,54 +155,7 @@ void measure_master_scan(Database & db, Table & table) {
     const auto & column0 = table.getColumn(0);
     const auto & column1 = table.getColumn(1);
     const auto & column2 = table.getColumn(2);
-#if 0
-struct Test {
-    const int & a;
-    int b;
-    double d;
-    Test(const int & a_, int b_) : a(a_), b(b_) {}
-};
-struct ScanItem2 {
-    const Vector & column;
-    size_t offset;
-    Native::Sql::Register reg;
-    ScanItem2(const Vector & column, size_t offset)
-        : column(column)
-        , offset(offset)
-    { }
-    ScanItem2(const ScanItem2 &) = delete;
-    // https://stackoverflow.com/a/15730993
-    ScanItem2(ScanItem2 && other) noexcept 
-    
-    : column(other.column)
-    {
 
-    }
-
-};
-
-auto t = ScanItem(column0, 0);
-auto scan_items = std::make_tuple<ScanItem>(ScanItem(column0, 0));
-int i;
-    auto tt = std::make_tuple<Test, Test>(Test(i,2), Test(i,3));
-//std::tuple<ScanItem> tt({ScanItem(column0, 0)});
-auto s2 = std::make_tuple<ScanItem2>(ScanItem2(column0, 0));
-auto t2 = std::make_tuple<int, int>(1,2);
-//    std::tuple<ScanItem, ScanItem, ScanItem> scan_items;
-#endif
-#if 0
-    auto scan_items = std::make_tuple<ScanItem, ScanItem, ScanItem>(
-        ScanItem(column0, 0),
-        ScanItem(column1, 4),
-        ScanItem(column2, 8));
-
-    using namespace std::chrono;
-    const auto query_start = high_resolution_clock::now();
-    scan_relation_yielding_latest(ctx, table, print_integers, scan_items);
-    const auto query_duration = high_resolution_clock::now() - query_start;
-    printf("Execution time: %lums\n", duration_cast<milliseconds>(query_duration).count());
-#endif
-#if 1
     auto scan_items = std::make_tuple<
         TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>>(
         {column0, 0},
@@ -257,29 +164,18 @@ auto t2 = std::make_tuple<int, int>(1,2);
 
     using namespace std::chrono;
     const auto query_start = high_resolution_clock::now();
-    scan_relation_yielding_latest(ctx, table, print_integers, scan_items);
+    scan_relation_yielding_latest(ctx, table, print_result, scan_items);
     const auto query_duration = high_resolution_clock::now() - query_start;
     printf("Execution time: %lums\n", duration_cast<milliseconds>(query_duration).count());
-#endif
 }
-
 
 void run_benchmark() {
     auto db = std::make_unique<Database>();
-/*
-    auto bench_table_up = std::make_unique<Table>();
-    auto & bench_table = *bench_table_up;
-    db->addTable(std::move(bench_table_up), "bench_table");
-*/
+
     auto & bench_table = db->createTable("bench_table");
     bench_table.addColumn("a", Sql::getIntegerTy());
     bench_table.addColumn("b", Sql::getIntegerTy());
     bench_table.addColumn("c", Sql::getIntegerTy());
-
-//    QueryContext ctx(*db);
-    // set up branch stuff
-    
-
 
     perform_bunch_inserts(*db, bench_table);
     perform_bunch_updates(*db, bench_table);
@@ -296,14 +192,7 @@ void run_benchmark() {
     perform_bunch_inserts(*db, bench_table);
     perform_bunch_updates(*db, bench_table);
 
-
-//    db->constructBranchLineage(master_branch_id, ctx.executionContext);
-
-
     measure_master_scan(*db, bench_table);
-
-
-
 }
 
 int main(int argc, char * argv[]) {

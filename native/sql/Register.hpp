@@ -24,14 +24,6 @@ public:
     Native::Sql::Value & get_value();
 };
 
-//template<SqlType type>
-class IntegerRegister {
-    Native::Sql::Integer value;
-
-    void load_from(const void * ptr) {
-    }
-};
-
 template<typename T>
 struct TypedRegister {
     T sql_value;
