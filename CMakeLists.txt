@@ -96,3 +96,19 @@ add_dependencies(protodb GenerateLoader)
 ### sub projects
 add_subdirectory(standalone_tests)
 add_subdirectory(schema_parser)
+
+### benchmarks
+set(RD_BENCH_SOURCE_FILES
+	benchmark/random.cpp
+	${ALGEBRA_FILES}
+	${CODEGEN_FILES}
+	${FOUNDATIONS_FILES}
+	${NATIVE_FILES}
+	${SQL_FILES}
+#	${QUERIES_FILES}
+#	${QUERY_COMPILER_FILES}
+	${UTILS_FILES}
+)
+
+add_executable(rd_bench ${RD_BENCH_SOURCE_FILES} ${THIRD_PARTY})
+target_link_libraries(rd_bench LLVM)

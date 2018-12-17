@@ -1,5 +1,3 @@
-#pragma once
-
 #include "foundations/Database.hpp"
 #include "foundations/version_management.hpp"
 
@@ -180,9 +178,18 @@ template<typename Ts...>
 void print_consumer(const std::tuple<Ts...> & scan_items) {
 }
 */
+#if 0
 inline void print_integers(const std::tuple<ScanItem, ScanItem, ScanItem> & scan_items) {
     printf("%d\n", //"%d\t%d\t%d\n",
         std::get<0>(scan_items).reg.integer_value.value
+    );
+}
+#endif
+inline void print_integers(const std::tuple<TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>> & scan_items) {
+    printf("%d\t%d\t%d\n",
+        std::get<0>(scan_items).reg.sql_value.value,
+        std::get<1>(scan_items).reg.sql_value.value,
+        std::get<2>(scan_items).reg.sql_value.value
     );
 }
 
@@ -194,9 +201,56 @@ void measure_master_scan(Database & db, Table & table) {
     const auto & column0 = table.getColumn(0);
     const auto & column1 = table.getColumn(1);
     const auto & column2 = table.getColumn(2);
+#if 0
+struct Test {
+    const int & a;
+    int b;
+    double d;
+    Test(const int & a_, int b_) : a(a_), b(b_) {}
+};
+struct ScanItem2 {
+    const Vector & column;
+    size_t offset;
+    Native::Sql::Register reg;
+    ScanItem2(const Vector & column, size_t offset)
+        : column(column)
+        , offset(offset)
+    { }
+    ScanItem2(const ScanItem2 &) = delete;
+    // https://stackoverflow.com/a/15730993
+    ScanItem2(ScanItem2 && other) noexcept 
+    
+    : column(other.column)
+    {
 
+    }
+
+};
+
+auto t = ScanItem(column0, 0);
+auto scan_items = std::make_tuple<ScanItem>(ScanItem(column0, 0));
+int i;
+    auto tt = std::make_tuple<Test, Test>(Test(i,2), Test(i,3));
+//std::tuple<ScanItem> tt({ScanItem(column0, 0)});
+auto s2 = std::make_tuple<ScanItem2>(ScanItem2(column0, 0));
+auto t2 = std::make_tuple<int, int>(1,2);
 //    std::tuple<ScanItem, ScanItem, ScanItem> scan_items;
+#endif
+#if 0
     auto scan_items = std::make_tuple<ScanItem, ScanItem, ScanItem>(
+        ScanItem(column0, 0),
+        ScanItem(column1, 4),
+        ScanItem(column2, 8));
+
+    using namespace std::chrono;
+    const auto query_start = high_resolution_clock::now();
+    scan_relation_yielding_latest(ctx, table, print_integers, scan_items);
+    const auto query_duration = high_resolution_clock::now() - query_start;
+    printf("Execution time: %lums\n", duration_cast<milliseconds>(query_duration).count());
+#endif
+#if 1
+    auto scan_items = std::make_tuple<
+        TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>>(
         {column0, 0},
         {column1, 4},
         {column2, 8});
@@ -206,6 +260,7 @@ void measure_master_scan(Database & db, Table & table) {
     scan_relation_yielding_latest(ctx, table, print_integers, scan_items);
     const auto query_duration = high_resolution_clock::now() - query_start;
     printf("Execution time: %lums\n", duration_cast<milliseconds>(query_duration).count());
+#endif
 }
 
 
@@ -249,4 +304,8 @@ void run_benchmark() {
 
 
 
+}
+
+int main(int argc, char * argv[]) {
+    return 0;
 }

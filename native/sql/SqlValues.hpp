@@ -62,7 +62,7 @@ protected:
 class Integer : public Value {
 public:
     using value_type = int32_t;
-    const value_type value;
+    value_type value;
 
     explicit Integer();
 
@@ -93,7 +93,7 @@ public:
 class Numeric : public Value {
 public:
     using value_type = int64_t;
-    const value_type value;
+    value_type value;
 
     explicit Numeric();
 
@@ -124,7 +124,7 @@ public:
 class Bool : public Value {
 public:
     using value_type = bool;
-    const value_type value;
+    value_type value;
 
     explicit Bool();
 
@@ -282,7 +282,7 @@ private:
 class Date : public Value {
 public:
     using value_type = uint32_t;
-    const value_type value;
+    value_type value;
 
     explicit Date();
 
@@ -313,7 +313,7 @@ public:
 class Timestamp : public Value {
 public:
     using value_type = uint64_t;
-    const value_type value;
+    value_type value;
 
     explicit Timestamp();
 

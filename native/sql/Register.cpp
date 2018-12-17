@@ -5,6 +5,14 @@
 namespace Native {
 namespace Sql {
 
+/*
+Register::Register(const Register & other)
+    : type(other.type)
+    , is_null(other.is_null) {
+    throw NotImplementedException();
+}
+*/
+
 void Register::load_from(const void * ptr) {
     if (is_null) {
         throw NotImplementedException();

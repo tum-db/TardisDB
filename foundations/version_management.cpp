@@ -98,7 +98,7 @@ VersionEntry * get_version_entry(tid_t tid, Table & table) {
 
 static std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
     std::vector<Native::Sql::value_op_t> values;
-    auto & tuple_type = table.getTupleType();
+    auto tuple_type = table.getTupleType();
     for (size_t i = 0; i < tuple_type.size(); ++i) {
         const void * ptr = table.getColumn(i).at(tid);
         values.push_back(Native::Sql::Value::load(ptr, tuple_type[tid]));
@@ -236,7 +236,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
     } else {
         const auto storage = static_cast<const VersionedTupleStorage *>(element);
         const void * tuple_ptr = get_tuple_ptr(storage);
-        auto & tuple_type = table.getTupleType();
+        auto tuple_type = table.getTupleType();
         return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
     }
 }
@@ -251,7 +251,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_of
     } else {
         const auto storage = static_cast<const VersionedTupleStorage *>(element);
         const void * tuple_ptr = get_tuple_ptr(storage);
-        auto & tuple_type = table.getTupleType();
+        auto tuple_type = table.getTupleType();
         return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
     }
 }

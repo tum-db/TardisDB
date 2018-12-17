@@ -75,34 +75,65 @@ struct ScanItem {
     const Vector & column;
     size_t offset;
     Native::Sql::Register reg;
+
     ScanItem(const Vector & column, size_t offset)
         : column(column)
         , offset(offset)
     { }
+
+    ScanItem(const ScanItem &) = delete;
+
+    // https://stackoverflow.com/a/15730993
+    ScanItem(ScanItem && other) noexcept
+        : column(other.column)
+        , offset(other.offset)
+        , reg() // FIXME preserve value
+    { }
+};
+
+template<typename ValueType>
+struct TmplScanItem {
+    const Vector & column;
+    size_t offset;
+    Native::Sql::TypedRegister<ValueType> reg;
+
+    TmplScanItem(const Vector & column, size_t offset)
+        : column(column)
+        , offset(offset)
+    { }
+
+    TmplScanItem(const TmplScanItem &) = delete;
+
+    // https://stackoverflow.com/a/15730993
+    TmplScanItem(TmplScanItem && other) noexcept
+        : column(other.column)
+        , offset(other.offset)
+        , reg() // FIXME preserve value
+    { }
 };
 
 template<typename Consumer, typename... Ts>
-inline void produce_current_master(tid_t tid, Consumer consumer, const std::tuple<Ts...> & scan_items) {
-    std::apply([&tid] (const auto &... item) {
-        (item->reg.load_from(item->column.at(tid)), ...);
+inline void produce_current_master(tid_t tid, Consumer consumer, std::tuple<Ts...> & scan_items) {
+    std::apply([&tid] (auto &... item) {
+        (item.reg.load_from(item.column.at(tid)), ...);
     }, scan_items);
-    consumer(std::forward(scan_items));
+    consumer(scan_items);
 }
 
 template<typename Consumer, typename... Ts>
-inline void produce(const VersionedTupleStorage * storage, Consumer consumer, const std::tuple<Ts...> & scan_items) {
-    uint8_t * tuple_ptr = storage->data;
-    std::apply([tuple_ptr] (const auto &... item) {
-        (item->reg.load_from(tuple_ptr + item->offset), ...);
+inline void produce(const VersionedTupleStorage * storage, Consumer consumer, std::tuple<Ts...> & scan_items) {
+    const uint8_t * tuple_ptr = storage->data;
+    std::apply([tuple_ptr] (auto &... item) {
+        (item.reg.load_from(tuple_ptr + item.offset), ...);
     }, scan_items);
-    consumer(std::forward(scan_items));
+    consumer(scan_items);
 }
 
 template<typename Consumer, typename... Ts>
-void produce_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+void produce_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer consumer, std::tuple<Ts...> & scan_items) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
-        produce_current_master(tid, table, consumer, std::forward(scan_items));
+        produce_current_master(tid, consumer, scan_items);
         return;
     }
 
@@ -116,16 +147,16 @@ void produce_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer
 //        throw std::runtime_error("no such tuple in the given branch");
         return;
     } else if (element == version_entry) { // current master
-        produce_current_master(tid, table, consumer, std::forward(scan_items));
+        produce_current_master(tid, consumer, scan_items);
     } else {
         auto storage = static_cast<const VersionedTupleStorage *>(element);
-        produce(storage, consumer, std::forward(scan_items));
+        produce(storage, consumer, scan_items);
     }
 }
 
 
 template<typename Consumer, typename... Ts>
-void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer consumer, std::tuple<Ts...> & scan_items) {
     const auto version_entry = get_version_entry(tid, table);
     if (!has_lineage_intersection(ctx, version_entry)) {
         return;
@@ -136,10 +167,10 @@ void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consum
 //        throw std::runtime_error("no such tuple in the given branch");
         return;
     } else if (element == version_entry) { // current master
-        produce_current_master(tid, table, consumer, std::forward(scan_items));
+        produce_current_master(tid, consumer, scan_items);
     } else {
         auto storage = static_cast<const VersionedTupleStorage *>(element);
-        produce(storage, consumer, std::forward(scan_items));
+        produce(storage, consumer, scan_items);
     }
 }
 
@@ -148,7 +179,7 @@ void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consum
 std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx);
 
 template<typename Consumer, typename... Ts>
-void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Table & table, Consumer consumer, std::tuple<Ts...> & scan_items) {
     const auto version_entry = get_version_entry(tid, table);
     if (!has_lineage_intersection(ctx, version_entry)) {
         return;
@@ -159,51 +190,51 @@ void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Tabl
 //        throw std::runtime_error("no such tuple in the given branch");
         return;
     } else if (element == version_entry) { // current master
-        produce_current_master(tid, table, consumer, std::forward(scan_items));
+        produce_current_master(tid, consumer, scan_items);
     } else {
         auto storage = static_cast<const VersionedTupleStorage *>(element);
-        produce(storage, consumer, std::forward(scan_items));
+        produce(storage, consumer, scan_items);
     }
 }
 
 template<typename Consumer, typename... Ts>
-void scan_relation_yielding_earliest(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+void scan_relation_yielding_earliest(QueryContext & ctx, Table & table, Consumer consumer, std::tuple<Ts...> & scan_items) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
         auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
-            produce_earliest_tuple(ctx, tid, consumer, std::forward(scan_items));
+            produce_earliest_tuple(ctx, tid, table, consumer, scan_items);
         }
     } else {
         auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
-            produce_earliest_tuple(ctx, tid, consumer, std::forward(scan_items));
+            produce_earliest_tuple(ctx, tid, table, consumer, scan_items);
         }
         size = table._dangling_version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             tid_t marked = mark_as_dangling_tid(tid);
-            produce_earliest_tuple(ctx, marked, consumer, std::forward(scan_items));
+            produce_earliest_tuple(ctx, marked, table, consumer, scan_items);
         }
     }
 }
 
 template<typename Consumer, typename... Ts>
-void scan_relation_yielding_latest(QueryContext & ctx, Table & table, Consumer consumer, const std::tuple<Ts...> & scan_items) {
+void scan_relation_yielding_latest(QueryContext & ctx, Table & table, Consumer consumer, std::tuple<Ts...> & scan_items) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
         auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
-            produce_current_master(tid, consumer, std::forward(scan_items));
+            produce_current_master(tid, consumer, scan_items);
         }
     } else {
         auto size = table._version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
-            produce_latest_tuple(ctx, tid, consumer, std::forward(scan_items));
+            produce_latest_tuple(ctx, tid, table, consumer, scan_items);
         }
         size = table._dangling_version_mgmt_column.size();
         for (tid_t tid = 0; tid < size; ++tid) {
             tid_t marked = mark_as_dangling_tid(tid);
-            produce_latest_tuple(ctx, marked, consumer, std::forward(scan_items));
+            produce_latest_tuple(ctx, marked, table, consumer, scan_items);
         }
     }
 }
