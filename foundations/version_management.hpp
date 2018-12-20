@@ -144,7 +144,6 @@ void produce_latest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consumer
     const void * element = get_latest_chain_element(version_entry, table, ctx);
 
     if (element == nullptr) {
-//        throw std::runtime_error("no such tuple in the given branch");
         return;
     } else if (element == version_entry) { // current master
         produce_current_master(tid, consumer, scan_items);
@@ -164,7 +163,6 @@ void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consum
     const void * element = get_earliest_chain_element(version_entry, table, ctx);
 
     if (element == nullptr) {
-//        throw std::runtime_error("no such tuple in the given branch");
         return;
     } else if (element == version_entry) { // current master
         produce_current_master(tid, consumer, scan_items);
@@ -187,7 +185,6 @@ void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Tabl
     const void * element = get_chain_element(version_entry, revision_offset, table, ctx);
 
     if (element == nullptr) {
-//        throw std::runtime_error("no such tuple in the given branch");
         return;
     } else if (element == version_entry) { // current master
         produce_current_master(tid, consumer, scan_items);

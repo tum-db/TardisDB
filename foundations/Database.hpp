@@ -104,7 +104,6 @@ public:
     /// The count of SQL columns without any null indicator column
     size_t getColumnCount() const;
 
-//    const std::vector<std::string> & getColumnNames() const;
     std::vector<std::string> getColumnNames() const;
 
     BitmapTable & getNullIndicatorTable() { return _nullIndicatorTable; }
@@ -119,13 +118,7 @@ public:
 
 private:
     Database & _db;
-//    std::string _name;
-/*
-    std::unordered_map<
-            std::string,
-            std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>> _columns;
-    std::vector<std::string> _columnNames;
-*/
+
     std::unordered_map<std::string, size_t> _columnsByName; // name -> column index
     std::vector<
         std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>
@@ -133,19 +126,10 @@ private:
 
     BitmapTable _nullIndicatorTable;
     BitmapTable _branchBitmap;
-public: // TODO
-    // points to the first tuple within the version chain of each tuple
-//    std::vector<void *> mv_begin;
-    // next pointer as seen from the master branch (the actual column)
-//    std::vector<void *> mv_next;
 
+public:
     std::vector<std::unique_ptr<VersionEntry>> _version_mgmt_column;
     std::vector<std::unique_ptr<VersionEntry>> _dangling_version_mgmt_column;
-
-//    size_t _lock_granularity = 1024;
-//     std::vector<int64_t> _locks;
-
-//    std::vector<void *> dangling_chains;
 };
 
 void genTableAddRowCall(cg_voidptr_t table);
@@ -187,7 +171,6 @@ class Database {
 public:
     Database();
 
-//    void addTable(std::unique_ptr<Table> table, const std::string & name);
     Table & createTable(const std::string & name);
 
     Table * getTable(const std::string & tableName);

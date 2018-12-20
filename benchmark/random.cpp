@@ -196,5 +196,5 @@ void run_benchmark() {
 }
 
 int main(int argc, char * argv[]) {
-    return 0;
+    run_benchmark();
 }
