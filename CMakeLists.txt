@@ -34,7 +34,9 @@ file(GLOB_RECURSE QUERY_COMPILER_FILES "query_compiler/*.cpp" "query_compiler/*.
 #file(GLOB_RECURSE TESTS_FILES "tests/*.cpp" "tests/*.hpp" "tests/*.tcc")
 file(GLOB_RECURSE UTILS_FILES "utils/*.cpp" "utils/*.hpp" "utils/*.tcc")
 
-set(SOURCE_FILES
+set(THIRD_PARTY_FILES third_party/hexdump.cpp third_party/hexdump.hpp)
+
+set(DB_LIB_SOURCE_FILES
 	main.cpp
 	${ALGEBRA_FILES}
 	${CODEGEN_FILES}
@@ -44,11 +46,10 @@ set(SOURCE_FILES
 	${QUERIES_FILES}
 	${QUERY_COMPILER_FILES}
 	${UTILS_FILES}
+	${THIRD_PARTY_FILES}
 )
 
-set(THIRD_PARTY third_party/hexdump.cpp third_party/hexdump.hpp)
-
-set(TESTS
+set(TEST_SOURCE_FILES
 #    tests/join_test.cpp # TODO update
 	tests/if_test.cpp
 	tests/loop_test.cpp
@@ -84,10 +85,13 @@ add_custom_target(
 ### all generated files
 set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
+### main library
+add_library(dblib ${DB_LIB_SOURCE_FILES})
+target_link_libraries(dblib LLVM)
+
 ### main application
-add_executable(protodb ${SOURCE_FILES} ${GENERATED_SOURCE_FILES} ${THIRD_PARTY} ${TESTS})
-#target_link_libraries(protodb ${LLVM_LIBS})
-target_link_libraries(protodb LLVM)
+add_executable(protodb ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
+target_link_libraries(protodb dblib)
 
 ### set up dependencies
 add_dependencies(GenerateLoader schema_parser)
@@ -100,15 +104,7 @@ add_subdirectory(schema_parser)
 ### benchmarks
 set(RD_BENCH_SOURCE_FILES
 	benchmark/random.cpp
-	${ALGEBRA_FILES}
-	${CODEGEN_FILES}
-	${FOUNDATIONS_FILES}
-	${NATIVE_FILES}
-	${SQL_FILES}
-#	${QUERIES_FILES}
-#	${QUERY_COMPILER_FILES}
-	${UTILS_FILES}
 )
 
-add_executable(rd_bench ${RD_BENCH_SOURCE_FILES} ${THIRD_PARTY})
-target_link_libraries(rd_bench LLVM)
+add_executable(rd_bench ${RD_BENCH_SOURCE_FILES})
+target_link_libraries(rd_bench dblib)
