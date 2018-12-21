@@ -305,7 +305,7 @@ void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dst
     assert(branch != invalid_branch_id);
 
     dstCtx.branch_lineage.clear();
-    dstCtx.branch_lineage_bitset.clear();
+    dstCtx.branch_lineage_bitset = boost::dynamic_bitset<>(_next_branch_id);
 
     branch_id_t current = branch;
     for (;;) {

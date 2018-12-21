@@ -36,18 +36,20 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
     tid_t tid;
     branch_id_t branch = ctx.executionContext.branchId;
     Database & db = table.getDatabase();
+    size_t branch_cnt = 1 + db.getLargestBranchId();
 
     if (branch == master_branch_id) {
         tid = table._version_mgmt_column.size();
 
         table._version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-        VersionEntry * version_entry = table._dangling_version_mgmt_column.back().get();
+        VersionEntry * version_entry = table._version_mgmt_column.back().get();
         version_entry->first = version_entry;
         version_entry->next = nullptr;
         version_entry->next_in_branch = nullptr;
 
         // branch visibility
         version_entry->branch_id = master_branch_id;
+        version_entry->branch_visibility.resize(branch_cnt, false);
         version_entry->branch_visibility.set(master_branch_id);
         version_entry->creation_ts = db.getLargestBranchId();
 
@@ -81,6 +83,7 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
         not used in this case:
         version_entry->branch_id;
         */
+        version_entry->branch_visibility.resize(branch_cnt, false);
         version_entry->branch_visibility.set(branch);
     }
 
@@ -101,7 +104,7 @@ static std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Tabl
     auto tuple_type = table.getTupleType();
     for (size_t i = 0; i < tuple_type.size(); ++i) {
         const void * ptr = table.getColumn(i).at(tid);
-        values.push_back(Native::Sql::Value::load(ptr, tuple_type[tid]));
+        values.push_back(Native::Sql::Value::load(ptr, tuple_type[i]));
     }
     return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
 }
@@ -144,6 +147,10 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         // branch visibility
         storage->branch_id = branch;
         storage->creation_ts = db.getLargestBranchId();
+        size_t branch_cnt = 1 + db.getLargestBranchId();
+        if (version_entry->branch_visibility.size() < branch_cnt) {
+            version_entry->branch_visibility.resize(branch_cnt, false);
+        }
         version_entry->branch_visibility.set(branch);
 
         tuple.store(get_tuple_ptr(storage));

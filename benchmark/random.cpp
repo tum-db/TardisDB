@@ -19,7 +19,8 @@ using namespace Native::Sql;
 
 void insert_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table) {
     QueryContext ctx(db);
-    db.constructBranchLineage(master_branch_id, ctx.executionContext);
+    ctx.executionContext.branchId = branch;
+    db.constructBranchLineage(branch, ctx.executionContext);
 
     std::vector<value_op_t> values;
     values.push_back(std::make_unique<Integer>(1));
@@ -33,7 +34,8 @@ void insert_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table)
 
 void update_tuples_once(branch_id_t branch, size_t cnt, Database & db, Table & table) {
     QueryContext ctx(db);
-    db.constructBranchLineage(master_branch_id, ctx.executionContext);
+    ctx.executionContext.branchId = branch;
+    db.constructBranchLineage(branch, ctx.executionContext);
 
     std::vector<tid_t> tids;
     for (size_t tid = 0; tid < table._version_mgmt_column.size(); ++tid) {
@@ -71,7 +73,8 @@ void update_tuples_once(branch_id_t branch, size_t cnt, Database & db, Table & t
 
 void update_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table) {
     QueryContext ctx(db);
-    db.constructBranchLineage(master_branch_id, ctx.executionContext);
+    ctx.executionContext.branchId = branch;
+    db.constructBranchLineage(branch, ctx.executionContext);
 
     std::vector<tid_t> tids;
     for (size_t tid = 0; tid < table._version_mgmt_column.size(); ++tid) {
@@ -108,6 +111,9 @@ void update_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table)
 
 std::vector<branch_id_t> get_branches_dist(Database & db) {
     branch_id_t max_branch = db.getLargestBranchId();
+    if (max_branch == master_branch_id) {
+        return {master_branch_id};
+    }
     size_t master_cnt = max_branch/(1.0-master_factor)*master_factor;
     std::vector<branch_id_t> branches_dist;
     for (size_t i = 0; i < master_cnt; ++i) {
@@ -148,8 +154,9 @@ inline void print_result(const std::tuple<TmplScanItem<Integer>, TmplScanItem<In
     );
 }
 
-void measure_master_scan(Database & db, Table & table) {
+void measure_master_scan_yielding_latest(Database & db, Table & table) {
     QueryContext ctx(db);
+    ctx.executionContext.branchId = master_branch_id;
     db.constructBranchLineage(master_branch_id, ctx.executionContext);
 
     const auto & column0 = table.getColumn(0);
@@ -165,6 +172,28 @@ void measure_master_scan(Database & db, Table & table) {
     using namespace std::chrono;
     const auto query_start = high_resolution_clock::now();
     scan_relation_yielding_latest(ctx, table, print_result, scan_items);
+    const auto query_duration = high_resolution_clock::now() - query_start;
+    printf("Execution time: %lums\n", duration_cast<milliseconds>(query_duration).count());
+}
+
+void measure_master_scan_yielding_earliest(Database & db, Table & table) {
+    QueryContext ctx(db);
+    ctx.executionContext.branchId = master_branch_id;
+    db.constructBranchLineage(master_branch_id, ctx.executionContext);
+
+    const auto & column0 = table.getColumn(0);
+    const auto & column1 = table.getColumn(1);
+    const auto & column2 = table.getColumn(2);
+
+    auto scan_items = std::make_tuple<
+        TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>>(
+        {column0, 0},
+        {column1, 4},
+        {column2, 8});
+
+    using namespace std::chrono;
+    const auto query_start = high_resolution_clock::now();
+    scan_relation_yielding_earliest(ctx, table, print_result, scan_items);
     const auto query_duration = high_resolution_clock::now() - query_start;
     printf("Execution time: %lums\n", duration_cast<milliseconds>(query_duration).count());
 }
@@ -192,9 +221,10 @@ void run_benchmark() {
     perform_bunch_inserts(*db, bench_table);
     perform_bunch_updates(*db, bench_table);
 
-    measure_master_scan(*db, bench_table);
+    measure_master_scan_yielding_earliest(*db, bench_table);
 }
 
 int main(int argc, char * argv[]) {
+    ModuleGen moduleGen("QueryModule");
     run_benchmark();
 }
