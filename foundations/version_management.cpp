@@ -262,3 +262,12 @@ std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_of
         return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
     }
 }
+
+bool is_visible(tid_t tid, Table & table, QueryContext & ctx) {
+    if (is_marked_as_dangling_tid(tid) && ctx.executionContext.branchId == master_branch_id) {
+        return false;
+    }
+    const auto version_entry = get_version_entry(tid, table);
+    const void * element = get_latest_chain_element(version_entry, table, ctx);
+    return (element != nullptr);
+}

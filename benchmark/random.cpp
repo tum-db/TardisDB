@@ -93,18 +93,13 @@ void update_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table)
     std::uniform_int_distribution<size_t> distribution(0, tids.size());
     for (size_t updated = 0; updated < cnt; ++updated) {
         tid_t tid = tids[distribution(rd_engine)];
-
-        VersionEntry * version_entry;
-        if (is_marked_as_dangling_tid(tid)) {
-            tid_t unmarked = unmark_dangling_tid(tid);
-            version_entry = table._dangling_version_mgmt_column[unmarked].get();
-        } else {
-            version_entry = table._version_mgmt_column[tid].get();
-        }
-        if (!has_lineage_intersection(ctx, version_entry)) {
+        /*
+        if (is_marked_as_dangling_tid(tid) && branch == 0) {
+            printf("master");
+        }*/
+        if (!is_visible(tid, table, ctx)) {
             continue;
         }
-
         update_tuple(tid, tuple, table, ctx);
     }
 }
@@ -211,7 +206,7 @@ void run_benchmark() {
     branch_id_t branch1 = db->createBranch("branch1", master_branch_id);
     perform_bunch_inserts(*db, bench_table);
     perform_bunch_updates(*db, bench_table);
-    branch_id_t branch2 = db->createBranch("branch2", branch2);
+    branch_id_t branch2 = db->createBranch("branch2", branch1);
     perform_bunch_inserts(*db, bench_table);
     perform_bunch_updates(*db, bench_table);
     branch_id_t branch3 = db->createBranch("branch3", invalid_branch_id);

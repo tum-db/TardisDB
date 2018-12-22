@@ -40,8 +40,8 @@ inline tid_t unmark_dangling_tid(tid_t tid) {
     return (tid & ~(static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1)));
 }
 
-inline tid_t is_marked_as_dangling_tid(tid_t tid) {
-    return (0 < tid & static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
+inline bool is_marked_as_dangling_tid(tid_t tid) {
+    return (static_cast<decltype(tid)>(0) != (tid & static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1)));
 }
 
 inline bool has_lineage_intersection(QueryContext & ctx, VersionEntry * version_entry) {
@@ -70,6 +70,8 @@ tid_t delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Quer
 tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, QueryContext ctx);
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
+
+bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 
 struct ScanItem {
     const Vector & column;
