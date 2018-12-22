@@ -305,13 +305,11 @@ void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dst
     assert(branch != invalid_branch_id);
 
     dstCtx.branch_lineage.clear();
-//    dstCtx.branch_lineage_bitset = boost::dynamic_bitset<>(_next_branch_id);
     dstCtx.branch_lineage_bitset.clear();
     dstCtx.branch_lineage_bitset.resize(_next_branch_id);
 
     branch_id_t current = branch;
     for (;;) {
-        printf("current branch: %lu\n", current);
         dstCtx.branch_lineage_bitset.set(current);
         auto & branch_obj = _branches[current];
         if (branch_obj->parent_id == invalid_branch_id) {
