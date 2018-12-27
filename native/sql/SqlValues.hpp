@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string_view>
 
 #include "sql/SqlType.hpp"
 #include "utils/hashing.hpp"
@@ -240,6 +241,7 @@ class Text : public Value {
 public:
     using value_type = std::array<uintptr_t, 2>;
     using string_ref_t = std::pair<size_t, const uint8_t *>;
+    value_type value;
 
     explicit Text();
 
@@ -265,13 +267,14 @@ public:
 
     string_ref_t getString() const;
 
+    // attention: sql text values may contain null bytes
+    std::string_view getView() const;
+
     bool isInplace() const;
 
     size_t length() const;
 
 private:
-    value_type value;
-
     Text(const uint8_t * beginPtr, const uint8_t * endPtr);
     Text(uint8_t len, const uint8_t * bytes);
 };

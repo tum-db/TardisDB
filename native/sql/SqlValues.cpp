@@ -921,6 +921,10 @@ Text::string_ref_t Text::getString() const {
     return std::make_pair(length(), begin());
 }
 
+std::string_view Text::getView() const {
+    return std::string_view(reinterpret_cast<const char *>(begin()), length());
+}
+
 bool Text::isInplace() const {
     bool inplace = (0 == (value[0] >> 8*sizeof(uintptr_t)-1));
     return inplace;
