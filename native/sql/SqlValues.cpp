@@ -926,7 +926,7 @@ std::string_view Text::getView() const {
 }
 
 bool Text::isInplace() const {
-    bool inplace = (0 == (value[0] >> 8*sizeof(uintptr_t)-1));
+    bool inplace = (0 == (value[0] >> (8*sizeof(uintptr_t)-1)));
     return inplace;
 }
 
