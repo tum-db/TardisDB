@@ -108,3 +108,20 @@ set(RD_BENCH_SOURCE_FILES
 
 add_executable(rd_bench ${RD_BENCH_SOURCE_FILES})
 target_link_libraries(rd_bench dblib)
+
+### install
+MACRO(INSTALL_HEADERS_WITH_DIRECTORY HEADER_LIST)
+    FOREACH(HEADER ${${HEADER_LIST}})
+#		message(STATUS ${HEADER})
+		get_filename_component(DIR ${HEADER} DIRECTORY)
+#		message(STATUS ${DIR})
+        install(FILES ${HEADER} DESTINATION include/${DIR})
+    ENDFOREACH(HEADER)
+ENDMACRO(INSTALL_HEADERS_WITH_DIRECTORY)
+
+file(GLOB_RECURSE HS RELATIVE ${CMAKE_SOURCE_DIR} "*.hpp" "*.tcc")
+#message(STATUS ${HS})
+INSTALL_HEADERS_WITH_DIRECTORY(HS)
+
+install(TARGETS dblib DESTINATION lib)
+install(TARGETS protodb rd_bench DESTINATION bin)
