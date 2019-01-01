@@ -75,51 +75,6 @@ bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 
 void destroy_chain(tid_t tid, Table & table); // TODO
 
-/*
-struct ScanItem {
-    const Vector & column;
-    size_t offset;
-    Native::Sql::Register reg;
-
-    ScanItem(const Vector & column, size_t offset)
-        : column(column)
-        , offset(offset)
-    { }
-
-    ScanItem(const ScanItem &) = delete;
-
-    // https://stackoverflow.com/a/15730993
-    ScanItem(ScanItem && other) noexcept
-        : column(other.column)
-        , offset(other.offset)
-        , reg() // FIXME preserve value
-    { }
-};
-*/
-
-#if 0
-template<typename ValueType>
-struct TmplScanItem {
-    const Vector & column;
-    size_t offset;
-    Native::Sql::TypedRegister<ValueType> reg;
-
-    TmplScanItem(const Vector & column, size_t offset)
-        : column(column)
-        , offset(offset)
-    { }
-
-    TmplScanItem(const TmplScanItem &) = delete;
-
-    // https://stackoverflow.com/a/15730993
-    TmplScanItem(TmplScanItem && other) noexcept
-        : column(other.column)
-        , offset(other.offset)
-        , reg() // FIXME preserve value
-    { }
-};
-#endif
-
 template<typename RegisterType>
 struct ScanItem {
     const Vector & column;

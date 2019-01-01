@@ -6,26 +6,6 @@
 namespace Native {
 namespace Sql {
 
-#if 0
-class Register {
-public:
-    Sql::SqlType type;
-    bool is_null;
-    Native::Sql::Bool bool_value;
-    Native::Sql::Date date_value;
-    Native::Sql::Integer integer_value;
-    Native::Sql::Numeric numeric_value;
-    Native::Sql::Text text_value;
-    Native::Sql::Timestamp timestamp_value;
-
-//    Register(const Register & other);
-
-    void load_from(const void * ptr);
-
-    Native::Sql::Value & get_value();
-};
-#endif
-
 template<typename T>
 struct Register {
     T sql_value;

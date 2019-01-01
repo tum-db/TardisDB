@@ -97,10 +97,6 @@ void update_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table)
     std::uniform_int_distribution<size_t> distribution(0, tids.size());
     for (size_t updated = 0; updated < cnt; ++updated) {
         tid_t tid = tids[distribution(rd_engine)];
-        /*
-        if (is_marked_as_dangling_tid(tid) && branch == 0) {
-            printf("master");
-        }*/
         if (!is_visible(tid, table, ctx)) {
             continue;
         }

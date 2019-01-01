@@ -263,12 +263,7 @@ Database::Database() :
     auto branch = createBranch("master", invalid_branch_id);
     assert(branch == master_branch_id);
 }
-/*
-void Database::addTable(std::unique_ptr<Table> table, const std::string & name)
-{
-    _tables.emplace(name, std::move(table));
-}
-*/
+
 Table & Database::createTable(const std::string & name) {
     auto [it, ok] = _tables.emplace(name, std::make_unique<Table>(*this));
     assert(ok);
