@@ -127,6 +127,16 @@ Table::Table(Database & db) :
     createBranch("master");
 }
 
+Table::~Table()
+{
+    for (auto & versionEntry : _version_mgmt_column) {
+        destroy_chain(versionEntry.get());
+    }
+    for (auto & versionEntry : _dangling_version_mgmt_column) {
+        destroy_chain(versionEntry.get());
+    }
+}
+
 void Table::addColumn(const std::string & columnName, Sql::SqlType type)
 {
 //    _columnNames.push_back(columnName);

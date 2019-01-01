@@ -73,7 +73,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 
-void destroy_chain(tid_t tid, Table & table); // TODO
+void destroy_chain(VersionEntry * version_entry);
 
 template<typename RegisterType>
 struct ScanItem {

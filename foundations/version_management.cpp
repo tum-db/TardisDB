@@ -271,3 +271,19 @@ bool is_visible(tid_t tid, Table & table, QueryContext & ctx) {
     const void * element = get_latest_chain_element(version_entry, table, ctx);
     return (element != nullptr);
 }
+
+void destroy_chain(VersionEntry * version_entry) {
+    const void * next = version_entry->first;
+    while (next != nullptr) {
+        if (next == version_entry) {
+            next = version_entry->next;
+        } else {
+            const auto storage = static_cast<const VersionedTupleStorage *>(next);
+            next = storage->next;
+            std::free(const_cast<VersionedTupleStorage *>(storage));
+        }
+    }
+    version_entry->first = version_entry;
+    version_entry->next = nullptr;
+    version_entry->next_in_branch = nullptr;
+}

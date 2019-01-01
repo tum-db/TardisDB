@@ -86,7 +86,8 @@ struct VersionEntry;
 class Table {
 public:
     Table(Database & db);
-    ~Table() = default;
+
+    ~Table();
 
     void addColumn(const std::string & columnName, Sql::SqlType type);
 
