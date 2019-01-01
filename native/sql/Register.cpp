@@ -5,6 +5,7 @@
 namespace Native {
 namespace Sql {
 
+#if 0
 /*
 Register::Register(const Register & other)
     : type(other.type)
@@ -72,6 +73,7 @@ Native::Sql::Value & Register::get_value() {
             unreachable();
     }
 }
+#endif
 
 } // end namespace Sql
 } // end namespace Native

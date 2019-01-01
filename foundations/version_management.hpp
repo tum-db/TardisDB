@@ -73,6 +73,9 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 
+void destroy_chain(tid_t tid, Table & table); // TODO
+
+/*
 struct ScanItem {
     const Vector & column;
     size_t offset;
@@ -92,7 +95,9 @@ struct ScanItem {
         , reg() // FIXME preserve value
     { }
 };
+*/
 
+#if 0
 template<typename ValueType>
 struct TmplScanItem {
     const Vector & column;
@@ -108,6 +113,28 @@ struct TmplScanItem {
 
     // https://stackoverflow.com/a/15730993
     TmplScanItem(TmplScanItem && other) noexcept
+        : column(other.column)
+        , offset(other.offset)
+        , reg() // FIXME preserve value
+    { }
+};
+#endif
+
+template<typename RegisterType>
+struct ScanItem {
+    const Vector & column;
+    size_t offset;
+    RegisterType reg;
+
+    ScanItem(const Vector & column, size_t offset)
+        : column(column)
+        , offset(offset)
+    { }
+
+    ScanItem(const ScanItem &) = delete;
+
+    // https://stackoverflow.com/a/15730993
+    ScanItem(ScanItem && other) noexcept
         : column(other.column)
         , offset(other.offset)
         , reg() // FIXME preserve value

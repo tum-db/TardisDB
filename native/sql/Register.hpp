@@ -6,6 +6,7 @@
 namespace Native {
 namespace Sql {
 
+#if 0
 class Register {
 public:
     Sql::SqlType type;
@@ -23,9 +24,10 @@ public:
 
     Native::Sql::Value & get_value();
 };
+#endif
 
 template<typename T>
-struct TypedRegister {
+struct Register {
     T sql_value;
     inline void load_from(const void * ptr) {
         auto typed_ptr = static_cast<typename T::value_type const *>(ptr);
@@ -34,7 +36,7 @@ struct TypedRegister {
 };
 
 template<>
-struct TypedRegister<Sql::Text> {
+struct Register<Sql::Text> {
     Native::Sql::Text sql_value;
     inline void load_from(const void * ptr) {
         const uintptr_t * src_array = reinterpret_cast<const uintptr_t *>(ptr);

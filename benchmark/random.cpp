@@ -145,7 +145,7 @@ void perform_bunch_updates(Database & db, Table & table) {
     }
 }
 
-inline void print_result(const std::tuple<TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>> & scan_items) {
+inline void print_result(const std::tuple<ScanItem<Register<Integer>>, ScanItem<Register<Integer>>, ScanItem<Register<Integer>>> & scan_items) {
     printf("%d\t%d\t%d\n",
         std::get<0>(scan_items).reg.sql_value.value,
         std::get<1>(scan_items).reg.sql_value.value,
@@ -155,7 +155,7 @@ inline void print_result(const std::tuple<TmplScanItem<Integer>, TmplScanItem<In
 
 static size_t tuple_cnt = 0;
 static int sum = 0;
-inline void sum_consumer(const std::tuple<TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>> & scan_items) {
+inline void sum_consumer(const std::tuple<ScanItem<Register<Integer>>, ScanItem<Register<Integer>>, ScanItem<Register<Integer>>> & scan_items) {
     sum += std::get<0>(scan_items).reg.sql_value.value;
     sum += std::get<1>(scan_items).reg.sql_value.value;
     sum += std::get<2>(scan_items).reg.sql_value.value;
@@ -172,7 +172,7 @@ int64_t measure_master_scan_yielding_latest(branch_id_t branch, Database & db, T
     const auto & column2 = table.getColumn(2);
 
     auto scan_items = std::make_tuple<
-        TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>>(
+        ScanItem<Register<Integer>>, ScanItem<Register<Integer>>, ScanItem<Register<Integer>>>(
         {column0, 0},
         {column1, 4},
         {column2, 8});
@@ -198,7 +198,7 @@ int64_t measure_master_scan_yielding_earliest(branch_id_t branch, Database & db,
     const auto & column2 = table.getColumn(2);
 
     auto scan_items = std::make_tuple<
-        TmplScanItem<Integer>, TmplScanItem<Integer>, TmplScanItem<Integer>>(
+        ScanItem<Register<Integer>>, ScanItem<Register<Integer>>, ScanItem<Register<Integer>>>(
         {column0, 0},
         {column1, 4},
         {column2, 8});
