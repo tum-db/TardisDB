@@ -915,6 +915,19 @@ const uint8_t * Text::begin() const {
         uint8_t * beginPtr = reinterpret_cast<uint8_t *>(begin);
         return beginPtr;
     }
+/*
+    mov p1, data[0]
+    mov p2, &data[0] + 1
+    mov mask1, p1
+    sar 63, mask1
+    and p1, 2^63 - 1
+    mov mask2, mask1
+    not mask2
+    and p1, mask1
+    and p2, mask2
+    or p1, p2
+    return p1
+*/
 }
 
 Text::string_ref_t Text::getString() const {
@@ -930,8 +943,7 @@ bool Text::isInplace() const {
     return inplace;
 }
 
-size_t Text::length() const
-{
+size_t Text::length() const {
     if (isInplace()) {
         const uint8_t * data = reinterpret_cast<const uint8_t *>(value.data());
         return data[0];
@@ -941,6 +953,20 @@ size_t Text::length() const
         ptrdiff_t diff = value[1] - beginValue;
         return diff;
     }
+/*
+    mov p1, data[0]
+    mov mask1, p1
+    sar 63, mask1
+    mov mask2, mask1
+    not mask2
+    mov size1, data[1] // TODO store the string length directly in data[1]
+    sub size1, p1
+    sal 56, p1 // size2
+    and size1, mask1
+    and size2, mask2
+    or size1, size2
+    return size1
+*/
 }
 
 //-----------------------------------------------------------------------------
