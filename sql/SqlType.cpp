@@ -196,6 +196,10 @@ static llvm::Type * createLLVMTy(const SqlType & type, const std::string & name)
             return llvm::Type::getInt32Ty(context);
         case TypeID::TimestampID:
             return llvm::Type::getInt64Ty(context);
+        case TypeID::TextID: {
+            llvm::ArrayType * arrayType = llvm::ArrayType::get(llvm::Type::getInt64Ty(context), 2);
+            return arrayType;
+        }
         default:
             throw NotImplementedException("createLLVMTy()");
     }
