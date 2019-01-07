@@ -120,6 +120,9 @@ std::string getName(SqlType type)
         case TypeID::TimestampID:
             signature = "Timestamp";
             break;
+        case TypeID::TextID:
+            signature = "Text";
+            break;
         default:
             throw NotImplementedException("getName()");
     }
