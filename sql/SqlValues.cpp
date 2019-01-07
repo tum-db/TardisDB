@@ -681,6 +681,9 @@ void Char::store(llvm::Value * ptr) const
 
         // store the Char's data
         llvm::Value * strPtr = codeGen->CreateStructGEP(valueTy, ptr, 1);
+#if LLVM_VERSION_MAJOR < 7
+        codeGen->CreateMemCpy(strPtr, _llvmValue, _length, 0);
+#else
         /* CallInst * CreateMemCpy (
             Value *Dst, unsigned DstAlign,
             Value *Src, unsigned SrcAlign,
@@ -692,6 +695,7 @@ void Char::store(llvm::Value * ptr) const
             MDNode *NoAliasTag=nullptr)
         */
         codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+#endif
     }
 }
 
@@ -803,7 +807,11 @@ void Varchar::store(llvm::Value * ptr) const
 
     // store the Varchar's data
     llvm::Value * strPtr = codeGen->CreateStructGEP(valueTy, ptr, 1);
+
 //    Functions::genPrintfCall("store Varchar at: %p\n", strPtr);
+#if LLVM_VERSION_MAJOR < 7
+    codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+#else
     /* CallInst * CreateMemCpy (
         Value *Dst, unsigned DstAlign,
         Value *Src, unsigned SrcAlign,
@@ -815,6 +823,7 @@ void Varchar::store(llvm::Value * ptr) const
         MDNode *NoAliasTag=nullptr)
     */
     codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+#endif
 }
 
 cg_hash_t Varchar::hash() const
