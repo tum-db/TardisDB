@@ -810,7 +810,7 @@ void Varchar::store(llvm::Value * ptr) const
 
 //    Functions::genPrintfCall("store Varchar at: %p\n", strPtr);
 #if LLVM_VERSION_MAJOR < 7
-    codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+    codeGen->CreateMemCpy(strPtr, _llvmValue, _length, 0);
 #else
     /* CallInst * CreateMemCpy (
         Value *Dst, unsigned DstAlign,
