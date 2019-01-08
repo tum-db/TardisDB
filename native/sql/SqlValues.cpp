@@ -76,8 +76,10 @@ value_op_t Value::load(const void * ptr, SqlType type)
             return Date::load(ptr);
         case SqlType::TypeID::TimestampID:
             return Timestamp::load(ptr);
+        case SqlType::TypeID::TextID:
+            return Text::load(ptr);
         default:
-            unreachable();
+            throw InvalidOperationException("unknown type");
     }
 }
 
