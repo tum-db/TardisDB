@@ -101,7 +101,7 @@ VersionEntry * get_version_entry(tid_t tid, Table & table) {
     }
 }
 
-static std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
+std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table) {
     std::vector<Native::Sql::value_op_t> values;
     auto tuple_type = table.getTupleType();
     for (size_t i = 0; i < tuple_type.size(); ++i) {

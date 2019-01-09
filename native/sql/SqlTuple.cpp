@@ -71,9 +71,17 @@ std::string SqlTuple::constructTypeName(const std::vector<SqlType> & types)
 size_t SqlTuple::getSize()
 {
     auto & codeGen = getThreadLocalCodeGen();
-    auto & dataLayout = codeGen.getCurrentModuleGen().getDataLayout();
+    auto & dataLayout = codeGen.getDefaultDataLayout();
     size_t size = dataLayout.getTypeAllocSize(structTy);
     return size;
+}
+
+uint64_t SqlTuple::getOffset(unsigned elemIdx)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & dataLayout = codeGen.getDefaultDataLayout();
+    auto structLayout = dataLayout.getStructLayout(structTy);
+    return structLayout->getElementOffset(elemIdx);
 }
 
 void SqlTuple::store(void * ptr)

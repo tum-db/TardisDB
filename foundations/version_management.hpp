@@ -75,6 +75,8 @@ bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 
 void destroy_chain(VersionEntry * version_entry);
 
+std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table);
+
 template<typename RegisterType>
 struct ScanItem {
     const Vector & column;
