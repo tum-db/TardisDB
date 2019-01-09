@@ -476,5 +476,7 @@ const Value & getAssociatedValue(const Value & value);
 
 bool isNumerical(const Value & value);
 
+std::string toString(const Value & sqlValue);
+
 } // end namespace Sql
 } // end namespace Native

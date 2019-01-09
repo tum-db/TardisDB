@@ -38,5 +38,7 @@ private:
     static std::string constructTypeName(const std::vector<SqlType> & tds);
 };
 
+std::string toString(const SqlTuple & tuple);
+
 } // end namespace Sql
 } // end namespace Native

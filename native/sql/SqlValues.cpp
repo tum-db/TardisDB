@@ -1239,5 +1239,41 @@ llvm::Value * getNullIndicator(SqlType type)
 }
 #endif // USE_INTERNAL_NULL_INDICATOR
 
+std::string toString(const Value & sqlValue)
+{
+    if (isNullable(sqlValue)) {
+        throw NotImplementedException();
+    }
+
+    switch (sqlValue.type.typeID) {
+        case SqlType::TypeID::UnknownID:
+            return "null";
+        case SqlType::TypeID::BoolID: {
+            const Bool * b = dynamic_cast<const Bool *>(&sqlValue);
+            return std::to_string(b->value);
+        }
+        case SqlType::TypeID::IntegerID: {
+            const Integer * i = dynamic_cast<const Integer *>(&sqlValue);
+            return std::to_string(i->value);
+        }
+        case SqlType::TypeID::VarcharID:
+            throw NotImplementedException();
+        case SqlType::TypeID::CharID:
+            throw NotImplementedException();
+        case SqlType::TypeID::NumericID:
+            throw NotImplementedException();
+        case SqlType::TypeID::DateID:
+            throw NotImplementedException();
+        case SqlType::TypeID::TimestampID:
+            throw NotImplementedException();
+        case SqlType::TypeID::TextID: {
+            const Text * text = dynamic_cast<const Text *>(&sqlValue);
+            return std::string(text->getView());
+        }
+        default:
+            throw NotImplementedException();
+    }
+}
+
 } // end namespace Sql
 } // end namespace Native

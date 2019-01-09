@@ -1,5 +1,7 @@
 #include "foundations/version_management.hpp"
 
+#include <iostream>
+
 #include "foundations/exceptions.hpp"
 #include "utils/general.hpp"
 
@@ -109,6 +111,15 @@ static std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Tabl
     return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
 }
 
+static void update_master(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table) {
+    size_t column_idx = 0;
+    for (auto & value : tuple.values) {
+        void * ptr = const_cast<void *>(table.getColumn(column_idx).at(tid));
+        value->store(ptr);
+        column_idx += 1;
+    }
+}
+
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
 
@@ -119,16 +130,18 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
     Database & db = table.getDatabase();
     auto version_entry = get_version_entry(tid, table);
     if (branch == master_branch_id) {
-        auto current_tuple = get_current_master(tid, table);
+        auto old_tuple = get_current_master(tid, table);
 
-        auto storage = create_chain_element(table, current_tuple->getSize());
+        auto storage = create_chain_element(table, old_tuple->getSize());
 
         // branch visibility
         storage->branch_id = master_branch_id;
         storage->creation_ts = db.getLargestBranchId();
 
-        current_tuple->store(get_tuple_ptr(storage));
-
+        old_tuple->store(get_tuple_ptr(storage));
+std::cout << toString(*old_tuple) << " to store" << std::endl;
+auto t = Native::Sql::SqlTuple::load(get_tuple_ptr(storage), table.getTupleType());
+std::cout << toString(*t) << " stored" << std::endl;
         // version entry update
         if (version_entry->first != version_entry) {
             // chain head != current master
@@ -136,6 +149,9 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         }
         version_entry->next = storage;
         version_entry->next_in_branch = storage;
+
+        // new master
+        update_master(tid, tuple, table);
     } else {
         auto predecessor = get_latest_chain_element(version_entry, table, ctx);
         if (predecessor == nullptr) {

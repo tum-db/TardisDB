@@ -1,6 +1,7 @@
 #include "SqlTuple.hpp"
 
 #include <functional>
+#include <sstream>
 
 #include "foundations/LegacyTypes.hpp"
 //#include "foundations/utils.hpp"
@@ -136,5 +137,21 @@ hash_t SqlTuple::hash()
     return seed;
 }
 
+std::string toString(const SqlTuple & tuple)
+{
+    std::stringstream ss;
+    ss << "(";
+    bool first = true;
+    for (const auto & value : tuple.values) {
+        if (!first) {
+            ss << ", ";
+        }
+        ss << toString(*value);
+        first = false;
+    }
+    ss << ")";
+    return ss.str();
+}
+
 } // end namespace Sql
-} // end namespace Sql
+} // end namespace Native
