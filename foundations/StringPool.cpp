@@ -24,5 +24,7 @@ StringPool & StringPool::instance() {
 }
 
 const sql_string_t & StringPool::put(sql_string_t && str) {
-    return *pool.insert(std::move(str)).first;
+//    return *pool.insert(std::move(str)).first;
+    pool.push_back(std::move(str));
+    return pool.back();
 }
