@@ -11,11 +11,10 @@
 static constexpr size_t repetitions = 16;
 
 static constexpr auto master_factor = 0.7;
-//static constexpr auto update_factor = 0.2;
-static constexpr auto update_factor = 5.0;
+static constexpr auto update_factor = 10.0;
 static constexpr int seed = 42;
 //static constexpr size_t new_tuples_per_episode = 1<<18;
-static constexpr size_t new_tuples_per_episode = 1<<19;
+static constexpr size_t new_tuples_per_episode = 500'000; //1<<19;
 
 static std::mt19937 rd_engine(seed);
 
@@ -123,12 +122,16 @@ std::vector<branch_id_t> get_branches_dist(Database & db) {
     return branches_dist;
 }
 
+static uint64_t total_inserts = 0;
+static uint64_t total_updates = 0;
+
 void perform_bunch_inserts(Database & db, Table & table) {
     auto branches_dist = get_branches_dist(db);
     size_t chunk_size = new_tuples_per_episode/branches_dist.size();
     for (branch_id_t branch : branches_dist) {
         insert_tuples(branch, chunk_size, db, table);
     }
+    total_inserts += new_tuples_per_episode;
 }
 
 void perform_bunch_updates(Database & db, Table & table) {
@@ -139,6 +142,7 @@ void perform_bunch_updates(Database & db, Table & table) {
     for (branch_id_t branch : branches_dist) {
         update_tuples(branch, chunk_size, db, table);
     }
+    total_updates += total_cnt;
 }
 
 inline void print_result(const std::tuple<ScanItem<Register<Integer>>, ScanItem<Register<Integer>>, ScanItem<Register<Integer>>> & scan_items) {
@@ -269,6 +273,8 @@ void run_benchmark() {
             return measure_master_scan_yielding_latest(branch, *db, bench_table);
         });
     }
+
+    printf("update insert ratio: %f\n", static_cast<double>(total_updates)/static_cast<double>(total_inserts));
 }
 
 int main(int argc, char * argv[]) {
