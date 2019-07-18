@@ -22,6 +22,7 @@
 !*.csv
 !Makefile
 !Readme
+!LICENSE
 !empty
 !.gitignore
 
