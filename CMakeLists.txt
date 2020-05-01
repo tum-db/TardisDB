@@ -4,7 +4,7 @@ project(protodb)
 set(CMAKE_CXX_STANDARD 17)
 
 ### set up llvm
-find_package(LLVM REQUIRED CONFIG)
+find_package(LLVM 7 REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(${LLVM_INCLUDE_DIRS} .)
