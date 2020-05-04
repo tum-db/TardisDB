@@ -1,6 +1,6 @@
 -- Versiontable
 -- vid tableid rlist
-create table Versiontable (
+create table versiontable (
    vid integer not null,
    tableid varchar(32) not null,
    rid integer not null
@@ -8,7 +8,7 @@ create table Versiontable (
 
 -- Metatable
 -- vid parent message
-create table Metatable (
+create table metatable (
     vid integer not null,
     parent integer not null,
     message varchar(32) not null

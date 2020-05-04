@@ -60,8 +60,9 @@ static void generateTableLoadCode(const Schema & schema, const Schema::Relation 
         std::cout << ");\n";
     }
 
-    std::cout << "std::ifstream fs(\"tables/" << rel.name << ".tbl\");\n"
-              << "if (!fs) { throw std::runtime_error(\"file not found\"); }\n";
+    std::string fileName = "tables/" + rel.name + ".tbl";
+    std::cout << "std::ifstream fs(\"" << fileName << "\");\n"
+              << "if (!fs) { throw std::runtime_error(\"file not found: " << fileName << "\"); }\n";
 
     std::cout << "loadTable(fs, " << rel.name << ");\n"
               << "}\n";

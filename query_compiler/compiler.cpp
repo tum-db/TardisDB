@@ -146,7 +146,8 @@ void compileAndExecute(const std::string & query)
 {
 //    ModuleGen moduleGen("QueryModule");
 
-    auto db = loadUniDb();
+//    auto db = loadUniDb();
+    auto db = loadDatabase();
     QueryContext queryContext(*db); // TODO as function argument?
 
     compilationStart = high_resolution_clock::now();
