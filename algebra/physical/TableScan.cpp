@@ -52,7 +52,11 @@ void TableScan::produce()
     }
 
     // iterate over all tuples
+#ifdef __APPLE__
+    LoopGen scanLoop(funcGen, {{"index", cg_size_t(0ull)}});
+#else
     LoopGen scanLoop(funcGen, {{"index", cg_size_t(0ul)}});
+#endif
     cg_size_t tid(scanLoop.getLoopVar(0));
     {
         LoopBodyGen bodyGen(scanLoop);
@@ -83,8 +87,11 @@ void TableScan::produce(cg_tid_t tid)
         ci_p_t ci = std::get<0>(column);
 
         // calculate the SQL value pointer
-        llvm::Value * elemPtr = _codeGen->CreateGEP(
-            std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
+#ifdef __APPLE__
+        llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ull), tid });
+#else
+        llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
+#endif
 
         // the final value
         value_op_t sqlValue;

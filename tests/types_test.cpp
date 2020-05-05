@@ -75,14 +75,22 @@ static void testScan(CodeGen & codeGen)
 
     cg_size_t tableSize(test_vec1->size());
 
+#ifdef __APPLE__
+    LoopGen loopGen(funcGen, {{"index", cg_size_t(0ull)}});
+#else
     LoopGen loopGen(funcGen, {{"index", cg_size_t(0ul)}});
+#endif
     cg_size_t index(loopGen.getLoopVar(0));
     {
         LoopBodyGen bodyGen(loopGen);
 
         Functions::genPrintfCall("scan iteration: %lu\n", index);
 
+#ifdef __APPLE__
+        llvm::Value * varcharPtr = codeGen->CreateGEP(columnTy, columnPtr, {cg_size_t(0ull), index});
+#else
         llvm::Value * varcharPtr = codeGen->CreateGEP(columnTy, columnPtr, {cg_size_t(0ul), index});
+#endif
         Functions::genPrintfCall("varchar ptr: %lu\n", varcharPtr);
 
         auto sqlval = Value::load(varcharPtr, varchar_20_Ty);

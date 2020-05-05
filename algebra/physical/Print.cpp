@@ -20,12 +20,20 @@ Print::~Print()
 void Print::produce()
 {
     tupleCountPtr = _codeGen->CreateAlloca(cg_size_t::getType());
+#ifdef __APPLE__
+    _codeGen->CreateStore(cg_size_t(0ull), tupleCountPtr);
+#else
     _codeGen->CreateStore(cg_size_t(0ul), tupleCountPtr);
+#endif
 
     child->produce();
 
     cg_size_t tupleCnt(_codeGen->CreateLoad(tupleCountPtr));
+#ifdef __APPLE__
+    IfGen check(tupleCnt == cg_size_t(0ull));
+#else
     IfGen check(tupleCnt == cg_size_t(0ul));
+#endif
     {
         Functions::genPrintfCall("Empty result set\n");
     }

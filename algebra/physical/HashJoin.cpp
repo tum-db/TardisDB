@@ -179,7 +179,11 @@ using join_pair_vec_t = HashJoin::join_pair_vec_t;
 template<Side side>
 static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_mapping_t & values)
 {
+#ifdef __APPLE__
+    cg_hash_t seed(0ull);
+#else
     cg_hash_t seed(0ul);
+#endif
 
     // iterate over each join pair and calculate the combined hash
     bool first = true;

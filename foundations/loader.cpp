@@ -82,8 +82,11 @@ llvm::Function * genLoadRowFunction(Table & table)
     size_t i = 0;
     for (const std::string & column : table.getColumnNames()) {
         ci_p_t ci = table.getCI(column);
-
+#ifdef __APPLE__
+        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ull), cg_size_t(i) });
+#else
         llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ul), cg_size_t(i) });
+#endif
 
         llvm::Value * lengthPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 0);
         llvm::Value * strPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 1);

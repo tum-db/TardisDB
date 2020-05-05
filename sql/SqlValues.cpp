@@ -38,10 +38,18 @@ static cg_hash_t genStringHash(CodeGen & codeGen, cg_ptr8_t & str, cg_size_t len
 {
     auto & funcGen = codeGen.getCurrentFunctionGen();
 
+#ifdef __APPLE__
+    cg_hash_t result(0ull);
+#else
     cg_hash_t result(0ul);
+#endif
 
     // iterate over all characters
+#ifdef __APPLE__
+    LoopGen loopGen(funcGen, {{"index", cg_size_t(0ull)}, {"result", result}});
+#else
     LoopGen loopGen(funcGen, {{"index", cg_size_t(0ul)}, {"result", result}});
+#endif
     cg_size_t index(loopGen.getLoopVar(0));
     {
         LoopBodyGen bodyGen(loopGen);

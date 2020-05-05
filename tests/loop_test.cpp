@@ -76,7 +76,11 @@ llvm::Function * loop_test()
 
     // while(true) test:
     {
+#ifdef __APPLE__
+        LoopGen loopGen(funcGen, {{"index", cg_size_t(0ull)}});
+#else
         LoopGen loopGen(funcGen, {{"index", cg_size_t(0ul)}});
+#endif
         cg_size_t i( loopGen.getLoopVar(0) );
         {
             LoopBodyGen bodyGen(loopGen);

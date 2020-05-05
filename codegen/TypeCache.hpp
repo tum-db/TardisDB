@@ -9,7 +9,9 @@
 #include <unordered_map>
 
 #include <llvm/IR/Type.h>
+#ifndef __APPLE__
 #include <bits/unordered_map.h>
+#endif
 
 /// A very simple type cache based on type signatures
 class TypeCache {
