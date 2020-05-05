@@ -3,8 +3,18 @@ project(protodb)
 
 set(CMAKE_CXX_STANDARD 17)
 
+if(APPLE)
+	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/llvm@7)
+	find_package(LLVM 7.1 REQUIRED CONFIG)
+	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/boost/lib/cmake/Boost-1.72.0)
+else(NOT APPLE)
+	find_package(LLVM 7 REQUIRED CONFIG)
+endif(APPLE)
+
 ### set up llvm
-find_package(LLVM 7 REQUIRED CONFIG)
+
+find_package(Boost)
+INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIRS} )
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(${LLVM_INCLUDE_DIRS} .)
