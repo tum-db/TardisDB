@@ -75,7 +75,7 @@ static const Register * create_register_for_constant(const std::string & value, 
 void construct_selects(QueryContext& context, QueryPlan& plan) {
     auto & db = context.db;
     for (auto & selection : plan.parser_result.selections) {
-        auto& scan = plan.scans[selection.first.first];
+        auto& scan = plan.dangling_subtrees[selection.first.first];
 
         auto it1 = plan.attributeToTable.find(selection.first.second);
         if (it1 == plan.attributeToTable.end()) {
@@ -98,8 +98,8 @@ void construct_selects(QueryContext& context, QueryPlan& plan) {
         );
 
         // construct the select operator
-        auto select = std::make_unique<Select>(std::move(plan.scans[selection.first.first]), std::move(exp));
-        plan.scans[selection.first.first] = std::move(select);
+        auto select = std::make_unique<Select>(std::move(plan.dangling_subtrees[selection.first.first]), std::move(exp));
+        plan.dangling_subtrees[selection.first.first] = std::move(select);
     }
 }
 
@@ -117,7 +117,7 @@ void construct_scans(QueryContext& context, QueryPlan & plan) {
             plan.attributeToTable[ci->columnName] = table;
         }
 
-        plan.scans.insert({relation.second, std::move(scan)});
+        plan.dangling_subtrees.insert({relation.second, std::move(scan)});
     }
 }
 
@@ -226,70 +226,38 @@ static JoinGraph construct_join_graph(QueryPlan & plan) {
     return graph;
 }*/
 
-std::unique_ptr<Result> construct_projection(QueryContext& context, QueryPlan & plan) {
+void construct_projection(QueryContext& context, QueryPlan & plan) {
     auto & db = context.db;
 
-    std::vector<iu_p_t> select;
+    std::vector<iu_p_t> projections;
     for (const std::string & attr : plan.parser_result.projections) {
         if (plan.attributeToTable.find(attr) == plan.attributeToTable.end()) {
             throw std::runtime_error("column " + attr + " not in scope");
         }
-
-        select.push_back( plan.scope[attr] );
+        projections.push_back( plan.scope[attr] );
     }
 
-    if (plan.scans.size() == 1) {
-        return std::make_unique<Result>( std::move(plan.scans.begin()->second), select );
+    if (plan.dangling_subtrees.size() == 1) {
+        plan.tree = std::make_unique<Result>( std::move(plan.dangling_subtrees.begin()->second), projections );
+    } else {
+        throw std::runtime_error("more than one root found: Table joining has failed");
     }
-
-
-    /*if (plan.parser_result.projections.empty()) {
-        return;
-    }
-
-    using scope_t = std::unordered_map<std::string, const Register *>;
-    scope_t scope;
-    for (auto & rel_pair : plan.parser_result.relations) {
-        auto scan = plan.scans[rel_pair.second];
-        auto & table = db.getTable(rel_pair.first);
-        size_t attr_cnt = table.getAttributeCount();
-        for (size_t i = 0; i < attr_cnt; ++i) {
-            auto & attr = table.getAttribute(i);
-            std::string attr_name = attr.getName();
-            const auto & reg = scan->getOutput(attr_name);
-            scope[rel_pair.second + "." + attr_name] = reg;
-            if (scope.count(attr_name) > 0) {
-                scope[attr_name] = nullptr;
-            } else {
-                scope[attr_name] = reg;
-            }
-        }
-    }
-
-    std::vector<const Register*> projection_registers;
-    for (const std::string & attr_name : plan.parser_result.projections) {
-        const auto & reg = scope[attr_name];
-        assert(reg);
-        projection_registers.push_back(reg);
-    }
-
-    plan.tree = std::make_unique<Projection>(std::move(plan.tree), projection_registers);*/
 }
 
-std::unique_ptr<Result> construct_tree(QueryContext& context, QueryPlan plan) {
+void construct_tree(QueryContext& context, QueryPlan& plan) {
     construct_scans(context, plan);
     construct_selects(context, plan);
-    return construct_projection(context, plan);
+    construct_projection(context, plan);
 }
 
 
-std::unique_ptr<Result> sql_to_plan(QueryContext& context, std::string sql) {
-    auto plan = QueryPlan();
+std::unique_ptr<Result> parse_and_construct_tree(QueryContext& context, std::string sql) {
+    QueryPlan plan;
     plan.parser_result = parse_and_analyse_sql_statement(context.db, sql);
 
-    auto result = construct_tree(context, std::move(plan));
+    construct_tree(context, plan);
 
-    return result;
+    return std::move(plan.tree);
     //return plan;
 
     /*construct_scans(db, plan);

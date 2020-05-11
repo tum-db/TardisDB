@@ -76,7 +76,7 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 #if 1
 
 
-    auto queryTree = sql_to_plan(queryContext, query);
+    auto queryTree = parse_and_construct_tree(queryContext, query);
 
     /*auto parsedQuery = QueryParser::parse_query(query);
     auto queryTree = computeTree(*parsedQuery.get(), queryContext);*/

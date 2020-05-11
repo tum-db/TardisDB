@@ -8,21 +8,17 @@
 
 using namespace Algebra::Logical;
 
-std::unique_ptr<Result> sql_to_plan(QueryContext& context, std::string sql);
+std::unique_ptr<Result> parse_and_construct_tree(QueryContext& context, std::string sql);
 
 struct QueryPlan {
     SQLParserResult parser_result;
 
     std::unordered_map<std::string, iu_p_t> scope;
     std::unordered_map<std::string, Table *> attributeToTable;
-    // binding -> scan
-    std::unordered_map<std::string, std::unique_ptr<Operator>> scans;
-    std::unordered_map<std::string, Select *> selects;
-    // binding -> subtree
     std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_subtrees;
-    std::unique_ptr<Operator> tree;
+    std::unique_ptr<Result> tree;
 };
 
 void construct_scans(QueryContext& context, QueryPlan & plan);
 void construct_selects(QueryContext & context, QueryPlan & plan);
-std::unique_ptr<Result> construct_projection(QueryContext & context, QueryPlan & plan);
+void construct_projection(QueryContext & context, QueryPlan & plan);
