@@ -8,17 +8,29 @@
 
 using namespace Algebra::Logical;
 
-std::unique_ptr<Result> parse_and_construct_tree(QueryContext& context, std::string sql);
+class SemanticAnalyser {
+public:
+    static std::unique_ptr<Result> parse_and_construct_tree(QueryContext& context, std::string sql);
 
-struct QueryPlan {
-    SQLParserResult parser_result;
+private:
+    struct QueryPlan {
+        SQLParserResult parser_result;
 
-    std::unordered_map<std::string, iu_p_t> scope;
-    std::unordered_map<std::string, Table *> attributeToTable;
-    std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_subtrees;
-    std::unique_ptr<Result> tree;
+        std::unordered_map<std::string, iu_p_t> ius;
+        std::unordered_map<std::string, Table *> iuNameToTable;
+        std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
+
+        std::unique_ptr<Result> tree;
+    };
+
+    static void construct_tree(QueryContext& context, QueryPlan & plan);
+    static void construct_scans(QueryContext& context, QueryPlan & plan);
+    static void construct_selects(QueryContext & context, QueryPlan & plan);
+    static void construct_projection(QueryContext & context, QueryPlan & plan);
+
 };
 
-void construct_scans(QueryContext& context, QueryPlan & plan);
-void construct_selects(QueryContext & context, QueryPlan & plan);
-void construct_projection(QueryContext & context, QueryPlan & plan);
+
+
+
+

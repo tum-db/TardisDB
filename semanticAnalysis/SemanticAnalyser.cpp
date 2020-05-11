@@ -72,55 +72,6 @@ static const Register * create_register_for_constant(const std::string & value, 
     return &reg;
 }*/
 
-void construct_selects(QueryContext& context, QueryPlan& plan) {
-    auto & db = context.db;
-    for (auto & selection : plan.parser_result.selections) {
-        auto& scan = plan.dangling_subtrees[selection.first.first];
-
-        auto it1 = plan.attributeToTable.find(selection.first.second);
-        if (it1 == plan.attributeToTable.end()) {
-            throw std::runtime_error("column " + selection.first.second + " not in scope");
-        }
-        Table * table = it1->second;
-        iu_p_t attr = plan.scope[selection.first.second];
-        std::string value = selection.second;
-        ci_p_t ci = table->getCI(selection.first.second);
-
-        if (ci->type.nullable) {
-            throw NotImplementedException();
-        }
-        auto constExp = std::make_unique<Expressions::Constant>(value, ci->type);
-        auto identifier = std::make_unique<Expressions::Identifier>(attr);
-        auto exp = std::make_unique<Expressions::Comparison>(
-                Expressions::ComparisonMode::eq,
-                std::move(identifier),
-                std::move(constExp)
-        );
-
-        // construct the select operator
-        auto select = std::make_unique<Select>(std::move(plan.dangling_subtrees[selection.first.first]), std::move(exp));
-        plan.dangling_subtrees[selection.first.first] = std::move(select);
-    }
-}
-
-void construct_scans(QueryContext& context, QueryPlan & plan) {
-    auto & db = context.db;
-    for (auto & relation : plan.parser_result.relations) {
-        auto* table = db.getTable(relation.first);
-
-        auto scan = std::make_unique<TableScan>(context, *table);
-
-        auto& produced = scan->getProduced();
-        for (iu_p_t iu : produced) {
-            auto ci = getColumnInformation(iu);
-            plan.scope[ci->columnName] = iu;
-            plan.attributeToTable[ci->columnName] = table;
-        }
-
-        plan.dangling_subtrees.insert({relation.second, std::move(scan)});
-    }
-}
-
 /*static std::unique_ptr<Operator> join_connected_components(Vertex & v, std::unique_ptr<Operator> && subtree) {
     assert(!v.visited);
 
@@ -226,50 +177,98 @@ static JoinGraph construct_join_graph(QueryPlan & plan) {
     return graph;
 }*/
 
-void construct_projection(QueryContext& context, QueryPlan & plan) {
-    auto & db = context.db;
+void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) {
+    auto& db = context.db;
+    for (auto& relation : plan.parser_result.relations) {
+        std::string tableName = relation.first;
+        std::string tableAlias = relation.second;
 
-    std::vector<iu_p_t> projections;
-    for (const std::string & attr : plan.parser_result.projections) {
-        if (plan.attributeToTable.find(attr) == plan.attributeToTable.end()) {
-            throw std::runtime_error("column " + attr + " not in scope");
+        Table* table = db.getTable(tableName);
+
+        //Construct the logical TableScan operator
+        std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context, *table);
+
+        //Store the ius produced by this TableScan
+        const iu_set_t& produced = scan->getProduced();
+        for (iu_p_t iu : produced) {
+            plan.ius[iu->columnInformation->columnName] = iu;
+            plan.iuNameToTable[iu->columnInformation->columnName] = table;
         }
-        projections.push_back( plan.scope[attr] );
-    }
 
-    if (plan.dangling_subtrees.size() == 1) {
-        plan.tree = std::make_unique<Result>( std::move(plan.dangling_subtrees.begin()->second), projections );
-    } else {
-        throw std::runtime_error("more than one root found: Table joining has failed");
+        //Add a new production with TableScan as root node
+        plan.dangling_productions.insert({tableAlias, std::move(scan)});
     }
 }
 
-void construct_tree(QueryContext& context, QueryPlan& plan) {
+void SemanticAnalyser::construct_selects(QueryContext& context, QueryPlan& plan) {
+    auto & db = context.db;
+    for (auto & selection : plan.parser_result.selections) {
+        std::string& productionName = selection.first.first;
+        std::string& productionIUName = selection.first.second;
+        std::string& valueString = selection.second;
+
+        iu_p_t iu = plan.ius[productionIUName];
+
+        if (iu->columnInformation->type.nullable) {
+            throw NotImplementedException();
+        }
+
+        //Construct Expression
+        auto constExp = std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type);
+        auto identifier = std::make_unique<Expressions::Identifier>(iu);
+        std::unique_ptr<Expressions::Comparison> exp = std::make_unique<Expressions::Comparison>(
+                Expressions::ComparisonMode::eq,
+                std::move(identifier),
+                std::move(constExp)
+        );
+
+        //Construct the logical Select operator
+        std::unique_ptr<Select> select = std::make_unique<Select>(std::move(plan.dangling_productions[productionName]), std::move(exp));
+
+        //Update corresponding production by setting the Select operator as new root node
+        plan.dangling_productions[productionName] = std::move(select);
+    }
+}
+
+//TODO: Make projections available to every node in the tree
+void SemanticAnalyser::construct_projection(QueryContext& context, QueryPlan & plan) {
+    auto & db = context.db;
+
+    //get projected IUs
+    std::vector<iu_p_t> projectedIUs;
+    for (const std::string& projectedIUName : plan.parser_result.projections) {
+        if (plan.iuNameToTable.find(projectedIUName) == plan.iuNameToTable.end()) {
+            throw std::runtime_error("column " + projectedIUName + " not in scope");
+        }
+        projectedIUs.push_back( plan.ius[projectedIUName] );
+    }
+
+    if (plan.dangling_productions.size() == 1) {
+        //Construct Result and store it in the query plan struct
+        plan.tree = std::make_unique<Result>( std::move(plan.dangling_productions.begin()->second), projectedIUs );
+    } else {
+        throw std::runtime_error("no or more than one root found: Table joining has failed");
+    }
+}
+
+void SemanticAnalyser::construct_tree(QueryContext& context, QueryPlan& plan) {
     construct_scans(context, plan);
     construct_selects(context, plan);
     construct_projection(context, plan);
 }
 
 
-std::unique_ptr<Result> parse_and_construct_tree(QueryContext& context, std::string sql) {
+std::unique_ptr<Result> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
     QueryPlan plan;
     plan.parser_result = parse_and_analyse_sql_statement(context.db, sql);
 
     construct_tree(context, plan);
 
     return std::move(plan.tree);
-    //return plan;
 
-    /*construct_scans(db, plan);
+    /*
     auto graph = construct_join_graph(plan);
 
     auto tree = contruct_join_tree(plan, graph);
-    plan.tree = std::move(tree);
-
-    construct_projection(db, plan);
-
-    PlanContainer pc;
-    pc.root = std::move(plan.tree);
-    pc.impl = std::move(impl);
-    return std::move(pc);*/
+    plan.tree = std::move(tree);*/
 }

@@ -281,7 +281,7 @@ Table & Database::createTable(const std::string & name) {
     return *it->second;
 }
 
-Table * Database::getTable(const std::string & tableName)
+Table* Database::getTable(const std::string & tableName)
 {
     // TODO search case insensitive
     auto it = _tables.find(tableName);
