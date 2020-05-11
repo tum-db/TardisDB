@@ -38,6 +38,7 @@ file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
 file(GLOB_RECURSE CODEGEN_FILES "codegen/*.cpp" "codegen/*.hpp" "codegen/*.tcc")
 file(GLOB_RECURSE FOUNDATIONS_FILES "foundations/*.cpp" "foundations/*.hpp" "foundations/*.tcc")
 file(GLOB_RECURSE NATIVE_FILES "native/*.cpp" "native/*.hpp" "native/*.tcc")
+file(GLOB_RECURSE SEMANTIC_ANALYSIS_FILES "semanticAnalysis/*.cpp" "semanticAnalysis/*.hpp")
 file(GLOB_RECURSE SQL_FILES "sql/*.cpp" "sql/*.hpp" "sql/*.tcc")
 file(GLOB_RECURSE QUERIES_FILES "queries/*.cpp" "queries/*.hpp" "queries/*.tcc")
 file(GLOB_RECURSE QUERY_COMPILER_FILES "query_compiler/*.cpp" "query_compiler/*.hpp" "query_compiler/*.tcc")
@@ -52,6 +53,7 @@ set(DB_LIB_SOURCE_FILES
 	${CODEGEN_FILES}
 	${FOUNDATIONS_FILES}
 	${NATIVE_FILES}
+	${SEMANTIC_ANALYSIS_FILES}
 	${SQL_FILES}
 	${QUERIES_FILES}
 	${QUERY_COMPILER_FILES}
