@@ -28,7 +28,7 @@
 #include "query_compiler/queryparser.hpp"
 #include "query_compiler/semantic_analysis.hpp"
 
-#include "semanticAnalysis/SQLToOperator.hpp"
+#include "semanticAnalysis/SemanticAnalyser.hpp"
 
 using namespace std::chrono;
 
