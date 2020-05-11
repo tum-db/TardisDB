@@ -85,7 +85,7 @@ void BitmapTable::resize()
     throw NotImplementedException("BitmapTable::resize()");
 }
 
-static cg_bool_t retrieveValue(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
+static cg_bool_t isSet_gen(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
@@ -110,12 +110,12 @@ static cg_bool_t retrieveValue(BitmapTable & table, cg_tid_t tid, cg_unsigned_t 
 
 cg_bool_t genNullIndicatorLoad(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
 {
-    return retrieveValue(table, tid, column);
+    return isSet_gen(table, tid, column);
 }
 
 cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_id_t branchId)
 {
-    return retrieveValue(branchBitmap, tid, branchId);
+    return isSet_gen(branchBitmap, tid, branchId);
 }
 
 //-----------------------------------------------------------------------------
@@ -179,7 +179,7 @@ void Table::addRow()
     }
     _nullIndicatorTable.addRow();
     _branchBitmap.addRow();
-    // TODO update visibility
+    _branchBitmap.set(_columns.front().second->size() - 1,0,1);
 }
 
 void Table::createBranch(const std::string & name)
@@ -243,6 +243,7 @@ size_t Table::size() const
     if (_columns.empty()) {
         return 0;
     } else {
+        return _columns.begin()->second->size();
 //        return _columns.begin()->second.second->size();
         return _version_mgmt_column.size();
     }
