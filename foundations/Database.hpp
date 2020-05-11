@@ -176,6 +176,10 @@ public:
 
     Table * getTable(const std::string & tableName);
 
+    bool hasTable(const std::string & tableName) {
+        return getTable(tableName) != nullptr;
+    }
+
     branch_id_t getLargestBranchId() const;
 
 private:

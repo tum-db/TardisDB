@@ -28,6 +28,8 @@
 #include "query_compiler/queryparser.hpp"
 #include "query_compiler/semantic_analysis.hpp"
 
+#include "semanticAnalysis/SQLToOperator.hpp"
+
 using namespace std::chrono;
 
 namespace QueryCompiler {
@@ -74,10 +76,10 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 #if 1
 
 
+    auto queryTree = sql_to_plan(queryContext, query);
 
-
-    auto parsedQuery = QueryParser::parse_query(query);
-    auto queryTree = computeTree(*parsedQuery.get(), queryContext);
+    /*auto parsedQuery = QueryParser::parse_query(query);
+    auto queryTree = computeTree(*parsedQuery.get(), queryContext);*/
 
     auto & codeGen = getThreadLocalCodeGen();
     auto & llvmContext = codeGen.getLLVMContext();
@@ -123,9 +125,9 @@ static void executeQueryFunction(llvm::Function * queryFunc)
     auto & moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
     llvm::EngineBuilder eb( moduleGen.finalizeModule() );
-//    eb.setOptLevel( llvm::CodeGenOpt::None );
+    eb.setOptLevel( llvm::CodeGenOpt::None );
 //    eb.setOptLevel( llvm::CodeGenOpt::Less );
-    eb.setOptLevel( llvm::CodeGenOpt::Default );
+//    eb.setOptLevel( llvm::CodeGenOpt::Default );
 //    eb.setOptLevel( llvm::CodeGenOpt::Aggressive );
 
     auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
