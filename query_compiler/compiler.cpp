@@ -76,10 +76,12 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 #if 1
 
 
+#if 1
     auto queryTree = SemanticAnalyser::parse_and_construct_tree(queryContext, query);
-
-    /*auto parsedQuery = QueryParser::parse_query(query);
-    auto queryTree = computeTree(*parsedQuery.get(), queryContext);*/
+#else
+    auto parsedQuery = QueryParser::parse_query(query);
+    auto queryTree = computeTree(*parsedQuery.get(), queryContext);
+#endif
 
     auto & codeGen = getThreadLocalCodeGen();
     auto & llvmContext = codeGen.getLLVMContext();

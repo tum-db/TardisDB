@@ -97,10 +97,8 @@ static const Register * create_register_for_constant(const std::string & value, 
 
 void SemanticAnalyser::construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan) {
     JoinGraph::Vertex *vertex = plan.graph.getVertex(vertexName);
-    std::vector<JoinGraph::Edge*> edges;
+    std::vector<JoinGraph::Edge*> edges(0);
     plan.graph.getConnectedEdges(vertexName,edges);
-
-    if (vertex->visited) return;
 
     vertex->visited = true;
 
@@ -109,18 +107,30 @@ void SemanticAnalyser::construct_join(std::string &vertexName, QueryContext &con
     }
 
     for (auto& edge : edges) {
-        std::string &neighboringVertexName =  edge->vID;
-        if (vertexName.compare(edge->vID) == 0) {
-            neighboringVertexName = edge->uID;
+        std::string &neighboringVertexName = edge->uID;
+        if (vertexName.compare(edge->vID) != 0) {
+            neighboringVertexName = edge->vID;
         }
         JoinGraph::Vertex *neighboringVertex = plan.graph.getVertex(neighboringVertexName);
 
-        plan.joinedTree = std::make_unique<Join>(
-                std::move(plan.joinedTree),
-                std::move(neighboringVertex->production),
-                std::move(edge->expressions),
-                Join::Method::Hash
-        );
+        if (neighboringVertex->visited) continue;
+
+        if (vertexName.compare(edge->vID) != 0) {
+            plan.joinedTree = std::make_unique<Join>(
+                    std::move(neighboringVertex->production),
+                    std::move(plan.joinedTree),
+                    std::move(edge->expressions),
+                    Join::Method::Hash
+            );
+        } else {
+            plan.joinedTree = std::make_unique<Join>(
+                    std::move(plan.joinedTree),
+                    std::move(neighboringVertex->production),
+                    std::move(edge->expressions),
+                    Join::Method::Hash
+            );
+        }
+
 
         construct_join(neighboringVertexName, context, plan);
     }

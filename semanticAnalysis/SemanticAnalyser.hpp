@@ -48,7 +48,7 @@ public:
         }
         return nullptr;
     }
-    void getConnectedEdges(std::string &vAlias, std::vector<Edge*> connectedEdges) {
+    void getConnectedEdges(std::string &vAlias, std::vector<Edge*> &connectedEdges) {
         for (auto& edge : edges) {
             if (edge.vID.compare(vAlias) == 0 || edge.uID.compare(vAlias) == 0) {
                 connectedEdges.emplace_back(&edge);
