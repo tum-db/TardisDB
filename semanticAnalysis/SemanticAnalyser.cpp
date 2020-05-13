@@ -9,33 +9,15 @@
 #include <string>
 #include <memory>
 
-/*struct Edge;
+void JoinGraph::addVertex(std::string &alias, JoinGraph::Vertex &vertex) {
+    vertices.insert({std::move(alias),std::move(vertex)});
+}
 
-struct Vertex {
-    std::string binding_name;
-    std::unique_ptr<Operator> input;
-    std::vector<Edge *> edges;
-    size_t cardinality = 0;
-    bool visited = false;
+void JoinGraph::addEdge(JoinGraph::Edge &edge) {
+    edges.emplace_back(std::move(edge));
+}
 
-    Vertex(const std::string & binding_name, std::unique_ptr<Operator> && input)
-        : binding_name(binding_name)
-        , input(std::move(input))
-    { }
-};
-
-struct Edge {
-    Vertex * vertex1, * vertex2;
-    std::vector<std::pair<const Register *, const Register *>> joinConditions; // the provided hashjoin actually only supports one comparision
-    double selectivity;
-
-    Edge(Vertex * v, Vertex * u)
-        : vertex1(v)
-        , vertex2(u)
-    { }
-};
-
-struct JoinGraph {
+/*struct JoinGraph {
     // join graph:
     std::vector<std::unique_ptr<Vertex>> vertices;
     std::unordered_map<std::pair<Vertex *, Vertex *>, std::unique_ptr<Edge>> edges;
@@ -111,71 +93,80 @@ static const Register * create_register_for_constant(const std::string & value, 
     }
 
     return std::move(subtree);
-}
+}*/
 
-static std::unique_ptr<Operator> contruct_join_tree(QueryPlan & plan, JoinGraph & graph) {
-    std::vector<std::unique_ptr<Operator>> subtrees;
+void SemanticAnalyser::construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan) {
+    JoinGraph::Vertex *vertex = plan.graph.getVertex(vertexName);
+    std::vector<JoinGraph::Edge*> edges;
+    plan.graph.getConnectedEdges(vertexName,edges);
 
-    for (auto & v : graph.vertices) {
-        if (v->visited) {
-            continue;
+    if (vertex->visited) return;
+
+    vertex->visited = true;
+
+    if (plan.joinedTree == nullptr) {
+        plan.joinedTree = std::move(vertex->production);
+    }
+
+    for (auto& edge : edges) {
+        std::string &neighboringVertexName =  edge->vID;
+        if (vertexName.compare(edge->vID) == 0) {
+            neighboringVertexName = edge->uID;
         }
-        std::unique_ptr<Operator> subtree = std::move(v->input);
-        subtrees.push_back(join_connected_components(*v, std::move(subtree)));
-    }
+        JoinGraph::Vertex *neighboringVertex = plan.graph.getVertex(neighboringVertexName);
 
-    auto tree = std::move(subtrees.back());
-    subtrees.pop_back();
-    // all constraints are exhausted -> add some cross products
-    for (auto & subtree : subtrees) {
-        tree = std::make_unique<CrossProduct>(std::move(tree), std::move(subtree));
+        plan.joinedTree = std::make_unique<Join>(
+                std::move(plan.joinedTree),
+                std::move(neighboringVertex->production),
+                std::move(edge->expressions),
+                Join::Method::Hash
+        );
+
+        construct_join(neighboringVertexName, context, plan);
     }
-    return std::move(tree);
 }
 
-static JoinGraph construct_join_graph(QueryPlan & plan) {
-    JoinGraph graph;
+void SemanticAnalyser::construct_joins(QueryContext & context, QueryPlan & plan) {
+    std::string firstVertexName = plan.graph.getFirstVertexName();
+    construct_join(firstVertexName, context, plan);
+
+    return;
+}
+
+void SemanticAnalyser::construct_join_graph(QueryContext & context, QueryPlan & plan) {
+    JoinGraph &graph = plan.graph;
 
     // create vertices
     for (auto & rel : plan.parser_result.relations) {
-        graph.vertices.push_back(std::make_unique<Vertex>(rel.second, std::move(plan.dangling_subtrees[rel.second])));
-        Vertex * v = graph.vertices.back().get();
-        graph.vertex_mapping.insert({rel.second, v});
+        JoinGraph::Vertex v = JoinGraph::Vertex(plan.dangling_productions[rel.second]);
+        graph.addVertex(rel.second,v);
     }
 
     // create edges
     for (auto & join_condition : plan.parser_result.joinConditions) {
-        Vertex * v = graph.vertex_mapping[join_condition.first.first];
-        Vertex * u = graph.vertex_mapping[join_condition.second.first];
+        std::string &vName = join_condition.first.first;
+        std::string &uName = join_condition.second.first;
+        std::string &vColumn = join_condition.first.second;
+        std::string &uColumn = join_condition.second.second;
 
-        Edge * e;
-        auto k = std::minmax(v, u);
-        auto it = graph.edges.find(k);
-        if (it != graph.edges.end()) {
-            e = it->second.get();
-        } else {
-            // create a new edge
-            graph.edges.emplace(k, std::make_unique<Edge>(u, v));
-            it = graph.edges.find(k);
-            assert(it != graph.edges.end());
-            e = it->second.get();
-
-            v->edges.push_back(e);
-            u->edges.push_back(e);
+        if (!graph.hasEdge(vName,uName)) {
+            std::vector<Expressions::exp_op_t> expressions;
+            JoinGraph::Edge edge = JoinGraph::Edge(vName,uName,expressions);
+            graph.addEdge(edge);
         }
 
-        const auto reg1 = plan.scans[v->binding_name]->getOutput(join_condition.first.second);
-        const auto reg2 = plan.scans[u->binding_name]->getOutput(join_condition.second.second);
-        bool left = (v == e->vertex1);
-        if (left) {
-            e->joinConditions.emplace_back(reg1, reg2);
-        } else {
-            e->joinConditions.emplace_back(reg2, reg1);
-        }
+        iu_p_t iuV = plan.ius[vColumn];
+        iu_p_t iuU = plan.ius[uColumn];
+
+        std::vector<Expressions::exp_op_t> joinExprVec;
+        auto joinExpr = std::make_unique<Expressions::Comparison>(
+                Expressions::ComparisonMode::eq, // equijoin
+                std::make_unique<Expressions::Identifier>(iuV),
+                std::make_unique<Expressions::Identifier>(iuU)
+        );
+        graph.getEdge(vName,uName)->expressions.push_back(std::move(joinExpr));
     }
-
-    return graph;
-}*/
+}
 
 void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) {
     auto& db = context.db;
@@ -243,9 +234,9 @@ void SemanticAnalyser::construct_projection(QueryContext& context, QueryPlan & p
         projectedIUs.push_back( plan.ius[projectedIUName] );
     }
 
-    if (plan.dangling_productions.size() == 1) {
+    if (plan.joinedTree != nullptr) {
         //Construct Result and store it in the query plan struct
-        plan.tree = std::make_unique<Result>( std::move(plan.dangling_productions.begin()->second), projectedIUs );
+        plan.tree = std::make_unique<Result>( std::move(plan.joinedTree), projectedIUs );
     } else {
         throw std::runtime_error("no or more than one root found: Table joining has failed");
     }
@@ -254,6 +245,8 @@ void SemanticAnalyser::construct_projection(QueryContext& context, QueryPlan & p
 void SemanticAnalyser::construct_tree(QueryContext& context, QueryPlan& plan) {
     construct_scans(context, plan);
     construct_selects(context, plan);
+    construct_join_graph(context,plan);
+    construct_joins(context,plan);
     construct_projection(context, plan);
 }
 

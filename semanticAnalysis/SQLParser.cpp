@@ -153,11 +153,11 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
     auto & token = token_src.next();
 //    std::cout << "current token: " << token.value << std::endl;
     if (token.type == TokenType::delimiter) {
-        /*if (state != State::FromBindingName &&
+        if (state != State::FromBindingName &&
             state != State::WhereExprRhs &&
             state != State::Semicolon) {
             throw incorrect_sql_error("unexpected end of input");
-        }*/
+        }
         return State::Done;
     }
 

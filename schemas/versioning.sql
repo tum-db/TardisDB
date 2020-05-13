@@ -10,8 +10,9 @@ create table versiontable (
 -- vid parent message
 create table metatable (
     vid integer not null,
-    parent integer not null,
-    message varchar(32) not null
+    message varchar(32) not null,
+    parent integer not null
+
 );
 
 -- Usertable
