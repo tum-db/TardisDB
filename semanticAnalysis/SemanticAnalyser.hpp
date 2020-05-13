@@ -20,7 +20,7 @@ private:
 
         JoinGraph graph;
 
-        std::unordered_map<std::string, iu_p_t> ius;
+        std::unordered_map<std::string,std::unordered_map<std::string, iu_p_t>> ius;
         std::unordered_map<std::string, Table *> iuNameToTable;
         std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
 

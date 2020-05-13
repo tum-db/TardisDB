@@ -23,7 +23,7 @@ void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) 
         //Store the ius produced by this TableScan
         const iu_set_t& produced = scan->getProduced();
         for (iu_p_t iu : produced) {
-            plan.ius[iu->columnInformation->columnName] = iu;
+            plan.ius[tableAlias][iu->columnInformation->columnName] = iu;
             plan.iuNameToTable[iu->columnInformation->columnName] = table;
         }
 
@@ -39,7 +39,7 @@ void SemanticAnalyser::construct_selects(QueryContext& context, QueryPlan& plan)
         std::string& productionIUName = selection.first.second;
         std::string& valueString = selection.second;
 
-        iu_p_t iu = plan.ius[productionIUName];
+        iu_p_t iu = plan.ius[productionName][productionIUName];
 
         if (iu->columnInformation->type.nullable) {
             throw NotImplementedException();
@@ -86,8 +86,8 @@ void SemanticAnalyser::construct_join_graph(QueryContext & context, QueryPlan & 
         }
 
         //Get InformationUnits for both attributes
-        iu_p_t iuV = plan.ius[vColumn];
-        iu_p_t iuU = plan.ius[uColumn];
+        iu_p_t iuV = plan.ius[vName][vColumn];
+        iu_p_t iuU = plan.ius[uName][uColumn];
 
         //Create new compare expression as join condition
         std::vector<Expressions::exp_op_t> joinExprVec;
@@ -160,6 +160,7 @@ void SemanticAnalyser::construct_joins(QueryContext & context, QueryPlan & plan)
 }
 
 //TODO: Make projections available to every node in the tree
+//TODO: Check physical tree projections do not work after joining
 void SemanticAnalyser::construct_projection(QueryContext& context, QueryPlan & plan) {
     auto & db = context.db;
 
@@ -169,11 +170,18 @@ void SemanticAnalyser::construct_projection(QueryContext& context, QueryPlan & p
         if (plan.iuNameToTable.find(projectedIUName) == plan.iuNameToTable.end()) {
             throw std::runtime_error("column " + projectedIUName + " not in scope");
         }
-        projectedIUs.push_back( plan.ius[projectedIUName] );
+        for (auto& production : plan.ius) {
+            for (auto& iu : production.second) {
+                if (iu.first.compare(projectedIUName) == 0) {
+                    projectedIUs.push_back( iu.second );
+                }
+            }
+        }
+
     }
 
     if (plan.joinedTree != nullptr) {
-        //Construct Result and store it in the query plan struct
+        // Construct Result and store it in the query plan struct
         plan.tree = std::make_unique<Result>( std::move(plan.joinedTree), projectedIUs );
     } else {
         throw std::runtime_error("no or more than one root found: Table joining has failed");
