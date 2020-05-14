@@ -213,16 +213,24 @@ size_t Table::getColumnCount() const
     return _columns.size();
 }
 
+bool columnsByNameSort (std::pair<std::string,size_t> &i,std::pair<std::string,size_t> &j) { return (i.second<j.second); }
+
 //const std::vector<std::string> & Table::getColumnNames() const
 std::vector<std::string> Table::getColumnNames() const
 {
 //    return _columnNames;
     using namespace std;
-    vector<std::string> names;
-    transform(begin(_columnsByName), end(_columnsByName), back_inserter(names),
+    vector<std::pair<std::string,size_t>> pairs;
+    transform(begin(_columnsByName), end(_columnsByName), back_inserter(pairs),
         [](const auto & pair) {
-            return pair.first;
+            return pair;
     });
+    sort(pairs.begin(),pairs.end(),columnsByNameSort);
+    vector<std::string> names;
+    transform(begin(pairs), end(pairs), back_inserter(names),
+              [](const auto & pair) {
+                  return pair.first;
+              });
     return names;
 }
 
