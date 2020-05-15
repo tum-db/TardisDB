@@ -15,10 +15,25 @@ struct SQLParserResult {
    using BindingAttribute = std::pair<std::string, std::string>; //bindingName and attribute
    using AttributeName = std::string;
    using Constant = std::string;
+
+   std::string opType;
+
+   //SELECT
    std::vector<Relation> relations;
    std::vector<AttributeName> projections;
    std::vector<std::pair<BindingAttribute, Constant>> selections;
    std::vector<std::pair<BindingAttribute, BindingAttribute>> joinConditions;
+
+   //Modification
+   std::string relation;
+   std::vector<std::pair<std::string, std::string>> selectionsWithoutBinding;
+
+   //INSERT
+   std::vector<std::string> columnNames;
+   std::vector<std::string> values;
+
+   //UPDATE
+   std::vector<std::pair<std::string,std::string>> columnToValue;
 };
 
 SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql);
