@@ -46,9 +46,18 @@ typedef enum State : unsigned int {
     Init, Select, SelectProjectionStar, SelectProjectionAttrName, SelectProjectionAttrSeparator,
     SelectFrom, SelectFromRelationName, SelectFromBindingName, SelectFromSeparator,
     SelectWhere, SelectWhereExprLhs, SelectWhereExprOp, SelectWhereExprRhs, SelectWhereAnd,
-    Semicolon,
+
     Insert, InsertInto, InsertRelationName, InsertColumnsBegin, InsertColumnsEnd, InsertColumnName, InsertColumnSeperator,
-    InsertValues, InsertValuesBegin, InsertValuesEnd, InsertValue, InsertValueSeperator, Done
+    InsertValues, InsertValuesBegin, InsertValuesEnd, InsertValue, InsertValueSeperator,
+
+    Update, UpdateRelationName, UpdateSet, UpdateSetExprLhs, UpdateSetExprOp, UpdateSetExprRhs, UpdateSetSeperator,
+    UpdateWhere, UpdateWhereExprLhs, UpdateWhereExprOp, UpdateWhereExprRhs, UpdateWhereAnd,
+
+    Delete, DeleteFrom, DeleteRelationName,
+    DeleteWhere, DeleteWhereExprLhs, DeleteWhereExprOp, DeleteWhereExprRhs, DeleteWhereAnd,
+
+    Semicolon,
+    Done
 } state_t;
 
 static bool is_identifier(const Token & tok) {
@@ -173,6 +182,10 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
         if (state != State::SelectFromBindingName &&
             state != State::SelectWhereExprRhs &&
             state != State::InsertValuesEnd &&
+            state != State::UpdateSetExprRhs &&
+            state != State::UpdateWhereExprRhs &&
+            state != State::DeleteRelationName &&
+            state != State::DeleteWhereExprRhs &&
             state != State::Semicolon) {
             throw incorrect_sql_error("unexpected end of input");
         }
@@ -191,11 +204,161 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
         } else if (lowercase_token_value == keywords::Insert) {
             query.opType = "insert";
             new_state = State::Insert;
+        } else if (lowercase_token_value == keywords::Update) {
+            query.opType = "update";
+            new_state = State::Update;
+        } else if (lowercase_token_value == keywords::Delete) {
+            query.opType = "delete";
+            new_state = State::Delete;
         } else {
             throw incorrect_sql_error("Expected 'Select' or 'Insert', found '" + token_value + "'");
         }
         break;
 
+        case State::Delete:
+            if (lowercase_token_value == keywords::From) {
+                new_state = State::DeleteFrom;
+            } else {
+                throw incorrect_sql_error("Expected 'WHERE', found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteFrom:
+            if (is_identifier(token)) {
+                query.relation = token_value;
+                new_state = DeleteRelationName;
+            }
+            break;
+        case State::DeleteRelationName:
+            if (lowercase_token_value == keywords::Where) {
+                new_state = State::DeleteWhere;
+            } else {
+                throw incorrect_sql_error("Expected 'WHERE', found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteWhere:
+        case State::DeleteWhereAnd: /* fallthrough */
+            // e.g. s.matrnr will be handled as a single identifier
+            if (is_identifier(token)) {
+                // attribute binding
+                new_state = State::DeleteWhereExprLhs;
+            } else {
+                throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteWhereExprLhs:
+            if (token.type == TokenType::op && token_value == "=") {
+                new_state = State::DeleteWhereExprOp;
+            } else {
+                throw incorrect_sql_error("Expected '=', found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteWhereExprOp:
+            if (token.type == TokenType::identifier) {
+                std::string lhs = token_src.prev(2).value;
+                std::string rhs = token_value;
+                query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                new_state = State::DeleteWhereExprRhs;
+            } else if (token.type == TokenType::literal) {
+                std::string lhs = token_src.prev(2).value;
+                std::string rhs = unescape(token_value);
+                query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                new_state = State::DeleteWhereExprRhs;
+            } else {
+                throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteWhereExprRhs:
+            if (is_keyword(token, "and")) {
+                new_state = State::DeleteWhereAnd;
+            } else if (token_value == ";") {
+                new_state = State::Semicolon;
+            }
+            break;
+        case State::Update:
+            if (is_identifier(token)) {
+                query.relation = token_value;
+                new_state = UpdateRelationName;
+            }
+            break;
+        case State::UpdateRelationName:
+            if (lowercase_token_value == keywords::Set) {
+                new_state = State::UpdateSet;
+            } else {
+                throw incorrect_sql_error("Expected 'SET', found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateSet:
+        case State::UpdateSetSeperator:
+            if (is_identifier(token)) {
+                new_state = State::UpdateSetExprLhs;
+            } else {
+                throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateSetExprLhs:
+            if (token.type == TokenType::op && token_value == "=") {
+                new_state = State::UpdateSetExprOp;
+            } else {
+                throw incorrect_sql_error("Expected '=', found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateSetExprOp:
+            if (token.type == TokenType::identifier) {
+                std::string lhs = token_src.prev(2).value;
+                query.columnToValue.push_back(std::make_pair(lhs, token_value));
+                new_state = State::UpdateSetExprRhs;
+            } else {
+                throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateSetExprRhs:
+            if (token_value == ",") {
+                new_state = State::UpdateSetSeperator;
+            } else if (lowercase_token_value == keywords::Where) {
+                new_state = State::UpdateWhere;
+            } else if (token_value == ";") {
+                new_state = State::Semicolon;
+            }
+            break;
+        case State::UpdateWhere:
+        case State::UpdateWhereAnd: /* fallthrough */
+            // e.g. s.matrnr will be handled as a single identifier
+            if (is_identifier(token)) {
+                // attribute binding
+                new_state = State::UpdateWhereExprLhs;
+            } else {
+                throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateWhereExprLhs:
+            if (token.type == TokenType::op && token_value == "=") {
+                new_state = State::UpdateWhereExprOp;
+            } else {
+                throw incorrect_sql_error("Expected '=', found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateWhereExprOp:
+            if (token.type == TokenType::identifier) {
+                std::string lhs = token_src.prev(2).value;
+                std::string rhs = token_value;
+                query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                new_state = State::UpdateWhereExprRhs;
+            } else if (token.type == TokenType::literal) {
+                std::string lhs = token_src.prev(2).value;
+                std::string rhs = unescape(token_value);
+                query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                new_state = State::UpdateWhereExprRhs;
+            } else {
+                throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateWhereExprRhs:
+            if (is_keyword(token, "and")) {
+                new_state = State::UpdateWhereAnd;
+            } else if (token_value == ";") {
+                new_state = State::Semicolon;
+            }
+            break;
         case State::Insert:
             if (lowercase_token_value == keywords::Into) {
                 new_state = State::InsertInto;
