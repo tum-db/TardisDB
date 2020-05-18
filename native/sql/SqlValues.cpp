@@ -37,8 +37,8 @@ value_op_t Value::castString(const std::string & str, SqlType type)
             return Bool::castString(str);
         case SqlType::TypeID::IntegerID:
             return Integer::castString(str);
-//        case SqlType::TypeID::VarcharID:
-//            return Varchar::castString(str, type);
+        case SqlType::TypeID::VarcharID:
+            return Text::castString(str);
 //        case SqlType::TypeID::CharID:
 //            return Char::castString(str, type);
         case SqlType::TypeID::NumericID:
