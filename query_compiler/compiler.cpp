@@ -78,6 +78,8 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 
 #if 1
     auto queryTree = SemanticAnalyser::parse_and_construct_tree(queryContext, query);
+
+    if (queryTree == nullptr) return nullptr;
 #else
     auto parsedQuery = QueryParser::parse_query(query);
     auto queryTree = computeTree(*parsedQuery.get(), queryContext);
@@ -122,6 +124,8 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 #endif
 }
 
+static std::unique_ptr<Database> currentdb = nullptr;
+
 static void executeQueryFunction(llvm::Function * queryFunc)
 {
     auto & moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
@@ -151,13 +155,17 @@ void compileAndExecute(const std::string & query)
 //    ModuleGen moduleGen("QueryModule");
 
 //    auto db = loadUniDb();
-    auto db = loadDatabase();
-    QueryContext queryContext(*db); // TODO as function argument?
+    if (currentdb == nullptr) {
+        currentdb = loadDatabase();
+    }
+    //auto db = loadDatabase();
+    QueryContext queryContext(*currentdb); // TODO as function argument?
 
     compilationStart = high_resolution_clock::now();
 
     ModuleGen moduleGen("QueryModule");
     auto queryFunc = compileQuery(query, queryContext);
+    if (queryFunc == nullptr) return;
 
     executeQueryFunction(queryFunc);
 }
