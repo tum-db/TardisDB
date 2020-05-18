@@ -413,7 +413,7 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             break;
         case State::InsertValuesBegin:
         case State::InsertValueSeperator:
-            if (is_identifier(token)) {
+            if (token.type == TokenType::literal) {
                 query.values.emplace_back(token_value);
                 new_state = InsertValue;
             } else {
@@ -641,3 +641,6 @@ SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql) {
     validate_sql_statement(scope, db, result);
     return result;
 }
+
+
+// insert into versiontable ( vid , tableid , rid ) values ( '1' , 'table' , '2' ) ;
