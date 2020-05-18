@@ -28,13 +28,15 @@ private:
         std::unique_ptr<Result> tree;
     };
 
-    static void construct_tree(QueryContext& context, QueryPlan & plan);
+    static void constructSelect(QueryContext& context, QueryPlan & plan);
     static void construct_scans(QueryContext& context, QueryPlan & plan);
     static void construct_selects(QueryContext & context, QueryPlan & plan);
     static void construct_join_graph(QueryContext & context, QueryPlan & plan);
     static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
     static void construct_joins(QueryContext & context, QueryPlan & plan);
     static void construct_projection(QueryContext & context, QueryPlan & plan);
+
+    static void constructInsert(QueryContext &context, QueryPlan &plan);
 
 };
 

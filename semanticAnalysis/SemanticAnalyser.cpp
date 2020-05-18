@@ -2,12 +2,34 @@
 
 #include "foundations/Database.hpp"
 #include "query_compiler/queryparser.hpp"
+#include "native/sql/SqlValues.hpp"
+#include "foundations/version_management.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <stack>
 #include <string>
 #include <memory>
+#include <native/sql/SqlTuple.hpp>
+
+void SemanticAnalyser::constructInsert(QueryContext &context, SemanticAnalyser::QueryPlan &plan) {
+    auto& db = context.db;
+    Table* table = db.getTable(plan.parser_result.relation);
+
+    std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
+
+    for (int i=0; i<plan.parser_result.columnNames.size(); i++) {
+        Native::Sql::SqlType type = table->getCI(plan.parser_result.columnNames[i])->type;
+        std::string &value = plan.parser_result.values[i];
+        std::unique_ptr<Native::Sql::Value> sqlvalue = Native::Sql::Value::castString(value,type);
+
+        sqlvalues.emplace_back(std::move(sqlvalue));
+    }
+
+    Native::Sql::SqlTuple tuple(std::move(sqlvalues));
+
+    insert_tuple(tuple, *table, context);
+}
 
 void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) {
     auto& db = context.db;
@@ -188,7 +210,7 @@ void SemanticAnalyser::construct_projection(QueryContext& context, QueryPlan & p
     }
 }
 
-void SemanticAnalyser::construct_tree(QueryContext& context, QueryPlan& plan) {
+void SemanticAnalyser::constructSelect(QueryContext& context, QueryPlan& plan) {
     construct_scans(context, plan);
     construct_selects(context, plan);
     construct_join_graph(context,plan);
@@ -201,7 +223,13 @@ std::unique_ptr<Result> SemanticAnalyser::parse_and_construct_tree(QueryContext&
     QueryPlan plan;
     plan.parser_result = parse_and_analyse_sql_statement(context.db, sql);
 
-    construct_tree(context, plan);
+    if (plan.parser_result.opType == "select") {
+        constructSelect(context, plan);
+    } else if (plan.parser_result.opType == "insert") {
+        constructInsert(context, plan);
+        return nullptr;
+    }
+
 
     return std::move(plan.tree);
 }
