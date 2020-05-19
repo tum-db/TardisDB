@@ -191,6 +191,8 @@ value_op_t Value::load(llvm::Value * ptr, SqlType type)
             throw NotImplementedException(); // TODO
         case SqlType::TypeID::IntegerID:
             return Integer::load(ptr);
+        case SqlType::TypeID::LongIntegerID:
+            return LongInteger::load(ptr);
         case SqlType::TypeID::VarcharID:
             return Varchar::load(ptr, type);
         case SqlType::TypeID::CharID:
@@ -328,6 +330,78 @@ void Integer::accept(ValueVisitor & visitor)
 
 cg_bool_t Integer::equals(const Value & other) const
 {
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+        return cg_bool_t(false);
+    }
+
+    if (isNullable(other)) {
+        return other.equals(*this);
+    }
+
+    auto & codeGen = getThreadLocalCodeGen();
+    return cg_bool_t( codeGen->CreateICmpEQ(_llvmValue, other.getLLVMValue()) );
+}
+
+//-----------------------------------------------------------------------------
+// Long Integer
+
+LongInteger::LongInteger(llvm::Value * value) : Value(getLongIntegerTy()) {
+    this->_llvmValue = value;
+}
+
+LongInteger::LongInteger(value_type constantValue) : Value(getLongIntegerTy()) {
+    _llvmValue = cg_value_type(constantValue);
+}
+
+value_op_t LongInteger::clone() const {
+    Value *cloned = new LongInteger(_llvmValue);
+    return value_op_t(cloned);
+}
+
+value_op_t LongInteger::castString(const std::string & str) {
+    LongInteger::value_type raw = castStringToUnsignedLongIntegerValue(str.c_str(), static_cast<uint64_t>(str.length()));
+    llvm::Value * value = cg_value_type(raw);
+    value_op_t sqlValue( new LongInteger(value) );
+    return sqlValue;
+}
+
+value_op_t LongInteger::castString(cg_ptr8_t str, cg_size_t length) {
+    cg_value_type raw = genCastStringToUnsignedLongIntegerValueCall(str, length);
+    value_op_t sqlValue( new LongInteger(raw) );
+    return sqlValue;
+}
+
+value_op_t LongInteger::fromRawValues(const std::vector<llvm::Value *> & values) {
+    assert(!values.empty());
+    return value_op_t(new LongInteger(values.front()));
+}
+
+value_op_t LongInteger::load(llvm::Value * ptr) {
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Type * integerTy = getPointeeType(ptr);
+    assert(integerTy == cg_value_type::getType());
+
+    llvm::Value * value = codeGen->CreateLoad(integerTy, ptr);
+    //Functions::genPrintfCall("Integer::load ptr: %p\n", ptr, value);
+    value_op_t sqlValue( new LongInteger(value) );
+    return sqlValue;
+}
+
+void LongInteger::store(llvm::Value * ptr) const {
+//    Functions::genPrintfCall("Integer::store ptr: %p value %d\n", ptr, _llvmValue);
+    auto & codeGen = getThreadLocalCodeGen();
+    codeGen->CreateStore(_llvmValue, ptr);
+}
+
+cg_hash_t LongInteger::hash() const {
+    return genIntHash(_llvmValue);
+}
+
+void LongInteger::accept(ValueVisitor & visitor) {
+    visitor.visit(*this);
+}
+
+cg_bool_t LongInteger::equals(const Value & other) const {
     if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
         return cg_bool_t(false);
     }

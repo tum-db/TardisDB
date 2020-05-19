@@ -8,6 +8,50 @@
 //---------------------------------------------------------------------------
 using namespace std;
 //---------------------------------------------------------------------------
+uint64_t castStringToUnsignedLongIntegerValue(const char* str, size_t strLen)
+// Cast a string to an integer value
+{
+    auto iter=str,limit=str+strLen;
+
+    // Trim WS
+    while ((iter!=limit)&&((*iter)==' ')) ++iter;
+    while ((iter!=limit)&&((*(limit-1))==' ')) --limit;
+
+    // Check for a sign
+    bool neg=false;
+    if (iter!=limit) {
+        if ((*iter)=='-') {
+            neg=true;
+            ++iter;
+        } else if ((*iter)=='+') {
+            ++iter;
+        }
+    }
+
+    // Parse
+    if (iter==limit)
+        throw "invalid number format: found non-integer characters";
+
+    uint64_t result=0;
+    unsigned digitsSeen=0;
+    for (;iter!=limit;++iter) {
+        char c=*iter;
+        if ((c>='0')&&(c<='9')) {
+            result=(result*10)+(c-'0');
+            ++digitsSeen;
+        } else if (c=='.') {
+            break;
+        } else {
+            throw "invalid number format: invalid character in integer string";
+        }
+    }
+
+    if (digitsSeen>10)
+        throw "invalid number format: too many characters (32bit integers can at most consist of 10 numeric characters)";
+
+    return result;
+}
+//---------------------------------------------------------------------------
 int32_t castStringToIntegerValue(const char* str, size_t strLen)
 // Cast a string to an integer value
 {
@@ -51,6 +95,18 @@ int32_t castStringToIntegerValue(const char* str, size_t strLen)
 
     int32_t r = neg?-result:result;
    return r;
+}
+// TODO: Wichtig!!!
+//---------------------------------------------------------------------------
+cg_u64_t genCastStringToUnsignedLongIntegerValueCall(cg_ptr8_t str, cg_size_t strLen)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<uint64_t (const char *, size_t), false>::get(context);
+    llvm::CallInst * result = codeGen.CreateCall(&castStringToIntegerValue, funcTy, {str, strLen});
+
+    return cg_u64_t( llvm::cast<llvm::Value>(result) );
 }
 //---------------------------------------------------------------------------
 cg_i32_t genCastStringToIntegerValueCall(cg_ptr8_t str, cg_size_t strLen)

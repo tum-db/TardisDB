@@ -100,6 +100,38 @@ protected:
 };
 
 //-----------------------------------------------------------------------------
+// Long Integer
+
+class LongInteger : public Value {
+public:
+    using value_type = uint64_t;
+    using cg_value_type = cg_u64_t;
+    static_assert(sizeof(value_type) == sizeof(cg_value_type::native_type), "types don't match");
+
+    LongInteger(value_type constantValue);
+
+    static value_op_t castString(const std::string & str);
+
+    static value_op_t castString(cg_ptr8_t str, cg_size_t length);
+
+    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values);
+
+    static value_op_t load(llvm::Value * ptr);
+
+    value_op_t clone() const override;
+
+    void store(llvm::Value * ptr) const override;
+
+    cg_hash_t hash() const override;
+
+    void accept(ValueVisitor & visitor) override;
+
+    cg_bool_t equals(const Value & other) const override;
+
+    LongInteger(llvm::Value * value);
+};
+
+//-----------------------------------------------------------------------------
 // Value
 
 class Numeric : public Value {
@@ -428,6 +460,7 @@ public:
     virtual void visit(Char & value) = 0;
     virtual void visit(Date & value) = 0;
     virtual void visit(Integer & value) = 0;
+    virtual void visit(LongInteger & value) = 0;
     virtual void visit(Numeric & value) = 0;
     virtual void visit(Timestamp & value) = 0;
     virtual void visit(UnknownValue & value) = 0;

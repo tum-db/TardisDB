@@ -37,6 +37,12 @@ SqlType getIntegerTy(bool nullable)
     return type;
 }
 
+SqlType getLongIntegerTy(bool nullable)
+{
+    SqlType type(TypeID::LongIntegerID, nullable);
+    return type;
+}
+
 SqlType getNumericFullLengthTy(uint8_t precision, bool nullable)
 {
     static constexpr int maxDigits = std::numeric_limits<long>::digits10;
@@ -103,6 +109,9 @@ std::string getName(SqlType type)
             break;
         case TypeID::IntegerID:
             signature = "Integer";
+            break;
+        case TypeID::LongIntegerID:
+            signature = "LongInteger";
             break;
         case TypeID::CharID:
             signature = "Char<" + std::to_string(type.length) + ">";
@@ -174,6 +183,8 @@ static llvm::Type * createLLVMTy(const SqlType & type, const std::string & name)
             return llvm::Type::getInt1Ty(context);
         case TypeID::IntegerID:
             return llvm::Type::getInt32Ty(context);
+        case TypeID::LongIntegerID:
+            return llvm::Type::getInt64Ty(context);
         case TypeID::CharID:
             if (type.length == 1) {
                 return llvm::Type::getInt8Ty(context);

@@ -137,6 +137,9 @@ static void genPrintAvailableValue(Value & sqlValue)
         case SqlType::TypeID::TimestampID:
             genPrintTimestampCall(sqlValue);
             break;
+        case SqlType::TypeID::LongIntegerID:
+            genPrintfCall("%lu", sqlValue.getLLVMValue());
+            break;
         default:
             unreachable();
     }

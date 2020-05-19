@@ -11,7 +11,7 @@ namespace Sql {
 struct SqlType {
     // data:
     enum class TypeID : uint8_t {
-        UnknownID, BoolID, IntegerID, CharID, VarcharID, NumericID, DateID, TimestampID, TextID
+        UnknownID, BoolID, IntegerID, LongIntegerID, CharID, VarcharID, NumericID, DateID, TimestampID, TextID
     } typeID;
     union {
         // char/varchar specific:
@@ -48,6 +48,8 @@ SqlType getBoolTy(bool nullable = false);
 SqlType getDateTy(bool nullable = false);
 
 SqlType getIntegerTy(bool nullable = false);
+
+SqlType getLongIntegerTy(bool nullable = false);
 
 SqlType getNumericFullLengthTy(uint8_t precision, bool nullable = false);
 
