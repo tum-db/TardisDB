@@ -31,6 +31,9 @@ struct ColumnInformation {
 
     enum class NullIndicatorType { Embedded, Column } nullIndicatorType;
     unsigned nullColumnIndex;
+
+    ColumnInformation() {}
+    ColumnInformation(std::string columnName, Sql::SqlType type) : columnName(columnName), type(type) {}
 };
 
 using ci_p_t = const ColumnInformation *;
@@ -127,6 +130,8 @@ private:
 
     BitmapTable _nullIndicatorTable;
     BitmapTable _branchBitmap;
+
+    ci_p_t _tidColumn;
 
 public:
     std::vector<std::unique_ptr<VersionEntry>> _version_mgmt_column;

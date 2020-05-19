@@ -21,6 +21,9 @@ TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table) 
     // collect all information which is necessary to access the columns
     for (auto iu : getRequired()) {
         auto ci = getColumnInformation(iu);
+        if (ci->columnName.compare("tid") == 0) {
+            continue;
+        }
 
         SqlType storedSqlType;
         if (ci->type.nullable) {
@@ -83,6 +86,9 @@ void TableScan::produce(cg_tid_t tid)
 
     size_t i = 0;
     for (auto iu : required) {
+        if (iu->columnInformation->columnName.compare("tid") == 0) {
+            continue;
+        }
         column_t & column = columns[i];
         ci_p_t ci = std::get<0>(column);
 
@@ -113,6 +119,18 @@ void TableScan::produce(cg_tid_t tid)
 
         i += 1;
     }
+
+    iu_p_t tidIU;
+    for (auto iu : getRequired()) {
+        if (iu->columnInformation->columnName.compare("tid") == 0) {
+            tidIU = iu;
+            break;
+        }
+    }
+
+    llvm::Value *tidValue = tid.getValue();
+    value_op_t sqlValue = std::make_unique<LongInteger>(tidValue);
+    values[tidIU] = sqlValue.get();
 
     _parent->consume(values, *this);
 }

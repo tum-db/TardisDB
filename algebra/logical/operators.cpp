@@ -355,6 +355,10 @@ void TableScan::computeProduced()
         auto iu =  _context.iuFactory.createIU(*this, columnInformation);
         produced.insert(iu);
     }
+
+    auto columnInformation = _table.getCI("tid");
+    auto iu =  _context.iuFactory.createIU(*this, columnInformation);
+    produced.insert(iu);
 }
 
 void TableScan::computeRequired()

@@ -124,6 +124,8 @@ cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_
 Table::Table(Database & db) :
     _db(db)
 {
+    _tidColumn = new ColumnInformation("tid",Sql::getLongIntegerTy());
+
     createBranch("master");
 }
 
@@ -190,6 +192,11 @@ void Table::createBranch(const std::string & name)
 
 ci_p_t Table::getCI(const std::string & columnName) const
 {
+    if (columnName.compare("tid") == 0) {
+        return _tidColumn;
+    }
+
+
 //    return _columns.at(columnName).first.get();
     auto idx = _columnsByName.at(columnName);
     auto & [ci, vec] = _columns[idx];
