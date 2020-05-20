@@ -356,8 +356,9 @@ void TableScan::computeProduced()
         produced.insert(iu);
     }
 
-    auto columnInformation = _table.getCI("tid");
-    auto iu =  _context.iuFactory.createIU(*this, columnInformation);
+    //Produce TID column
+    std::unique_ptr<ColumnInformation> &columnInformation = _table.getTIDColumnInformation();
+    auto iu =  _context.iuFactory.createIU(*this, columnInformation.get());
     produced.insert(iu);
 }
 
@@ -367,6 +368,28 @@ void TableScan::computeRequired()
 
     iu_set_t expected = computeExpected(parent, this);
     required.insert(expected.begin(), expected.end());
+}
+//-----------------------------------------------------------------------------
+// Update operator
+
+Update::Update(std::unique_ptr<Operator> child, std::vector<iu_p_t> &updateIUs, std::vector<std::unique_ptr<Sql::Value>> &updateValues, Table & table) :
+UnaryOperator(std::move(child)), _table(table), updateIUs(std::move(updateIUs)), updateValues(std::move(updateValues)) { }
+
+Update::~Update() { }
+
+void Update::accept(OperatorVisitor & visitor) {
+    visitor.visit(*this);
+}
+
+void Update::computeProduced() {
+    produced.clear();
+}
+
+void Update::computeRequired() {
+    // "selection" represents the required attributes of the Result operator
+    for (iu_p_t iu : updateIUs) {
+        required.insert(iu);
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -520,6 +543,14 @@ struct Verifier : public OperatorVisitor {
     }
 
     void visit(Map & op) override
+    {
+        if (!_result) { return; }
+
+        test(op, op.getChild());
+        op.getChild().accept(*this);
+    }
+
+    void visit(Update & op) override
     {
         if (!_result) { return; }
 

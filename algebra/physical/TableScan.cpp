@@ -4,7 +4,9 @@
 
 #include "algebra/physical/TableScan.hpp"
 
-#include <map>
+//#include <llvm/IR/TypeBuilder.h>
+//#include "foundations/version_management.hpp"
+#include <unordered_map>
 
 #include "codegen/PhiNode.hpp"
 #include "sql/SqlUtils.hpp"
@@ -47,6 +49,11 @@ TableScan::~TableScan()
 
 void TableScan::produce()
 {
+    //Functions::genPrintfCall("%s\n",_codeGen.getCurrentFunctionGen().getArg(1));
+
+    //llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(_codeGen.getLLVMContext());
+    //lvm::CallInst * result = _codeGen.CreateCall(&sampleFunction, funcTy, {_codeGen.getCurrentFunctionGen().getArg(1)});
+
     auto & funcGen = _codeGen.getCurrentFunctionGen();
 
     size_t tableSize = table.size();
@@ -75,10 +82,8 @@ void TableScan::produce()
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
 }
 
-void TableScan::produce(cg_tid_t tid)
-{
-    iu_value_mapping_t values;
-    std::vector<value_op_t> sqlValues;
+void TableScan::produce(cg_tid_t tid) {
+    std::unordered_map<const InformationUnit*, std::unique_ptr<Sql::Value>> values;
 
     // get null indicator column data
     auto & nullIndicatorTable = table.getNullIndicatorTable();
@@ -86,53 +91,52 @@ void TableScan::produce(cg_tid_t tid)
 
     size_t i = 0;
     for (auto iu : required) {
-        if (iu->columnInformation->columnName.compare("tid") == 0) {
-            continue;
-        }
-        column_t & column = columns[i];
-        ci_p_t ci = std::get<0>(column);
-
-        // calculate the SQL value pointer
-#ifdef __APPLE__
-        llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ull), tid });
-#else
-        llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
-#endif
-
         // the final value
         value_op_t sqlValue;
-        if (ci->type.nullable) {
-            assert(ci->nullIndicatorType == ColumnInformation::NullIndicatorType::Column);
-            // load null indicator
-            cg_bool_t isNull = genNullIndicatorLoad(nullIndicatorTable, tid, cg_unsigned_t(ci->nullColumnIndex));
-            SqlType notNullableType = toNotNullableTy(ci->type);
-            auto loadedValue = Value::load(elemPtr, notNullableType);
-            sqlValue = NullableValue::create(std::move(loadedValue), isNull);
-        } else {
-            // load the SQL value
-            sqlValue = Value::load(elemPtr, ci->type);
-        }
 
-        // map the value to the according iu
-        values[iu] = sqlValue.get();
-        sqlValues.push_back( std::move(sqlValue) );
-
-        i += 1;
-    }
-
-    iu_p_t tidIU;
-    for (auto iu : getRequired()) {
         if (iu->columnInformation->columnName.compare("tid") == 0) {
-            tidIU = iu;
-            break;
+
+            //Add tid to the produced values
+            llvm::Value *tidValue = tid.getValue();
+            sqlValue = std::make_unique<LongInteger>(tidValue);
+            values[iu] = std::move(sqlValue);
+
+        } else {
+            column_t & column = columns[i];
+            ci_p_t ci = std::get<0>(column);
+
+            // calculate the SQL value pointer
+#ifdef __APPLE__
+            llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ull), tid });
+#else
+            llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
+#endif
+
+            if (ci->type.nullable) {
+                assert(ci->nullIndicatorType == ColumnInformation::NullIndicatorType::Column);
+                // load null indicator
+                cg_bool_t isNull = genNullIndicatorLoad(nullIndicatorTable, tid, cg_unsigned_t(ci->nullColumnIndex));
+                SqlType notNullableType = toNotNullableTy(ci->type);
+                auto loadedValue = Value::load(elemPtr, notNullableType);
+                sqlValue = NullableValue::create(std::move(loadedValue), isNull);
+            } else {
+                // load the SQL value
+                sqlValue = Value::load(elemPtr, ci->type);
+            }
+
+            // map the value to the according iu
+            values[iu] = std::move(sqlValue);
+
+            i += 1;
         }
     }
 
-    llvm::Value *tidValue = tid.getValue();
-    value_op_t sqlValue = std::make_unique<LongInteger>(tidValue);
-    values[tidIU] = sqlValue.get();
+    iu_value_mapping_t returnValues;
+    for (auto& mapping : values) {
+        returnValues.emplace(mapping.first,mapping.second.get());
+    }
 
-    _parent->consume(values, *this);
+    _parent->consume(returnValues, *this);
 }
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)

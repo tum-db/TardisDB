@@ -12,7 +12,7 @@ using namespace Algebra::Logical;
 
 class SemanticAnalyser {
 public:
-    static std::unique_ptr<Result> parse_and_construct_tree(QueryContext& context, std::string sql);
+    static std::unique_ptr<Operator> parse_and_construct_tree(QueryContext& context, std::string sql);
 
 private:
     struct QueryPlan {
@@ -25,18 +25,20 @@ private:
         std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
 
         std::unique_ptr<Operator> joinedTree;
-        std::unique_ptr<Result> tree;
+        std::unique_ptr<Operator> tree;
     };
 
     static void constructSelect(QueryContext& context, QueryPlan & plan);
+    static void constructInsert(QueryContext &context, QueryPlan &plan);
+    static void constructUpdate(QueryContext& context, QueryPlan & plan);
+
     static void construct_scans(QueryContext& context, QueryPlan & plan);
     static void construct_selects(QueryContext & context, QueryPlan & plan);
     static void construct_join_graph(QueryContext & context, QueryPlan & plan);
     static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
     static void construct_joins(QueryContext & context, QueryPlan & plan);
     static void construct_projection(QueryContext & context, QueryPlan & plan);
-
-    static void constructInsert(QueryContext &context, QueryPlan &plan);
+    static void construct_update(QueryContext & context, QueryPlan & plan);
 
 };
 

@@ -374,6 +374,20 @@ public:
         throw NotImplementedException();
     }
 
+    void visit(Logical::Update & op) override
+    {
+        auto child = std::move(_translated.top());
+        _translated.pop();
+
+        _translated.push( std::make_unique<Physical::Update>(
+                op,
+                std::move(child),
+                op.getTable(),
+                op.getUpdateIUs(),
+                op.getUpdateValues()
+        ) );
+    }
+
     void visit(Logical::Result & op) override
     {
         auto child = std::move(_translated.top());
@@ -382,8 +396,8 @@ public:
         switch (op._type) {
             case Logical::Result::Type::PrintToStdOut: {
                 _translated.push( std::make_unique<Physical::Print>(
-                    op,
-                    std::move(child)
+                        op,
+                        std::move(child)
                 ) );
                 break;
             }
@@ -417,7 +431,7 @@ public:
 
 };
 
-std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Result & resultOperator)
+std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Operator & resultOperator)
 {
     TreeTranslator t(resultOperator);
     return t.getResult();

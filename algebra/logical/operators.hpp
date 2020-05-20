@@ -86,6 +86,7 @@ private:
 class GroupBy;
 class Join;
 class Map;
+class Update;
 class Result;
 class Select;
 class TableScan;
@@ -99,6 +100,7 @@ struct OperatorVisitor {
     virtual void visit(GroupBy & op) = 0;
     virtual void visit(Join & op) = 0;
     virtual void visit(Map & op) = 0;
+    virtual void visit(Update & op) = 0;
     virtual void visit(Result & op) = 0;
     virtual void visit(Select & op) = 0;
     virtual void visit(TableScan & op) = 0;
@@ -418,6 +420,32 @@ protected:
     void computeProduced() override;
     void computeRequired() override;
 
+};
+
+//-----------------------------------------------------------------------------
+// Update operator
+
+class Update : public UnaryOperator {
+public:
+    Update(std::unique_ptr<Operator> child, std::vector<iu_p_t> &updateIUs, std::vector<std::unique_ptr<Sql::Value>> &updateValues, Table & table);
+
+    ~Update() override;
+
+    void accept(OperatorVisitor & visitor) override;
+
+    Table & getTable() const { return _table; }
+
+    std::vector<iu_p_t> &getUpdateIUs() { return updateIUs; }
+    std::vector<std::unique_ptr<Sql::Value>> &getUpdateValues() { return updateValues; }
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
+
+    Table & _table;
+
+    std::vector<iu_p_t> updateIUs;
+    std::vector<std::unique_ptr<Sql::Value>> updateValues;
 };
 
 //-----------------------------------------------------------------------------

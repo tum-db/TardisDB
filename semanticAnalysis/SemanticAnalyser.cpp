@@ -210,6 +210,46 @@ void SemanticAnalyser::construct_projection(QueryContext& context, QueryPlan & p
     }
 }
 
+void SemanticAnalyser::construct_update(QueryContext& context, QueryPlan & plan) {
+    if (plan.dangling_productions.size() != 1 || plan.parser_result.relations.size() != 1) {
+        throw std::runtime_error("no or more than one root found: Table joining has failed");
+    }
+
+    auto &relationName = plan.parser_result.relations[0].second;
+    Table* table = context.db.getTable(plan.parser_result.relations[0].first);
+
+    std::vector<iu_p_t> updateIUs;
+    std::vector<std::unique_ptr<Sql::Value>> updateValues;
+    for (auto columnValuePairs : plan.parser_result.columnToValue) {
+        const std::string valueString = columnValuePairs.second;
+
+        std::unique_ptr<Sql::Value> sqlValue = Sql::Value::castString(valueString,table->getCI(columnValuePairs.first)->type);
+
+        for (auto& production : plan.ius) {
+            for (auto &iu : production.second) {
+                if (iu.first.compare(columnValuePairs.first) == 0) {
+                    updateIUs.push_back(iu.second);
+                    updateValues.push_back( std::move(sqlValue) );
+                    break;
+                }
+            }
+        }
+    }
+
+    for (auto& production : plan.ius) {
+        for (auto &iu : production.second) {
+            if (iu.first.compare("tid") == 0) {
+                updateIUs.push_back( iu.second );
+                break;
+            }
+        }
+    }
+
+
+    auto &production = plan.dangling_productions[relationName];
+    plan.tree = std::make_unique<Update>( std::move(production), updateIUs, updateValues, *table);
+}
+
 void SemanticAnalyser::constructSelect(QueryContext& context, QueryPlan& plan) {
     construct_scans(context, plan);
     construct_selects(context, plan);
@@ -218,8 +258,14 @@ void SemanticAnalyser::constructSelect(QueryContext& context, QueryPlan& plan) {
     construct_projection(context, plan);
 }
 
+void SemanticAnalyser::constructUpdate(QueryContext& context, QueryPlan& plan) {
+    construct_scans(context, plan);
+    construct_selects(context, plan);
+    construct_update(context, plan);
+}
 
-std::unique_ptr<Result> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
+
+std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
     QueryPlan plan;
     plan.parser_result = parse_and_analyse_sql_statement(context.db, sql);
 
@@ -228,6 +274,8 @@ std::unique_ptr<Result> SemanticAnalyser::parse_and_construct_tree(QueryContext&
     } else if (plan.parser_result.opType == "insert") {
         constructInsert(context, plan);
         return nullptr;
+    } else if (plan.parser_result.opType == "update") {
+        constructUpdate(context, plan);
     }
 
 

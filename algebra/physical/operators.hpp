@@ -8,3 +8,4 @@
 #include "Print.hpp"
 #include "Select.hpp"
 #include "TableScan.hpp"
+#include "Update.hpp"
