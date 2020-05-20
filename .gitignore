@@ -1,33 +1,8 @@
-*
+# IDE
+.idea/
 
-!*.c
-!*.h
-!*.cpp
-!*.hpp
-!*.tcc
-!*.sql
-!*.script
-!*.patch
-!*.txt
-!*.sh
-!*.tex
-!*.bib
-!*.ods
-!*.png
-!*.eps
-!*.pdf
-!*.ll
-!*.md
-!*.cmd
-!*.csv
-!Makefile
-!Readme
-!LICENSE
-!empty
-!.gitignore
-
-# even if they are in subdirectories
-!*/
+# sample data
+tables/
 
 # build dirs
 cmake-build-*/
