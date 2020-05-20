@@ -50,7 +50,7 @@ typedef enum State : unsigned int {
     Insert, InsertInto, InsertRelationName, InsertColumnsBegin, InsertColumnsEnd, InsertColumnName, InsertColumnSeperator,
     InsertValues, InsertValuesBegin, InsertValuesEnd, InsertValue, InsertValueSeperator,
 
-    Update, UpdateRelationName, UpdateSet, UpdateSetExprLhs, UpdateSetExprOp, UpdateSetExprRhs, UpdateSetSeperator,
+    Update, UpdateRelationName, UpdateBindingName, UpdateSet, UpdateSetExprLhs, UpdateSetExprOp, UpdateSetExprRhs, UpdateSetSeperator,
     UpdateWhere, UpdateWhereExprLhs, UpdateWhereExprOp, UpdateWhereExprRhs, UpdateWhereAnd,
 
     Delete, DeleteFrom, DeleteRelationName,
@@ -276,11 +276,27 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             break;
         case State::Update:
             if (is_identifier(token)) {
-                query.relation = token_value;
+                // token contains a relation name
+                using rel_t = decltype(query.relations)::value_type;
+                query.relations.push_back(rel_t(token_value, { }));
                 new_state = UpdateRelationName;
+            } else {
+                throw incorrect_sql_error("Expected table name, found '" + token_value + "'");
             }
             break;
         case State::UpdateRelationName:
+            if (is_identifier(token)) {
+                // token contains the binding name
+                using rel_t = decltype(query.relations)::value_type;
+                auto current = query.relations.back();
+                query.relations.pop_back();
+                query.relations.push_back(rel_t(current.first, token_value));
+                new_state = State::UpdateBindingName;
+            } else {
+                throw incorrect_sql_error("Expected binding name after relation name, found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateBindingName:
             if (lowercase_token_value == keywords::Set) {
                 new_state = State::UpdateSet;
             } else {
@@ -303,7 +319,7 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             }
             break;
         case State::UpdateSetExprOp:
-            if (token.type == TokenType::identifier) {
+            if (token.type == TokenType::literal) {
                 std::string lhs = token_src.prev(2).value;
                 query.columnToValue.push_back(std::make_pair(lhs, token_value));
                 new_state = State::UpdateSetExprRhs;
@@ -338,15 +354,18 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             }
             break;
         case State::UpdateWhereExprOp:
-            if (token.type == TokenType::identifier) {
-                std::string lhs = token_src.prev(2).value;
-                std::string rhs = token_value;
-                query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+            // e.g. s.matrnr will be handled as a single identifier
+            if (is_identifier(token)) {
+                // attribute binding
+                BindingAttribute lhs = parse_binding_attribute(token_src.prev(2).value);
+                BindingAttribute rhs = parse_binding_attribute(token_value);
+                query.joinConditions.push_back(std::make_pair(lhs, rhs));
                 new_state = State::UpdateWhereExprRhs;
             } else if (token.type == TokenType::literal) {
-                std::string lhs = token_src.prev(2).value;
-                std::string rhs = unescape(token_value);
-                query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                // constant
+                BindingAttribute lhs = parse_binding_attribute(token_src.prev(2).value);
+                Constant rhs = unescape(token_value);
+                query.selections.push_back(std::make_pair(lhs, token_value));
                 new_state = State::UpdateWhereExprRhs;
             } else {
                 throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
@@ -644,3 +663,4 @@ SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql) {
 
 
 // insert into versiontable ( vid , tableid , rid ) values ( '1' , 'table' , '2' ) ;
+// update versiontable v set vid = 2 where rid = '2';
