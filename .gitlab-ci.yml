@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# TARDISDB
+# ---------------------------------------------------------------------------
+
+stages:
+    - build
+
+build_debug:
+    stage: build
+    script: 
+        - mkdir -p build
+        - cd build
+        - cmake -GNinja -DCMAKE_BUILD_TYPE=Debug ..
+        - ninja
+    cache:
+        key: "$CI_COMMIT_REF_NAME-debug"
+        paths:
+            - build/
+        policy: pull-push
+    artifacts:
+        paths:
+            - ./build/tester
+        expire_in: 1 hrs
+    tags:
+        - "clang-6.0"
+        - "llvm-6.0"
+        - "cmake"
+        - "python3"
