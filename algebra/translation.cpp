@@ -388,6 +388,18 @@ public:
         ) );
     }
 
+    void visit(Logical::Delete & op) override
+    {
+        auto child = std::move(_translated.top());
+        _translated.pop();
+
+        _translated.push( std::make_unique<Physical::Delete>(
+                op,
+                std::move(child),
+                op.getTable()
+        ));
+    }
+
     void visit(Logical::Result & op) override
     {
         auto child = std::move(_translated.top());

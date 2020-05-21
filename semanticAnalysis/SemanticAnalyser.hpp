@@ -31,6 +31,7 @@ private:
     static void constructSelect(QueryContext& context, QueryPlan & plan);
     static void constructInsert(QueryContext &context, QueryPlan &plan);
     static void constructUpdate(QueryContext& context, QueryPlan & plan);
+    static void constructDelete(QueryContext& context, QueryPlan & plan);
 
     static void construct_scans(QueryContext& context, QueryPlan & plan);
     static void construct_selects(QueryContext & context, QueryPlan & plan);
@@ -39,7 +40,7 @@ private:
     static void construct_joins(QueryContext & context, QueryPlan & plan);
     static void construct_projection(QueryContext & context, QueryPlan & plan);
     static void construct_update(QueryContext & context, QueryPlan & plan);
-
+    static void construct_delete(QueryContext & context, QueryPlan & plan);
 };
 
 

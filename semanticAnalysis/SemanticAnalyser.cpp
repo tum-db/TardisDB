@@ -250,6 +250,29 @@ void SemanticAnalyser::construct_update(QueryContext& context, QueryPlan & plan)
     plan.tree = std::make_unique<Update>( std::move(production), updateIUs, updateValues, *table);
 }
 
+void SemanticAnalyser::construct_delete(QueryContext& context, QueryPlan & plan) {
+    if (plan.dangling_productions.size() != 1 || plan.parser_result.relations.size() != 1) {
+        throw std::runtime_error("no or more than one root found: Table joining has failed");
+    }
+
+    auto &relationName = plan.parser_result.relations[0].second;
+    Table* table = context.db.getTable(plan.parser_result.relations[0].first);
+
+    iu_p_t tidIU;
+
+    for (auto& production : plan.ius) {
+        for (auto &iu : production.second) {
+            if (iu.first.compare("tid") == 0) {
+                tidIU = iu.second;
+                break;
+            }
+        }
+    }
+
+    auto &production = plan.dangling_productions[relationName];
+    plan.tree = std::make_unique<Delete>( std::move(production), tidIU, *table);
+}
+
 void SemanticAnalyser::constructSelect(QueryContext& context, QueryPlan& plan) {
     construct_scans(context, plan);
     construct_selects(context, plan);
@@ -264,6 +287,12 @@ void SemanticAnalyser::constructUpdate(QueryContext& context, QueryPlan& plan) {
     construct_update(context, plan);
 }
 
+void SemanticAnalyser::constructDelete(QueryContext& context, QueryPlan& plan) {
+    construct_scans(context, plan);
+    construct_selects(context, plan);
+    construct_delete(context, plan);
+}
+
 
 std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
     QueryPlan plan;
@@ -276,6 +305,8 @@ std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContex
         return nullptr;
     } else if (plan.parser_result.opType == "update") {
         constructUpdate(context, plan);
+    } else if (plan.parser_result.opType == "delete") {
+        constructDelete(context, plan);
     }
 
 

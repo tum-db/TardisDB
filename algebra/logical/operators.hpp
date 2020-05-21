@@ -87,6 +87,7 @@ class GroupBy;
 class Join;
 class Map;
 class Update;
+class Delete;
 class Result;
 class Select;
 class TableScan;
@@ -101,6 +102,7 @@ struct OperatorVisitor {
     virtual void visit(Join & op) = 0;
     virtual void visit(Map & op) = 0;
     virtual void visit(Update & op) = 0;
+    virtual void visit(Delete & op) = 0;
     virtual void visit(Result & op) = 0;
     virtual void visit(Select & op) = 0;
     virtual void visit(TableScan & op) = 0;
@@ -420,6 +422,30 @@ protected:
     void computeProduced() override;
     void computeRequired() override;
 
+};
+
+//-----------------------------------------------------------------------------
+// Update operator
+
+class Delete : public UnaryOperator {
+public:
+    Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table);
+
+    ~Delete() override;
+
+    void accept(OperatorVisitor & visitor) override;
+
+    Table & getTable() const { return _table; }
+
+    iu_p_t &getTIDIU() { return tidIU; }
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
+
+    Table & _table;
+
+    iu_p_t tidIU;
 };
 
 //-----------------------------------------------------------------------------

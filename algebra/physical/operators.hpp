@@ -9,3 +9,4 @@
 #include "Select.hpp"
 #include "TableScan.hpp"
 #include "Update.hpp"
+#include "Delete.hpp"

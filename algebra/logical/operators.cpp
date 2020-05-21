@@ -370,6 +370,27 @@ void TableScan::computeRequired()
     required.insert(expected.begin(), expected.end());
 }
 //-----------------------------------------------------------------------------
+// Delete operator
+
+Delete::Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table) :
+    UnaryOperator(std::move(child)), _table(table), tidIU(std::move(tidIU)) { }
+
+Delete::~Delete() { }
+
+void Delete::accept(OperatorVisitor & visitor) {
+    visitor.visit(*this);
+}
+
+void Delete::computeProduced() {
+    produced.clear();
+}
+
+void Delete::computeRequired() {
+    // "selection" represents the required attributes of the Result operator
+    required.insert(tidIU);
+}
+
+//-----------------------------------------------------------------------------
 // Update operator
 
 Update::Update(std::unique_ptr<Operator> child, std::vector<iu_p_t> &updateIUs, std::vector<std::unique_ptr<Sql::Value>> &updateValues, Table & table) :
@@ -551,6 +572,14 @@ struct Verifier : public OperatorVisitor {
     }
 
     void visit(Update & op) override
+    {
+        if (!_result) { return; }
+
+        test(op, op.getChild());
+        op.getChild().accept(*this);
+    }
+
+    void visit(Delete & op) override
     {
         if (!_result) { return; }
 

@@ -53,7 +53,7 @@ typedef enum State : unsigned int {
     Update, UpdateRelationName, UpdateBindingName, UpdateSet, UpdateSetExprLhs, UpdateSetExprOp, UpdateSetExprRhs, UpdateSetSeperator,
     UpdateWhere, UpdateWhereExprLhs, UpdateWhereExprOp, UpdateWhereExprRhs, UpdateWhereAnd,
 
-    Delete, DeleteFrom, DeleteRelationName,
+    Delete, DeleteFrom, DeleteRelationName, DeleteBindingName,
     DeleteWhere, DeleteWhereExprLhs, DeleteWhereExprOp, DeleteWhereExprRhs, DeleteWhereAnd,
 
     Semicolon,
@@ -224,11 +224,27 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             break;
         case State::DeleteFrom:
             if (is_identifier(token)) {
-                query.relation = token_value;
+                // token contains a relation name
+                using rel_t = decltype(query.relations)::value_type;
+                query.relations.push_back(rel_t(token_value, { }));
                 new_state = DeleteRelationName;
+            } else {
+                throw incorrect_sql_error("Expected table name, found '" + token_value + "'");
             }
             break;
         case State::DeleteRelationName:
+            if (is_identifier(token)) {
+                // token contains the binding name
+                using rel_t = decltype(query.relations)::value_type;
+                auto current = query.relations.back();
+                query.relations.pop_back();
+                query.relations.push_back(rel_t(current.first, token_value));
+                new_state = State::DeleteBindingName;
+            } else {
+                throw incorrect_sql_error("Expected binding name after relation name, found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteBindingName:
             if (lowercase_token_value == keywords::Where) {
                 new_state = State::DeleteWhere;
             } else {
@@ -260,7 +276,7 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
                 new_state = State::DeleteWhereExprRhs;
             } else if (token.type == TokenType::literal) {
                 std::string lhs = token_src.prev(2).value;
-                std::string rhs = unescape(token_value);
+                std::string rhs = token_value;
                 query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
                 new_state = State::DeleteWhereExprRhs;
             } else {
