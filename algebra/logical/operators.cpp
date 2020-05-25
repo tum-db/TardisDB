@@ -391,6 +391,26 @@ void Delete::computeRequired() {
 }
 
 //-----------------------------------------------------------------------------
+// Insert operator
+
+Insert::Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple) :
+NullaryOperator(context), _table(table), sqlTuple(tuple) { }
+
+Insert::~Insert() { }
+
+void Insert::accept(OperatorVisitor & visitor) {
+    visitor.visit(*this);
+}
+
+void Insert::computeProduced() {
+    produced.clear();
+}
+
+void Insert::computeRequired() {
+
+}
+
+//-----------------------------------------------------------------------------
 // Update operator
 
 Update::Update(std::unique_ptr<Operator> child, std::vector<iu_p_t> &updateIUs, std::vector<std::unique_ptr<Sql::Value>> &updateValues, Table & table) :
@@ -569,6 +589,11 @@ struct Verifier : public OperatorVisitor {
 
         test(op, op.getChild());
         op.getChild().accept(*this);
+    }
+
+    void visit(Insert & op) override
+    {
+
     }
 
     void visit(Update & op) override

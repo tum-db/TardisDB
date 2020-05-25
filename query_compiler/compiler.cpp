@@ -90,7 +90,8 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
     // query function signature
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(llvmContext);
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (int,void*), false>::get(llvmContext);
+    //llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(llvmContext);
 
     // generate the query function
     llvm::Function * queryFunc;
@@ -126,7 +127,7 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 
 static std::unique_ptr<Database> currentdb = nullptr;
 
-static void executeQueryFunction(llvm::Function * queryFunc)
+static void executeQueryFunction(llvm::Function * queryFunc, QueryContext &context)
 {
     auto & moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
@@ -140,7 +141,9 @@ static void executeQueryFunction(llvm::Function * queryFunc)
     ee->finalizeObject();
     const auto compilationDuration = high_resolution_clock::now() - compilationStart;
 
-    std::vector<llvm::GenericValue> noargs;
+    std::vector<llvm::GenericValue> noargs(2);
+    noargs[0].IntVal = llvm::APInt(64,5);
+    noargs[1].PointerVal = (void*)&context;
 
     const auto query_start = high_resolution_clock::now();
     ee->runFunction(queryFunc, noargs);
@@ -167,7 +170,7 @@ void compileAndExecute(const std::string & query)
     auto queryFunc = compileQuery(query, queryContext);
     if (queryFunc == nullptr) return;
 
-    executeQueryFunction(queryFunc);
+    executeQueryFunction(queryFunc,queryContext);
 }
 
 void compileAndExecute(llvm::Function * queryFunction)
@@ -194,7 +197,8 @@ void compileAndExecute(llvm::Function * queryFunction)
 
     compilationStart = high_resolution_clock::now();
 
-    executeQueryFunction(queryFunction);
+    QueryContext queryContext(*currentdb);
+    executeQueryFunction(queryFunction,queryContext);
 }
 
 void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args)

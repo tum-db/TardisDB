@@ -12,7 +12,7 @@
 #include <memory>
 #include <native/sql/SqlTuple.hpp>
 
-void SemanticAnalyser::constructInsert(QueryContext &context, SemanticAnalyser::QueryPlan &plan) {
+void SemanticAnalyser::constructInsert(QueryContext &context, QueryPlan &plan) {
     auto& db = context.db;
     Table* table = db.getTable(plan.parser_result.relation);
 
@@ -26,9 +26,9 @@ void SemanticAnalyser::constructInsert(QueryContext &context, SemanticAnalyser::
         sqlvalues.emplace_back(std::move(sqlvalue));
     }
 
-    Native::Sql::SqlTuple tuple(std::move(sqlvalues));
+    Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
 
-    insert_tuple(tuple, *table, context);
+    plan.tree = std::make_unique<Insert>(context,*table,tuple);
 }
 
 void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) {
@@ -302,7 +302,6 @@ std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContex
         constructSelect(context, plan);
     } else if (plan.parser_result.opType == "insert") {
         constructInsert(context, plan);
-        return nullptr;
     } else if (plan.parser_result.opType == "update") {
         constructUpdate(context, plan);
     } else if (plan.parser_result.opType == "delete") {

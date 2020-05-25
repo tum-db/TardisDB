@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <memory>
+#include "native/sql/SqlTuple.hpp"
 
 #include "algebra/logical/expressions.hpp"
 #include "foundations/InformationUnit.hpp"
@@ -87,6 +88,7 @@ class GroupBy;
 class Join;
 class Map;
 class Update;
+class Insert;
 class Delete;
 class Result;
 class Select;
@@ -102,6 +104,7 @@ struct OperatorVisitor {
     virtual void visit(Join & op) = 0;
     virtual void visit(Map & op) = 0;
     virtual void visit(Update & op) = 0;
+    virtual void visit(Insert & op) = 0;
     virtual void visit(Delete & op) = 0;
     virtual void visit(Result & op) = 0;
     virtual void visit(Select & op) = 0;
@@ -446,6 +449,29 @@ protected:
     Table & _table;
 
     iu_p_t tidIU;
+};
+
+//-----------------------------------------------------------------------------
+// Insert operator
+
+class Insert : public NullaryOperator {
+public:
+    Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple);
+
+    ~Insert() override;
+
+    void accept(OperatorVisitor & visitor) override;
+
+    Table & getTable() const { return _table; }
+
+    Native::Sql::SqlTuple *getTuple() { return sqlTuple; }
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
+
+    Table & _table;
+    Native::Sql::SqlTuple *sqlTuple;
 };
 
 //-----------------------------------------------------------------------------
