@@ -244,6 +244,9 @@ void TableScan::produce(cg_tid_t tid) {
         }
     }
 
+    // Free memory of Tuple Pointer
+    Functions::genFreeCall(tuplePtr);
+
     iu_value_mapping_t returnValues;
     for (auto& mapping : values) {
         returnValues.emplace(mapping.first,mapping.second.get());
