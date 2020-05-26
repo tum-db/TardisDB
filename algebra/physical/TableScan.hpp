@@ -23,7 +23,7 @@ private:
 
     Table & table;
 
-    using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *>;
+    using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t>;
     std::vector<column_t> columns;
 };
 
