@@ -279,6 +279,8 @@ static void genTest(ModuleGen & moduleGen)
 
 llvm::Function * types_test()
 {
+    ModuleGen mGen("TypesTestModule");
+
     auto & codeGen = getThreadLocalCodeGen();
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();

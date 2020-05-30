@@ -9,7 +9,8 @@ using testFunc = std::function<void ()>;
 
 static std::unordered_map<std::string, testFunc> tests = {
         { "expression", &expression_test },
-        { "groupby", &groupby_test }
+        { "groupby", &groupby_test },
+        { "types", &types_test }
 };
 
 void runNamedTest(const std::string & testName)

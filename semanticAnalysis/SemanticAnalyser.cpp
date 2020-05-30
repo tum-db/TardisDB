@@ -218,36 +218,28 @@ void SemanticAnalyser::construct_update(QueryContext& context, QueryPlan & plan)
     auto &relationName = plan.parser_result.relations[0].second;
     Table* table = context.db.getTable(plan.parser_result.relations[0].first);
 
-    std::vector<iu_p_t> updateIUs;
-    std::vector<std::unique_ptr<Sql::Value>> updateValues;
-    for (auto columnValuePairs : plan.parser_result.columnToValue) {
-        const std::string valueString = columnValuePairs.second;
+    std::vector<std::pair<iu_p_t,std::string>> updateIUs;
 
-        std::unique_ptr<Sql::Value> sqlValue = Sql::Value::castString(valueString,table->getCI(columnValuePairs.first)->type);
-
-        for (auto& production : plan.ius) {
-            for (auto &iu : production.second) {
-                if (iu.first.compare(columnValuePairs.first) == 0) {
-                    updateIUs.push_back(iu.second);
-                    updateValues.push_back( std::move(sqlValue) );
-                    break;
-                }
-            }
-        }
-    }
-
+    //Get all ius of the tuple to update
     for (auto& production : plan.ius) {
         for (auto &iu : production.second) {
-            if (iu.first.compare("tid") == 0) {
-                updateIUs.push_back( iu.second );
-                break;
+            updateIUs.emplace_back( iu.second, "" );
+        }
+    }
+
+    //Map values to be updated to the corresponding ius
+    for (auto columnValuePairs : plan.parser_result.columnToValue) {
+        const std::string &valueString = columnValuePairs.second;
+
+        for (auto &iuPair : updateIUs) {
+            if (iuPair.first->columnInformation->columnName.compare(columnValuePairs.first) == 0) {
+                iuPair.second = valueString;
             }
         }
     }
 
-
     auto &production = plan.dangling_productions[relationName];
-    plan.tree = std::make_unique<Update>( std::move(production), updateIUs, updateValues, *table);
+    plan.tree = std::make_unique<Update>( std::move(production), updateIUs, *table);
 }
 
 void SemanticAnalyser::construct_delete(QueryContext& context, QueryPlan & plan) {

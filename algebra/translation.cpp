@@ -393,8 +393,7 @@ public:
                 op,
                 std::move(child),
                 op.getTable(),
-                op.getUpdateIUs(),
-                op.getUpdateValues()
+                op.getUpdateIUValuePairs()
         ) );
     }
 

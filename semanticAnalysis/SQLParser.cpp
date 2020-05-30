@@ -678,5 +678,9 @@ SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql) {
 }
 
 
-// insert into versiontable ( vid , tableid , rid ) values ( '1' , 'table' , '2' ) ;
+// insert into versiontable ( vid , tableid , rid ) values ( '3' , 'table' , '5' ) ;
 // update versiontable v set vid = 2 where rid = '2';
+// update versiontable v set vid = 2 where rid = '5';
+// insert into tasks ( rid , user_id , task_name ) values ( 1 , 1 , 'task1' );
+// update tasks t set user_id = 2 where rid = 1;
+// update tasks t set task_name = 'task2' where rid = 1;

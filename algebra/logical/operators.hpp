@@ -479,7 +479,7 @@ protected:
 
 class Update : public UnaryOperator {
 public:
-    Update(std::unique_ptr<Operator> child, std::vector<iu_p_t> &updateIUs, std::vector<std::unique_ptr<Sql::Value>> &updateValues, Table & table);
+    Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table);
 
     ~Update() override;
 
@@ -487,8 +487,7 @@ public:
 
     Table & getTable() const { return _table; }
 
-    std::vector<iu_p_t> &getUpdateIUs() { return updateIUs; }
-    std::vector<std::unique_ptr<Sql::Value>> &getUpdateValues() { return updateValues; }
+    std::vector<std::pair<iu_p_t,std::string>> &getUpdateIUValuePairs() { return updateIUValuePairs; }
 
 protected:
     void computeProduced() override;
@@ -496,8 +495,7 @@ protected:
 
     Table & _table;
 
-    std::vector<iu_p_t> updateIUs;
-    std::vector<std::unique_ptr<Sql::Value>> updateValues;
+    std::vector<std::pair<iu_p_t,std::string>> updateIUValuePairs;
 };
 
 //-----------------------------------------------------------------------------

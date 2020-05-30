@@ -413,8 +413,8 @@ void Insert::computeRequired() {
 //-----------------------------------------------------------------------------
 // Update operator
 
-Update::Update(std::unique_ptr<Operator> child, std::vector<iu_p_t> &updateIUs, std::vector<std::unique_ptr<Sql::Value>> &updateValues, Table & table) :
-UnaryOperator(std::move(child)), _table(table), updateIUs(std::move(updateIUs)), updateValues(std::move(updateValues)) { }
+Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table) :
+UnaryOperator(std::move(child)), _table(table), updateIUValuePairs(std::move(updateIUValuePairs)) { }
 
 Update::~Update() { }
 
@@ -428,8 +428,8 @@ void Update::computeProduced() {
 
 void Update::computeRequired() {
     // "selection" represents the required attributes of the Result operator
-    for (iu_p_t iu : updateIUs) {
-        required.insert(iu);
+    for (auto &iu : updateIUValuePairs) {
+        required.insert(iu.first);
     }
 }
 
