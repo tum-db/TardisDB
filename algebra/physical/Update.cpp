@@ -10,6 +10,8 @@
 #include "sql/SqlTuple.hpp"
 #include "foundations/version_management.hpp"
 
+#define Versioning
+
 using namespace Sql;
 
 namespace Algebra {
@@ -74,8 +76,6 @@ namespace Algebra {
 
             Functions::genPrintfCall("Updated %lu tuples\n", tupleCnt);
         }
-
-#undef Versioning
 
 #ifdef Versioning
         void storeStringInTextFormat(char* destination, char* source, char length) {
