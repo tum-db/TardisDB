@@ -28,7 +28,12 @@ namespace keywords {
 
     const std::string Delete = "delete";
 
-    std::set<std::string> keywordset = {Select, From, Where, And, Insert, Into, Values, Update, Set, Delete};
+    const std::string Create = "create";
+    const std::string Table = "table";
+    const std::string Not = "not";
+    const std::string Null = "null";
+
+    std::set<std::string> keywordset = {Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create, Table, Not, Null};
 }
 
 enum TokenType : unsigned int {
@@ -55,6 +60,10 @@ typedef enum State : unsigned int {
 
     Delete, DeleteFrom, DeleteRelationName, DeleteBindingName,
     DeleteWhere, DeleteWhereExprLhs, DeleteWhereExprOp, DeleteWhereExprRhs, DeleteWhereAnd,
+
+    Create, CreateTable, CreateTableRelationName, CreateTableColumnsBegin, CreateTableColumnsEnd, CreateTableColumnName, CreateTableColumnType,
+    CreateTableTypeDetailBegin, CreateTableTypeDetailEnd, CreateTableTypeDetailSeperator, CreateTableTypeDetailLength, CreateTableTypeDetailPrecision,
+    CreateTableTypeNot, CreateTableTypeNotNull, CreateTableColumnSeperator,
 
     Semicolon,
     Done
@@ -186,6 +195,8 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             state != State::UpdateWhereExprRhs &&
             state != State::DeleteRelationName &&
             state != State::DeleteWhereExprRhs &&
+            state != State::CreateTableRelationName &&
+            state != State::CreateTableColumnsEnd &&
             state != State::Semicolon) {
             throw incorrect_sql_error("unexpected end of input");
         }
@@ -210,10 +221,131 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
         } else if (lowercase_token_value == keywords::Delete) {
             query.opType = "delete";
             new_state = State::Delete;
+        } else if (lowercase_token_value == keywords::Create) {
+            query.opType = "create";
+            new_state = State::Create;
         } else {
             throw incorrect_sql_error("Expected 'Select' or 'Insert', found '" + token_value + "'");
         }
         break;
+        case State::Create:
+            if (lowercase_token_value == keywords::Table) {
+                new_state = State::CreateTable;
+            } else {
+                throw incorrect_sql_error("Expected 'TABLE', found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTable:
+            if (is_identifier(token)) {
+                query.relation = token_value;
+                new_state = State::CreateTableRelationName;
+            } else {
+                throw incorrect_sql_error("Expected table name, found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableRelationName:
+            if (token_value == "(") {
+                new_state = State::CreateTableColumnsBegin;
+            }
+            break;
+        case State::CreateTableColumnsBegin:
+        case State::CreateTableColumnSeperator:
+            if (is_identifier(token)) {
+                query.columnNames.emplace_back(token_value);
+                new_state = CreateTableColumnName;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableColumnName:
+            if (token.type == literal) {
+                query.columnTypes.emplace_back(lowercase_token_value);
+                new_state = CreateTableColumnType;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableColumnType:
+            if (token_value == ")") {
+                query.length.emplace_back(0);
+                query.precision.emplace_back(0);
+                query.nullable.emplace_back(true);
+                new_state = CreateTableColumnsEnd;
+            } else if (token_value == ",") {
+                query.length.emplace_back(0);
+                query.precision.emplace_back(0);
+                query.nullable.emplace_back(true);
+                new_state = CreateTableColumnSeperator;
+            } else if (token_value == "(") {
+                new_state = CreateTableTypeDetailBegin;
+            } else if (lowercase_token_value == keywords::Not) {
+                new_state = CreateTableTypeNot;
+            }
+            break;
+        case State::CreateTableTypeDetailBegin:
+            if (token.type == literal) {
+                query.length.emplace_back(std::stoi(token_value));
+                new_state = CreateTableTypeDetailLength;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableTypeDetailLength:
+            if (token_value == ",") {
+                new_state = CreateTableTypeDetailSeperator;
+            } else if (token_value == ")") {
+                query.precision.emplace_back(0);
+                new_state = CreateTableTypeDetailEnd;
+            } else {
+                throw incorrect_sql_error("Expected ',', found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableTypeDetailSeperator:
+            if (token.type == literal) {
+                query.precision.emplace_back(std::stoi(token_value));
+                new_state = CreateTableTypeDetailPrecision;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableTypeDetailPrecision:
+            if (token_value == ")") {
+                new_state = CreateTableTypeDetailEnd;
+            } else {
+                throw incorrect_sql_error("Expected ')', found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableTypeDetailEnd:
+            if (token_value == ")") {
+                query.nullable.emplace_back(true);
+                new_state = CreateTableColumnsEnd;
+            } else if (token_value == ",") {
+                query.nullable.emplace_back(true);
+                new_state = CreateTableColumnSeperator;
+            } else if (lowercase_token_value == keywords::Not) {
+                new_state = CreateTableTypeNot;
+            }
+            break;
+        case State::CreateTableTypeNot:
+            if (lowercase_token_value == keywords::Null) {
+                query.nullable.emplace_back(false);
+                new_state = State::CreateTableTypeNotNull;
+            } else {
+                throw incorrect_sql_error("Expected 'NULL', found '" + token_value + "'");
+            }
+            break;
+        case State::CreateTableTypeNotNull:
+            if (token_value == ")") {
+                new_state = CreateTableColumnsEnd;
+            } else if (token_value == ",") {
+                new_state = CreateTableColumnSeperator;
+            }
+            break;
+        case State::CreateTableColumnsEnd:
+            if (token_value == ";") {
+                new_state = State::Semicolon;
+            }
+            break;
 
         case State::Delete:
             if (lowercase_token_value == keywords::From) {
@@ -684,3 +816,7 @@ SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql) {
 // insert into tasks ( rid , user_id , task_name ) values ( 1 , 1 , 'task1' );
 // update tasks t set user_id = 2 where rid = 1;
 // update tasks t set task_name = 'task2' where rid = 1;
+// create table professoren ( name TEXT , rang NUMERIC );
+// create table professoren ( name TEXT NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );
+// create table professoren ( name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );
+// INSERT INTO professoren ( name , rang ) VALUES ( 'kemper' , 4 );

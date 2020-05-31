@@ -34,6 +34,12 @@ struct SQLParserResult {
 
    //UPDATE
    std::vector<std::pair<std::string,std::string>> columnToValue;
+
+   //CREATE
+   std::vector<std::string> columnTypes;
+   std::vector<bool> nullable;
+   std::vector<uint32_t> length;
+   std::vector<uint32_t> precision;
 };
 
 SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql);
