@@ -1,4 +1,4 @@
-#include "semanticAnalysis/JoinGraph.hpp"
+#include "include/tardisdb/semanticAnalyser/JoinGraph.hpp"
 
 void JoinGraph::addVertex(std::string &alias, JoinGraph::Vertex &vertex) {
     vertices.insert({std::move(alias),std::move(vertex)});

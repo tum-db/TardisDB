@@ -1,4 +1,4 @@
-#include "semanticAnalysis/SemanticAnalyser.hpp"
+#include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
 
 #include "foundations/Database.hpp"
 #include "query_compiler/queryparser.hpp"
