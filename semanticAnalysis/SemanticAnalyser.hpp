@@ -5,7 +5,7 @@
 
 #include "algebra/logical/operators.hpp"
 #include "foundations/Database.hpp"
-#include "semanticAnalysis/SQLParser.hpp"
+#include "include/tardisdb/sqlParser/SQLParser.hpp"
 #include "semanticAnalysis/JoinGraph.hpp"
 
 using namespace Algebra::Logical;

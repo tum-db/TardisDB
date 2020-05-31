@@ -3,21 +3,28 @@ project(protodb)
 
 set(CMAKE_CXX_STANDARD 17)
 
+
+### set up boost
+if(APPLE)
+	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/boost/lib/cmake/Boost-1.72.0)
+endif(APPLE)
+find_package(Boost)
+INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIRS} )
+
+### set up llvm
 if(APPLE)
 	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/llvm@7)
 	find_package(LLVM 7.1 REQUIRED CONFIG)
-	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/boost/lib/cmake/Boost-1.72.0)
 else(NOT APPLE)
 	find_package(LLVM 7 REQUIRED CONFIG)
 endif(APPLE)
-
-### set up llvm
-
-find_package(Boost)
-INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIRS} )
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-include_directories(${LLVM_INCLUDE_DIRS} .)
+
+include_directories(.
+		${LLVM_INCLUDE_DIRS}
+		${CMAKE_SOURCE_DIR}/include/tardisdb
+		)
 add_definitions(${LLVM_DEFINITIONS})
 
 llvm_map_components_to_libnames(LLVM_LIBS
@@ -32,6 +39,10 @@ llvm_map_components_to_libnames(LLVM_LIBS
 	InstCombine
 	ScalarOpts
 )
+
+### libraries
+include(tools/sqlParser/local.cmake)
+#include(tools/semanticalAnalyser/local.cmake)
 
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
@@ -99,7 +110,7 @@ set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
-target_link_libraries(dblib LLVM)
+target_link_libraries(dblib sqlparser LLVM)
 
 ### main application
 add_executable(protodb ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
