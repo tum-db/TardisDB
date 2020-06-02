@@ -54,6 +54,13 @@ TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table) 
 TableScan::~TableScan()
 { }
 
+tid_t markAsDanglingIfGreater(tid_t tid, size_t mgmtSize) {
+    if (tid >= mgmtSize) {
+        tid = mark_as_dangling_tid(tid - mgmtSize);
+    }
+    return tid;
+}
+
 void TableScan::produce()
 {
     //Functions::genPrintfCall("%s\n",_codeGen.getCurrentFunctionGen().getArg(1));
@@ -63,7 +70,7 @@ void TableScan::produce()
 
     auto & funcGen = _codeGen.getCurrentFunctionGen();
 
-    size_t tableSize = table.size();
+    size_t tableSize = table._version_mgmt_column.size() + table._dangling_version_mgmt_column.size();
     if (tableSize < 1) {
         return; // nothing to produce
     }
@@ -78,12 +85,17 @@ void TableScan::produce()
     {
         LoopBodyGen bodyGen(scanLoop);
 
-        auto branchId = _context.executionContext.branchId;
-        IfGen visibilityCheck(isVisible(tid, branchId));
-        {
-            produce(tid);
-        }
-        visibilityCheck.EndIf();
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<tid_t (tid_t, size_t), false>::get(_codeGen.getLLVMContext());
+        llvm::CallInst * result = _codeGen.CreateCall(&markAsDanglingIfGreater, funcTy, {tid, cg_size_t(table._version_mgmt_column.size()) });
+
+        cg_size_t markedTid = cg_size_t( llvm::cast<llvm::Value>(result) );
+
+//        auto branchId = _context.executionContext.branchId;
+//        IfGen visibilityCheck(isVisible(markedTid, branchId));
+//        {
+            produce(markedTid);
+//        }
+//        visibilityCheck.EndIf();
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
