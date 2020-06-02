@@ -112,12 +112,12 @@ add_library(dblib ${DB_LIB_SOURCE_FILES})
 target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
 
 ### main application
-add_executable(protodb ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
-target_link_libraries(protodb dblib)
+add_executable(sql ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
+target_link_libraries(sql dblib)
 
 ### set up dependencies
 add_dependencies(GenerateLoader schema_parser)
-add_dependencies(protodb GenerateLoader)
+add_dependencies(sql GenerateLoader)
 
 ### sub projects
 add_subdirectory(standalone_tests)
@@ -146,4 +146,4 @@ file(GLOB_RECURSE HS RELATIVE ${CMAKE_SOURCE_DIR} "*.hpp" "*.tcc")
 INSTALL_HEADERS_WITH_DIRECTORY(HS)
 
 install(TARGETS dblib DESTINATION lib)
-install(TARGETS protodb rd_bench DESTINATION bin)
+install(TARGETS sql rd_bench DESTINATION bin)
