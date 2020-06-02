@@ -180,7 +180,7 @@ void run_tpc_h_1()
 
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
-    QueryCompiler::compileAndExecute(queryFunc);
+    QueryCompiler::compileAndExecute(queryFunc,*db);
 }
 
 void benchmark_tpc_h_1_null(unsigned runs)
@@ -201,5 +201,5 @@ void run_tpc_h_1_null()
     printf("running query...\n");
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
-    QueryCompiler::compileAndExecute(queryFunc);
+    QueryCompiler::compileAndExecute(queryFunc,*db);
 }

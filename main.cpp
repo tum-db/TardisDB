@@ -33,6 +33,7 @@ void usage(const char * name)
 
 void prompt()
 {
+    std::unique_ptr<Database> currentdb = loadDatabase();
     while (true) {
         try {
             printf(">>> ");
@@ -43,7 +44,7 @@ void prompt()
                 break;
             }
 
-            QueryCompiler::compileAndExecute(input);
+            QueryCompiler::compileAndExecute(input,*currentdb);
         } catch (const QueryParser::parser_error & e) {
             fprintf(stderr, "Failed to parse query, reason: %s\n", e.what());
         } catch (const std::exception & e) {

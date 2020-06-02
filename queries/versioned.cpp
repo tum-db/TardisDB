@@ -107,5 +107,5 @@ void run_versioned_1()
 
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
-    QueryCompiler::compileAndExecute(queryFunc);
+    QueryCompiler::compileAndExecute(queryFunc,*db);
 }

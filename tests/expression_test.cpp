@@ -187,7 +187,8 @@ static llvm::Function * genFunc()
 
 void expression_test()
 {
+    std::unique_ptr<Database> db = std::make_unique<Database>();
     ModuleGen moduleGen("TestModule");
     llvm::Function * testFunc = genFunc();
-    QueryCompiler::compileAndExecute(testFunc);
+    QueryCompiler::compileAndExecute(testFunc,*db);
 }

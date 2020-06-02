@@ -7,6 +7,7 @@
 
 #include <llvm/IR/Function.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
+#include "foundations/Database.hpp"
 
 namespace QueryCompiler {
 
@@ -24,9 +25,9 @@ BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, unsigned run
 BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args, unsigned runs);
 
 /// \brief Executes the given SQL query
-void compileAndExecute(const std::string & query);
+void compileAndExecute(const std::string & query, Database &db);
 
-void compileAndExecute(llvm::Function * queryFunction);
+void compileAndExecute(llvm::Function * queryFunction, Database &db);
 
 void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args);
 

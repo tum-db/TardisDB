@@ -125,8 +125,6 @@ static llvm::Function * compileQuery(const std::string & query, QueryContext & q
 #endif
 }
 
-static std::unique_ptr<Database> currentdb = nullptr;
-
 static void executeQueryFunction(llvm::Function * queryFunc, QueryContext &context)
 {
     auto & moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
@@ -153,16 +151,14 @@ static void executeQueryFunction(llvm::Function * queryFunc, QueryContext &conte
     printf("Execution time: %lums\n", duration_cast<milliseconds>(queryDuration).count());
 }
 
-void compileAndExecute(const std::string & query)
+void compileAndExecute(const std::string & query, Database &db)
 {
 //    ModuleGen moduleGen("QueryModule");
 
 //    auto db = loadUniDb();
-    if (currentdb == nullptr) {
-        currentdb = loadDatabase();
-    }
-    //auto db = loadDatabase();
-    QueryContext queryContext(*currentdb); // TODO as function argument?
+
+
+    QueryContext queryContext(db); // TODO as function argument?
 
     compilationStart = high_resolution_clock::now();
 
@@ -173,7 +169,7 @@ void compileAndExecute(const std::string & query)
     executeQueryFunction(queryFunc,queryContext);
 }
 
-void compileAndExecute(llvm::Function * queryFunction)
+void compileAndExecute(llvm::Function * queryFunction, Database &db)
 {
     auto & codeGen = getThreadLocalCodeGen();
     assert(codeGen.hasModuleGen());
@@ -197,7 +193,7 @@ void compileAndExecute(llvm::Function * queryFunction)
 
     compilationStart = high_resolution_clock::now();
 
-    QueryContext queryContext(*currentdb);
+    QueryContext queryContext(db);
     executeQueryFunction(queryFunction,queryContext);
 }
 

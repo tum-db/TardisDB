@@ -44,6 +44,10 @@ llvm_map_components_to_libnames(LLVM_LIBS
 include(tools/sqlParser/local.cmake)
 include(tools/semanticalAnalyser/local.cmake)
 
+### executables
+add_executable(sql sql.cpp)
+target_link_libraries(sql dblib)
+
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
 file(GLOB_RECURSE CODEGEN_FILES "codegen/*.cpp" "codegen/*.hpp" "codegen/*.tcc")
@@ -58,12 +62,10 @@ file(GLOB_RECURSE UTILS_FILES "utils/*.cpp" "utils/*.hpp" "utils/*.tcc")
 set(THIRD_PARTY_FILES third_party/hexdump.cpp third_party/hexdump.hpp)
 
 set(DB_LIB_SOURCE_FILES
-	main.cpp
 	${ALGEBRA_FILES}
 	${CODEGEN_FILES}
 	${FOUNDATIONS_FILES}
 	${NATIVE_FILES}
-	${SEMANTIC_ANALYSIS_FILES}
 	${SQL_FILES}
 	${QUERIES_FILES}
 	${QUERY_COMPILER_FILES}
@@ -112,12 +114,12 @@ add_library(dblib ${DB_LIB_SOURCE_FILES})
 target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
 
 ### main application
-add_executable(sql ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
-target_link_libraries(sql dblib)
+add_executable(protodb main.cpp ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
+target_link_libraries(protodb dblib)
 
 ### set up dependencies
 add_dependencies(GenerateLoader schema_parser)
-add_dependencies(sql GenerateLoader)
+add_dependencies(protodb GenerateLoader)
 
 ### sub projects
 add_subdirectory(standalone_tests)
@@ -146,4 +148,4 @@ file(GLOB_RECURSE HS RELATIVE ${CMAKE_SOURCE_DIR} "*.hpp" "*.tcc")
 INSTALL_HEADERS_WITH_DIRECTORY(HS)
 
 install(TARGETS dblib DESTINATION lib)
-install(TARGETS sql rd_bench DESTINATION bin)
+install(TARGETS sql protodb rd_bench DESTINATION bin)
