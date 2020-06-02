@@ -320,6 +320,19 @@ void SemanticAnalyser::constructCreate(QueryContext& context, QueryPlan& plan) {
     }
 }
 
+void SemanticAnalyser::constructCheckout(QueryContext& context, QueryPlan& plan) {
+    std::string &branchId = plan.parser_result.branchId;
+    std::string &parentBranchId = plan.parser_result.parentBranchId;
+
+    branch_id_t _parentBranchId = 0;
+    if (parentBranchId.compare("master") != 0) {
+        _parentBranchId = context.db._branchMapping[parentBranchId];
+    }
+    branch_id_t _branchid = context.db.createBranch(branchId, _parentBranchId);
+
+    std::cout << "Created Branch " << _branchid << "\n";
+}
+
 
 std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
     QueryPlan plan;
@@ -335,6 +348,8 @@ std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContex
         constructDelete(context, plan);
     } else if (plan.parser_result.opType == "create") {
         constructCreate(context, plan);
+    } else if (plan.parser_result.opType == "checkout") {
+        constructCheckout(context, plan);
     }
 
     return std::move(plan.tree);

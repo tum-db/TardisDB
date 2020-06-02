@@ -33,6 +33,9 @@ namespace keywords {
     const std::string Not = "not";
     const std::string Null = "null";
 
+    const std::string Checkout = "checkout";
+    const std::string Branch = "branch";
+
     std::set<std::string> keywordset = {Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create, Table, Not, Null};
 }
 
@@ -64,6 +67,8 @@ typedef enum State : unsigned int {
     Create, CreateTable, CreateTableRelationName, CreateTableColumnsBegin, CreateTableColumnsEnd, CreateTableColumnName, CreateTableColumnType,
     CreateTableTypeDetailBegin, CreateTableTypeDetailEnd, CreateTableTypeDetailSeperator, CreateTableTypeDetailLength, CreateTableTypeDetailPrecision,
     CreateTableTypeNot, CreateTableTypeNotNull, CreateTableColumnSeperator,
+
+    Checkout, CheckoutBranch, CheckoutBranchTag, CheckoutBranchFrom, CheckoutBranchParent,
 
     Semicolon,
     Done
@@ -197,6 +202,7 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             state != State::DeleteWhereExprRhs &&
             state != State::CreateTableRelationName &&
             state != State::CreateTableColumnsEnd &&
+            state != State::CheckoutBranchParent &&
             state != State::Semicolon) {
             throw incorrect_sql_error("unexpected end of input");
         }
@@ -224,10 +230,49 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
         } else if (lowercase_token_value == keywords::Create) {
             query.opType = "create";
             new_state = State::Create;
+        } else if (lowercase_token_value == keywords::Checkout) {
+            query.opType = "checkout";
+            new_state = State::Checkout;
         } else {
             throw incorrect_sql_error("Expected 'Select' or 'Insert', found '" + token_value + "'");
         }
         break;
+        case State::Checkout:
+            if (lowercase_token_value == keywords::Branch) {
+                new_state = State::CheckoutBranch;
+            } else {
+                throw incorrect_sql_error("Expected 'BRANCH', found '" + token_value + "'");
+            }
+            break;
+        case State::CheckoutBranch:
+            if (is_identifier(token)) {
+                query.branchId = token_value;
+                new_state = State::CheckoutBranchTag;
+            } else {
+                throw incorrect_sql_error("Expected tag, found '" + token_value + "'");
+            }
+            break;
+        case State::CheckoutBranchTag:
+            if (lowercase_token_value == keywords::From) {
+                new_state = State::CheckoutBranchFrom;
+            } else {
+                throw incorrect_sql_error("Expected 'FROM', found '" + token_value + "'");
+            }
+            break;
+        case State::CheckoutBranchFrom:
+            if (is_identifier(token)) {
+                query.parentBranchId = token_value;
+                new_state = State::CheckoutBranchParent;
+            } else {
+                throw incorrect_sql_error("Expected tag, found '" + token_value + "'");
+            }
+            break;
+        case State::CheckoutBranchParent:
+            if (token_value == ";") {
+                new_state = State::Semicolon;
+            }
+            break;
+
         case State::Create:
             if (lowercase_token_value == keywords::Table) {
                 new_state = State::CreateTable;

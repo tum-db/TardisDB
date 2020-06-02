@@ -40,6 +40,10 @@ struct SQLParserResult {
    std::vector<bool> nullable;
    std::vector<uint32_t> length;
    std::vector<uint32_t> precision;
+
+   //Checkout
+   std::string branchId;
+   std::string parentBranchId;
 };
 
 SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql);

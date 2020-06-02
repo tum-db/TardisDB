@@ -33,6 +33,7 @@ private:
     static void constructUpdate(QueryContext& context, QueryPlan & plan);
     static void constructDelete(QueryContext& context, QueryPlan & plan);
     static void constructCreate(QueryContext& context, QueryPlan & plan);
+    static void constructCheckout(QueryContext& context, QueryPlan & plan);
 
     static void construct_scans(QueryContext& context, QueryPlan & plan);
     static void construct_selects(QueryContext & context, QueryPlan & plan);
