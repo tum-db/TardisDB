@@ -97,12 +97,12 @@ void TableScan::produce()
             produce(markedTid);
         }
         visibilityCheck.EndIf();
-
-        //Free the memory pointed by the alias string pointer
-        Functions::genFreeCall(cg_voidptr_t::fromRawPointer(alias));
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
+
+    //Free the memory pointed by the alias string pointer
+    Functions::genFreeCall(cg_voidptr_t::fromRawPointer(alias));
 }
 
 void *getValuePointer(size_t idx, Native::Sql::SqlTuple *tuple) {

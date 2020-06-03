@@ -315,7 +315,7 @@ branch_id_t Database::createBranch(const std::string & name, branch_id_t parent)
     branch->name = name;
     branch->parent_id = parent;
     _branches.insert({branch_id, std::move(branch)});
-    _branchMapping.insert({name, branch_id});
+    _branchMapping[name] = branch_id;
     return branch_id;
 }
 

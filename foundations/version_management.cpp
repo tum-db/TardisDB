@@ -306,6 +306,7 @@ uint8_t is_visible_with_binding(tid_t tid, std::string *binding, Table & table, 
     if (binding != nullptr) {
         ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
     }
+    ctx.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
     if (is_visible(tid,table,ctx)) {
         return 1;
     } else {
