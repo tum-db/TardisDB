@@ -178,6 +178,13 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
     }
 }
 
+void update_tuple_with_binding(tid_t tid, std::string *binding, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
+    if (binding != nullptr) {
+        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
+    }
+    return update_tuple(tid,tuple,table,ctx);
+}
+
 tid_t delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
     // TODO
     throw NotImplementedException();
@@ -293,6 +300,17 @@ bool is_visible(tid_t tid, Table & table, QueryContext & ctx) {
     const auto version_entry = get_version_entry(tid, table);
     const void * element = get_latest_chain_element(version_entry, table, ctx);
     return (element != nullptr);
+}
+
+uint8_t is_visible_with_binding(tid_t tid, std::string *binding, Table & table, QueryContext & ctx) {
+    if (binding != nullptr) {
+        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
+    }
+    if (is_visible(tid,table,ctx)) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 void destroy_chain(VersionEntry * version_entry) {

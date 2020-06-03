@@ -479,13 +479,18 @@ protected:
 
 class Update : public UnaryOperator {
 public:
+    Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, std::string *alias);
+
     Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table);
+
 
     ~Update() override;
 
     void accept(OperatorVisitor & visitor) override;
 
     Table & getTable() const { return _table; }
+
+    std::string *getAlias() { return alias; }
 
     std::vector<std::pair<iu_p_t,std::string>> &getUpdateIUValuePairs() { return updateIUValuePairs; }
 
@@ -494,6 +499,7 @@ protected:
     void computeRequired() override;
 
     Table & _table;
+    std::string *alias;
 
     std::vector<std::pair<iu_p_t,std::string>> updateIUValuePairs;
 };

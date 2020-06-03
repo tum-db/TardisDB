@@ -236,7 +236,7 @@ void SemanticAnalyser::construct_update(QueryContext& context, QueryPlan & plan)
     }
 
     auto &production = plan.dangling_productions[relationName];
-    plan.tree = std::make_unique<Update>( std::move(production), updateIUs, *table);
+    plan.tree = std::make_unique<Update>( std::move(production), updateIUs, *table, new std::string(relationName));
 }
 
 void SemanticAnalyser::construct_delete(QueryContext& context, QueryPlan & plan) {

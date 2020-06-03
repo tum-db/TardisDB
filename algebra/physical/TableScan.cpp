@@ -91,12 +91,15 @@ void TableScan::produce()
 
         cg_size_t markedTid = cg_size_t( llvm::cast<llvm::Value>(result) );
 
-//        auto branchId = _context.executionContext.branchId;
-//        IfGen visibilityCheck(isVisible(markedTid, branchId));
-//        {
+        auto branchId = _context.executionContext.branchId;
+        IfGen visibilityCheck(isVisible(markedTid, branchId));
+        {
             produce(markedTid);
-//        }
-//        visibilityCheck.EndIf();
+        }
+        visibilityCheck.EndIf();
+
+        //Free the memory pointed by the alias string pointer
+        Functions::genFreeCall(cg_voidptr_t::fromRawPointer(alias));
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
@@ -206,9 +209,6 @@ void TableScan::produce(cg_tid_t tid) {
 
     cg_voidptr_t tuplePtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
 
-    //Free the memory pointed by the alias string pointer
-    Functions::genFreeCall(cg_voidptr_t::fromRawPointer(alias));
-
     size_t i = 0;
     for (auto iu : required) {
         // the final value
@@ -273,8 +273,11 @@ void TableScan::produce(cg_tid_t tid) {
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)
 {
-    auto & branchBitmap = table.getBranchBitmap();
-    return isVisibleInBranch(branchBitmap, tid, branchId);
+
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<uint8_t (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
+    llvm::CallInst * result = _codeGen.CreateCall(&is_visible_with_binding, funcTy, {tid, cg_ptr8_t::fromRawPointer(alias), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+
+    return cg_bool_t( _codeGen->CreateTrunc(cg_u8_t( llvm::cast<llvm::Value>(result) ), cg_bool_t::getType()) );
 }
 
 } // end namespace Physical

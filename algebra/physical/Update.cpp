@@ -18,9 +18,9 @@ namespace Algebra {
     namespace Physical {
 
         Update::Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,
-                std::vector<std::pair<iu_p_t,std::string>> &updateIUs) :
+                std::vector<std::pair<iu_p_t,std::string>> &updateIUs, std::string *alias) :
                 UnaryOperator(std::move(logicalOperator), std::move(input)) , table(table),
-                _updateIUs(std::move(updateIUs))
+                _updateIUs(std::move(updateIUs)), alias(alias)
         {
             // collect all information which is necessary to access the columns
             for (auto &iuPairs : _updateIUs) {
@@ -174,8 +174,8 @@ namespace Algebra {
             Native::Sql::SqlTuple* nativetuple = new Native::Sql::SqlTuple(std::move(nativeValues));
 
             // Call the update_tuple function in version_management.hpp
-            llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void * (size_t, void * , void *, void *), false>::get(_codeGen.getLLVMContext());
-            llvm::CallInst * result = _codeGen.CreateCall(&update_tuple, funcUpdateTupleTy, {tid, cg_ptr8_t::fromRawPointer(nativetuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+            llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void * (size_t, void *, void * , void *, void *), false>::get(_codeGen.getLLVMContext());
+            llvm::CallInst * result = _codeGen.CreateCall(&update_tuple_with_binding, funcUpdateTupleTy, {tid, cg_ptr8_t::fromRawPointer(alias), cg_ptr8_t::fromRawPointer(nativetuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
 
 #else
 

@@ -413,8 +413,11 @@ void Insert::computeRequired() {
 //-----------------------------------------------------------------------------
 // Update operator
 
+Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, std::string *alias) :
+UnaryOperator(std::move(child)), _table(table), alias(alias), updateIUValuePairs(std::move(updateIUValuePairs)) { }
+
 Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table) :
-UnaryOperator(std::move(child)), _table(table), updateIUValuePairs(std::move(updateIUValuePairs)) { }
+UnaryOperator(std::move(child)), _table(table), alias(nullptr), updateIUValuePairs(std::move(updateIUValuePairs)) { }
 
 Update::~Update() { }
 

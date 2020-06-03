@@ -10,7 +10,7 @@ namespace Algebra {
         class Update : public UnaryOperator {
         public:
             Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,
-                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs);
+                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs, std::string *alias);
 
             virtual ~Update();
 
@@ -20,6 +20,7 @@ namespace Algebra {
         private:
             std::vector<std::pair<iu_p_t,std::string>> _updateIUs;
             Table & table;
+            std::string *alias;
             llvm::Value * tupleCountPtr;
 
             using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, std::unique_ptr<Sql::Value>>;

@@ -412,6 +412,31 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             }
             break;
         case State::DeleteRelationName:
+            if (lowercase_token_value == keywords::Version) {
+                new_state = State::DeleteVersion;
+            } else if (is_identifier(token)) {
+                // token contains the binding name
+                using rel_t = decltype(query.relations)::value_type;
+                auto current = query.relations.back();
+                query.relations.pop_back();
+                query.relations.push_back(rel_t(current.first, token_value));
+
+                query.versions.emplace_back("master");
+
+                new_state = State::DeleteBindingName;
+            } else {
+                throw incorrect_sql_error("Expected binding name after relation name, found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteVersion:
+            if (is_identifier(token)) {
+                query.versions.emplace_back(token_value);
+                new_state = DeleteTag;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::DeleteTag:
             if (is_identifier(token)) {
                 // token contains the binding name
                 using rel_t = decltype(query.relations)::value_type;
@@ -480,6 +505,31 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             }
             break;
         case State::UpdateRelationName:
+            if (lowercase_token_value == keywords::Version) {
+                new_state = State::UpdateVersion;
+            } else if (is_identifier(token)) {
+                // token contains the binding name
+                using rel_t = decltype(query.relations)::value_type;
+                auto current = query.relations.back();
+                query.relations.pop_back();
+                query.relations.push_back(rel_t(current.first, token_value));
+
+                query.versions.emplace_back("master");
+
+                new_state = State::UpdateBindingName;
+            } else {
+                throw incorrect_sql_error("Expected binding name after relation name, found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateVersion:
+            if (is_identifier(token)) {
+                query.versions.emplace_back(token_value);
+                new_state = UpdateTag;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::UpdateTag:
             if (is_identifier(token)) {
                 // token contains the binding name
                 using rel_t = decltype(query.relations)::value_type;

@@ -63,6 +63,8 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
 
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
 
+void update_tuple_with_binding(tid_t tid, std::string *binding, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
+
 // the entire version chain has to be deleted
 // the tuple has to be relocated iff branch==master
 tid_t delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
@@ -73,6 +75,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string *binding, tid_t tid, Table & table, QueryContext & ctx);
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
+uint8_t is_visible_with_binding(tid_t tid, std::string *binding, Table & table, QueryContext & ctx);
 
 void destroy_chain(VersionEntry * version_entry);
 
