@@ -523,9 +523,16 @@ protected:
 
 class TableScan : public NullaryOperator {
 public:
+    TableScan(QueryContext & context, Table & table, std::string *alias) :
+            NullaryOperator(context),
+            _table(table),
+            alias(alias)
+    { }
+
     TableScan(QueryContext & context, Table & table) :
             NullaryOperator(context),
-            _table(table)
+            _table(table),
+            alias(nullptr)
     { }
 
     ~TableScan() override { }
@@ -534,11 +541,14 @@ public:
 
     Table & getTable() const { return _table; }
 
+    std::string *getAlias() { return alias; }
+
 protected:
     void computeProduced() override;
     void computeRequired() override;
 
     Table & _table;
+    std::string *alias;
 };
 
 //-----------------------------------------------------------------------------

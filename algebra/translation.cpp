@@ -446,7 +446,8 @@ public:
     {
         _translated.push( std::make_unique<Physical::TableScan>(
             op,
-            op.getTable()
+            op.getTable(),
+            op.getAlias()
         ) );
     }
 

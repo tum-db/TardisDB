@@ -70,6 +70,7 @@ tid_t delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Quer
 tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, QueryContext ctx);
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
+std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string *binding, tid_t tid, Table & table, QueryContext & ctx);
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 

@@ -12,35 +12,31 @@
 #include <memory>
 #include <native/sql/SqlTuple.hpp>
 
-void SemanticAnalyser::constructInsert(QueryContext &context, QueryPlan &plan) {
-    auto& db = context.db;
-    Table* table = db.getTable(plan.parser_result.relation);
-
-    std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
-
-    for (int i=0; i<plan.parser_result.columnNames.size(); i++) {
-        Native::Sql::SqlType type = table->getCI(plan.parser_result.columnNames[i])->type;
-        std::string &value = plan.parser_result.values[i];
-        std::unique_ptr<Native::Sql::Value> sqlvalue = Native::Sql::Value::castString(value,type);
-
-        sqlvalues.emplace_back(std::move(sqlvalue));
-    }
-
-    Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
-
-    plan.tree = std::make_unique<Insert>(context,*table,tuple);
-}
-
 void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) {
     auto& db = context.db;
+
+    if (plan.parser_result.versions.size() != plan.parser_result.relations.size()) {
+        return;
+    }
+
+    size_t i = 0;
     for (auto& relation : plan.parser_result.relations) {
         std::string tableName = relation.first;
         std::string tableAlias = relation.second;
+        std::string &branchName = plan.parser_result.versions[i];
 
         Table* table = db.getTable(tableName);
 
+        // Recognize version
+        if (branchName.compare("master") != 0) {
+            context.executionContext.branchIds.insert({tableAlias,db._branchMapping[branchName]});
+        } else {
+            context.executionContext.branchIds.insert({tableAlias,0});
+        }
+
+
         //Construct the logical TableScan operator
-        std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context, *table);
+        std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context, *table, new std::string(tableAlias));
 
         //Store the ius produced by this TableScan
         const iu_set_t& produced = scan->getProduced();
@@ -51,6 +47,7 @@ void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) 
 
         //Add a new production with TableScan as root node
         plan.dangling_productions.insert({tableAlias, std::move(scan)});
+        i++;
     }
 }
 
@@ -273,6 +270,36 @@ void SemanticAnalyser::constructSelect(QueryContext& context, QueryPlan& plan) {
     construct_projection(context, plan);
 }
 
+void SemanticAnalyser::constructInsert(QueryContext &context, QueryPlan &plan) {
+    auto& db = context.db;
+    Table* table = db.getTable(plan.parser_result.relation);
+
+    if (plan.parser_result.versions.size() == 1) {
+        std::string &branchName = plan.parser_result.versions[0];
+        if (branchName.compare("master") != 0) {
+            context.executionContext.branchId = db._branchMapping[branchName];
+        } else {
+            context.executionContext.branchId = 0;
+        }
+    } else {
+        return;
+    }
+
+    std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
+
+    for (int i=0; i<plan.parser_result.columnNames.size(); i++) {
+        Native::Sql::SqlType type = table->getCI(plan.parser_result.columnNames[i])->type;
+        std::string &value = plan.parser_result.values[i];
+        std::unique_ptr<Native::Sql::Value> sqlvalue = Native::Sql::Value::castString(value,type);
+
+        sqlvalues.emplace_back(std::move(sqlvalue));
+    }
+
+    Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
+
+    plan.tree = std::make_unique<Insert>(context,*table,tuple);
+}
+
 void SemanticAnalyser::constructUpdate(QueryContext& context, QueryPlan& plan) {
     construct_scans(context, plan);
     construct_selects(context, plan);
@@ -321,18 +348,21 @@ void SemanticAnalyser::constructCreate(QueryContext& context, QueryPlan& plan) {
 }
 
 void SemanticAnalyser::constructCheckout(QueryContext& context, QueryPlan& plan) {
-    std::string &branchId = plan.parser_result.branchId;
-    std::string &parentBranchId = plan.parser_result.parentBranchId;
+    // Get branchName and parentBranchId from statement
+    std::string &branchName = plan.parser_result.branchId;
+    std::string &parentBranchName = plan.parser_result.parentBranchId;
 
+    // Search for mapped branchId of parentBranchName
     branch_id_t _parentBranchId = 0;
-    if (parentBranchId.compare("master") != 0) {
-        _parentBranchId = context.db._branchMapping[parentBranchId];
+    if (parentBranchName.compare("master") != 0) {
+        _parentBranchId = context.db._branchMapping[parentBranchName];
     }
-    branch_id_t _branchid = context.db.createBranch(branchId, _parentBranchId);
 
-    std::cout << "Created Branch " << _branchid << "\n";
+    // Add new branch
+    branch_id_t branchid = context.db.createBranch(branchName, _parentBranchId);
+
+    std::cout << "Created Branch " << branchid << "\n";
 }
-
 
 std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
     QueryPlan plan;

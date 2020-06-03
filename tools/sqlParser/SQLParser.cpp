@@ -14,6 +14,8 @@ using AttributeName = SQLParserResult::AttributeName;
 using Relation = SQLParserResult::Relation;
 
 namespace keywords {
+    const std::string Version = "version";
+
     const std::string Select = "select";
     const std::string From = "from";
     const std::string Where = "where";
@@ -52,16 +54,16 @@ struct Token {
 
 typedef enum State : unsigned int {
     Init, Select, SelectProjectionStar, SelectProjectionAttrName, SelectProjectionAttrSeparator,
-    SelectFrom, SelectFromRelationName, SelectFromBindingName, SelectFromSeparator,
+    SelectFrom, SelectFromRelationName, SelectFromVersion, SelectFromTag, SelectFromBindingName, SelectFromSeparator,
     SelectWhere, SelectWhereExprLhs, SelectWhereExprOp, SelectWhereExprRhs, SelectWhereAnd,
 
-    Insert, InsertInto, InsertRelationName, InsertColumnsBegin, InsertColumnsEnd, InsertColumnName, InsertColumnSeperator,
+    Insert, InsertInto, InsertRelationName, InsertVersion, InsertTag, InsertColumnsBegin, InsertColumnsEnd, InsertColumnName, InsertColumnSeperator,
     InsertValues, InsertValuesBegin, InsertValuesEnd, InsertValue, InsertValueSeperator,
 
-    Update, UpdateRelationName, UpdateBindingName, UpdateSet, UpdateSetExprLhs, UpdateSetExprOp, UpdateSetExprRhs, UpdateSetSeperator,
+    Update, UpdateRelationName, UpdateVersion, UpdateTag, UpdateBindingName, UpdateSet, UpdateSetExprLhs, UpdateSetExprOp, UpdateSetExprRhs, UpdateSetSeperator,
     UpdateWhere, UpdateWhereExprLhs, UpdateWhereExprOp, UpdateWhereExprRhs, UpdateWhereAnd,
 
-    Delete, DeleteFrom, DeleteRelationName, DeleteBindingName,
+    Delete, DeleteFrom, DeleteRelationName, DeleteVersion, DeleteTag, DeleteBindingName,
     DeleteWhere, DeleteWhereExprLhs, DeleteWhereExprOp, DeleteWhereExprRhs, DeleteWhereAnd,
 
     Create, CreateTable, CreateTableRelationName, CreateTableColumnsBegin, CreateTableColumnsEnd, CreateTableColumnName, CreateTableColumnType,
@@ -586,6 +588,27 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             break;
         case State::InsertRelationName:
             if (token_value == "(") {
+                query.versions.emplace_back("master");
+                new_state = InsertColumnsBegin;
+            } else if (lowercase_token_value == keywords::Values) {
+                query.versions.emplace_back("master");
+                new_state = InsertValues;
+            } else if (lowercase_token_value == keywords::Version) {
+                new_state = InsertVersion;
+            } else {
+                throw incorrect_sql_error("Expected table name, found '" + token_value + "'");
+            }
+            break;
+        case State::InsertVersion:
+            if (is_identifier(token)) {
+                query.versions.emplace_back(token_value);
+                new_state = InsertTag;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::InsertTag:
+            if (token_value == "(") {
                 new_state = InsertColumnsBegin;
             } else if (lowercase_token_value == keywords::Values) {
                 new_state = InsertValues;
@@ -679,17 +702,42 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
         }
         break;
     case State::SelectFromRelationName:
-        if (is_identifier(token)) {
+        if (lowercase_token_value == keywords::Version) {
+            new_state = SelectFromVersion;
+        } else if (is_identifier(token)) {
             // token contains the binding name
             using rel_t = decltype(query.relations)::value_type;
             auto current = query.relations.back();
             query.relations.pop_back();
             query.relations.push_back(rel_t(current.first, token_value));
+
+            query.versions.emplace_back("master");
+
             new_state = State::SelectFromBindingName;
         } else {
             throw incorrect_sql_error("Expected binding name after relation name, found '" + token_value + "'");
         }
         break;
+        case State::SelectFromVersion:
+            if (is_identifier(token)) {
+                query.versions.emplace_back(token_value);
+                new_state = SelectFromTag;
+            } else {
+                throw incorrect_sql_error("Expected column name, found '" + token_value + "'");
+            }
+            break;
+        case State::SelectFromTag:
+            if (is_identifier(token)) {
+                // token contains the binding name
+                using rel_t = decltype(query.relations)::value_type;
+                auto current = query.relations.back();
+                query.relations.pop_back();
+                query.relations.push_back(rel_t(current.first, token_value));
+                new_state = State::SelectFromBindingName;
+            } else {
+                throw incorrect_sql_error("Expected binding name after relation name, found '" + token_value + "'");
+            }
+            break;
     case State::SelectFromBindingName:
         if (token_value == keywords::Where) {
             new_state = State::SelectWhere;
@@ -865,3 +913,6 @@ SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql) {
 // create table professoren ( name TEXT NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );
 // create table professoren ( name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );
 // INSERT INTO professoren ( name , rang ) VALUES ( 'kemper' , 4 );
+// checkout branch hello from master;
+// insert into professoren version hello ( name , rang ) VALUES ( 'kemper' , 4 );
+// select name from professoren version hello p;

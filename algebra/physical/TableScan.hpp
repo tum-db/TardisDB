@@ -10,7 +10,7 @@ namespace Physical {
 /// The table scan operator
 class TableScan : public NullaryOperator {
 public:
-    TableScan(const logical_operator_t & logicalOperator, Table & table);
+    TableScan(const logical_operator_t & logicalOperator, Table & table, std::string *alias);
 
     virtual ~TableScan();
 
@@ -22,6 +22,7 @@ private:
     cg_bool_t isVisible(cg_tid_t tid, cg_branch_id_t branchId);
 
     Table & table;
+    std::string *alias;
 
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t>;
     std::vector<column_t> columns;

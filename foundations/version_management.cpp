@@ -264,6 +264,13 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
     }
 }
 
+std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string *binding, tid_t tid, Table & table, QueryContext & ctx) {
+    if (binding != nullptr) {
+        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
+    }
+    return std::move(get_latest_tuple(tid,table,ctx));
+}
+
 std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx) {
     const auto version_entry = get_version_entry(tid, table);
     const void * element = get_chain_element(version_entry, revision_offset, table, ctx);

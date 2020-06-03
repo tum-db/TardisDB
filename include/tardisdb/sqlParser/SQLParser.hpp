@@ -18,6 +18,8 @@ struct SQLParserResult {
 
    std::string opType;
 
+   std::vector<std::string> versions;
+
    //SELECT
    std::vector<Relation> relations;
    std::vector<AttributeName> projections;

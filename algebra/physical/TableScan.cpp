@@ -16,9 +16,10 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table) :
+TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, std::string *alias) :
         NullaryOperator(std::move(logicalOperator)),
-        table(table)
+        table(table),
+        alias(alias)
 {
     // collect all information which is necessary to access the columns
     for (auto iu : getRequired()) {
@@ -130,8 +131,8 @@ void *getValuePointer(size_t idx, Native::Sql::SqlTuple *tuple) {
 
 
 
-Native::Sql::SqlTuple *get_latest_tuple_wrapper(tid_t tid, Table & table, QueryContext & ctx) {
-    std::unique_ptr<Native::Sql::SqlTuple> nativeSqlTuple = get_latest_tuple(tid,table,ctx);
+Native::Sql::SqlTuple *get_latest_tuple_wrapper(tid_t tid, Table & table, std::string *alias, QueryContext & ctx) {
+    std::unique_ptr<Native::Sql::SqlTuple> nativeSqlTuple = get_latest_tuple_with_binding(alias, tid, table, ctx);
 
     return new Native::Sql::SqlTuple(std::move(nativeSqlTuple->values));
 }
@@ -200,10 +201,13 @@ void TableScan::produce(cg_tid_t tid) {
     auto & nullIndicatorTable = table.getNullIndicatorTable();
     iu_set_t required = getRequired();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void *), false>::get(_codeGen.getLLVMContext());
-    llvm::CallInst * result = _codeGen.CreateCall(&get_latest_tuple_wrapper, funcTy, {tid, cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
+    llvm::CallInst * result = _codeGen.CreateCall(&get_latest_tuple_wrapper, funcTy, {tid, cg_ptr8_t::fromRawPointer(&table), cg_ptr8_t::fromRawPointer(alias), _codeGen.getCurrentFunctionGen().getArg(1)});
 
     cg_voidptr_t tuplePtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+
+    //Free the memory pointed by the alias string pointer
+    Functions::genFreeCall(cg_voidptr_t::fromRawPointer(alias));
 
     size_t i = 0;
     for (auto iu : required) {
