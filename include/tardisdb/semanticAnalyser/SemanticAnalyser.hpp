@@ -43,6 +43,8 @@ private:
     static void construct_projection(QueryContext & context, QueryPlan & plan);
     static void construct_update(QueryContext & context, QueryPlan & plan);
     static void construct_delete(QueryContext & context, QueryPlan & plan);
+
+    static void analyse_sql_statement(Database& db, SQLParserResult &result);
 };
 
 

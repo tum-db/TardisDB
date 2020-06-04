@@ -49,4 +49,3 @@ struct SQLParserResult {
 };
 
 SQLParserResult parse_sql_statement(std::string sql);
-void analyse_sql_statement(Database& db, SQLParserResult &result);
