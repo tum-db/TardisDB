@@ -48,4 +48,5 @@ struct SQLParserResult {
    std::string parentBranchId;
 };
 
-SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql);
+SQLParserResult parse_sql_statement(std::string sql);
+void analyse_sql_statement(Database& db, SQLParserResult &result);

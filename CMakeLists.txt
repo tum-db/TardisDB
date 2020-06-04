@@ -40,9 +40,15 @@ llvm_map_components_to_libnames(LLVM_LIBS
 	ScalarOpts
 )
 
+### tools
+include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
+
 ### libraries
 include(tools/sqlParser/local.cmake)
 include(tools/semanticalAnalyser/local.cmake)
+
+### tests
+include("${CMAKE_SOURCE_DIR}/test/local.cmake")
 
 ### executables
 add_executable(sql sql.cpp)

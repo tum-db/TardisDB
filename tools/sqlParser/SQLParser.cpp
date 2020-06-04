@@ -789,7 +789,7 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             }
             break;
     case State::SelectFromBindingName:
-        if (token_value == keywords::Where) {
+        if (lowercase_token_value == keywords::Where) {
             new_state = State::SelectWhere;
         } else if (token_value == ",") {
             new_state = State::SelectFromSeparator;
@@ -935,7 +935,7 @@ static void validate_sql_statement(const scope_t & scope, Database& db, const SQ
     }
 }
 
-SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql) {
+SQLParserResult parse_sql_statement(std::string sql) {
     SQLParserResult result;
 
     std::stringstream in(sql);
@@ -946,10 +946,13 @@ SQLParserResult parse_and_analyse_sql_statement(Database& db, std::string sql) {
         state = parse_next_token(tokenizer, state, result);
     }
 
+    return result;
+}
+
+void analyse_sql_statement(Database& db, SQLParserResult &result) {
     auto scope = construct_scope(db, result);
     fully_qualify_names(scope, result);
     validate_sql_statement(scope, db, result);
-    return result;
 }
 
 

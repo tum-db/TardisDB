@@ -366,7 +366,8 @@ void SemanticAnalyser::constructCheckout(QueryContext& context, QueryPlan& plan)
 
 std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
     QueryPlan plan;
-    plan.parser_result = parse_and_analyse_sql_statement(context.db, sql);
+    plan.parser_result = parse_sql_statement(sql);
+    analyse_sql_statement(context.db, plan.parser_result);
 
     if (plan.parser_result.opType == "select") {
         constructSelect(context, plan);
