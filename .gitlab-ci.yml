@@ -4,6 +4,7 @@
 
 stages:
     - build
+    - test
 
 build_debug:
     stage: build
@@ -21,6 +22,18 @@ build_debug:
         paths:
             - ./build/tester
         expire_in: 1 hrs
+    tags:
+        - "clang-6.0"
+        - "llvm-6.0"
+        - "cmake"
+        - "python3"
+
+tester:
+    stage: test
+    script:
+        - ./build/tester
+    dependencies:
+        - build_debug
     tags:
         - "clang-6.0"
         - "llvm-6.0"
