@@ -364,8 +364,32 @@ void SemanticAnalyser::constructCheckout(QueryContext& context, QueryPlan& plan)
     std::cout << "Created Branch " << branchid << "\n";
 }
 
+
+
+std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
+    QueryPlan plan;
+    plan.parser_result = parse_sql_statement(sql);
+    //analyse_sql_statement(context.db, plan.parser_result);
+
+    if (plan.parser_result.opType == "select") {
+        constructSelect(context, plan);
+    } else if (plan.parser_result.opType == "insert") {
+        constructInsert(context, plan);
+    } else if (plan.parser_result.opType == "update") {
+        constructUpdate(context, plan);
+    } else if (plan.parser_result.opType == "delete") {
+        constructDelete(context, plan);
+    } else if (plan.parser_result.opType == "create") {
+        constructCreate(context, plan);
+    } else if (plan.parser_result.opType == "checkout") {
+        constructCheckout(context, plan);
+    }
+
+    return std::move(plan.tree);
+}
+
 // identifier -> (binding, Attribute)
-using scope_t = std::unordered_map<std::string, std::pair<std::string,ci_p_t>>;
+/*using scope_t = std::unordered_map<std::string, std::pair<std::string,ci_p_t>>;
 
 static bool in_scope(const scope_t & scope, const SQLParserResult::BindingAttribute & binding_attr) {
     std::string identifier = binding_attr.first + "." + binding_attr.second;
@@ -448,30 +472,8 @@ static void validate_sql_statement(const scope_t & scope, Database& db, const SQ
     }
 }
 
-void analyse_sql_statement(Database& db, SQLParserResult &result) {
+static void analyse_sql_statement(Database& db, SQLParserResult &result) {
     auto scope = construct_scope(db, result);
     fully_qualify_names(scope, result);
     validate_sql_statement(scope, db, result);
-}
-
-std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
-    QueryPlan plan;
-    plan.parser_result = parse_sql_statement(sql);
-    analyse_sql_statement(context.db, plan.parser_result);
-
-    if (plan.parser_result.opType == "select") {
-        constructSelect(context, plan);
-    } else if (plan.parser_result.opType == "insert") {
-        constructInsert(context, plan);
-    } else if (plan.parser_result.opType == "update") {
-        constructUpdate(context, plan);
-    } else if (plan.parser_result.opType == "delete") {
-        constructDelete(context, plan);
-    } else if (plan.parser_result.opType == "create") {
-        constructCreate(context, plan);
-    } else if (plan.parser_result.opType == "checkout") {
-        constructCheckout(context, plan);
-    }
-
-    return std::move(plan.tree);
-}
+}*/
