@@ -27,7 +27,7 @@ BenchmarkResult compileAndBenchmark(llvm::Function * queryFunction, const std::v
 /// \brief Executes the given SQL query
 void compileAndExecute(const std::string & query, Database &db);
 
-void compileAndExecute(llvm::Function * queryFunction, Database &db);
+void compileAndExecute(llvm::Function * queryFunction, std::vector<llvm::GenericValue> &args);
 
 void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args);
 

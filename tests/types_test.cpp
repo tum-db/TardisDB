@@ -10,6 +10,7 @@
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"
+#include "query_compiler/compiler.hpp"
 
 using namespace Sql;
 
@@ -277,10 +278,8 @@ static void genTest(ModuleGen & moduleGen)
     testEquals();
 }
 
-llvm::Function * types_test()
+llvm::Function * genTypesTestFunc(Database & db)
 {
-    ModuleGen mGen("TypesTestModule");
-
     auto & codeGen = getThreadLocalCodeGen();
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
@@ -294,4 +293,14 @@ llvm::Function * types_test()
     genTest(moduleGen);
 
     return funcGen.getFunction();
+}
+
+void types_test()
+{
+    std::unique_ptr<Database> db;
+
+    ModuleGen moduleGen("TypesTestModule");
+    llvm::Function * queryFunc = genTypesTestFunc(*db);
+    std::vector<llvm::GenericValue> args;
+    QueryCompiler::compileAndExecute(queryFunc,args);
 }

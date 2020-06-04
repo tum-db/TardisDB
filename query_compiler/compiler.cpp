@@ -169,32 +169,42 @@ void compileAndExecute(const std::string & query, Database &db)
     executeQueryFunction(queryFunc,queryContext);
 }
 
-void compileAndExecute(llvm::Function * queryFunction, Database &db)
+void compileAndExecute(llvm::Function * queryFunction, std::vector<llvm::GenericValue> &args)
 {
     auto & codeGen = getThreadLocalCodeGen();
     assert(codeGen.hasModuleGen());
-
     auto & module = codeGen.getCurrentModule();
 
-#ifdef EMIT_IR
+/*#ifdef EMIT_IR
     llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << module;
     llvm::outs().flush();
-#endif
+#endif*/
 
 #ifndef DISABLE_OPTIMIZATIONS
     optimize(module);
 
-#ifdef EMIT_IR
+/*#ifdef EMIT_IR
     llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << module;
     llvm::outs().flush();
-#endif
+#endif*/
 
 #endif // DISABLE_OPTIMIZATIONS
 
-    compilationStart = high_resolution_clock::now();
+    auto & moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
-    QueryContext queryContext(db);
-    executeQueryFunction(queryFunction,queryContext);
+    const auto compilationStart = high_resolution_clock::now();
+    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
+    eb.setOptLevel( llvm::CodeGenOpt::None );
+    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
+    ee->finalizeObject();
+    const auto compilationDuration = high_resolution_clock::now() - compilationStart;
+
+    const auto query_start = high_resolution_clock::now();
+    ee->runFunction(queryFunction, args);
+    const auto queryDuration = high_resolution_clock::now() - query_start;
+
+    printf("Compilation time: %lums\n", duration_cast<milliseconds>(compilationDuration).count());
+    printf("Execution time: %lums\n", duration_cast<milliseconds>(queryDuration).count());
 }
 
 void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args)

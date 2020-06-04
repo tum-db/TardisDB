@@ -190,5 +190,6 @@ void expression_test()
     std::unique_ptr<Database> db = std::make_unique<Database>();
     ModuleGen moduleGen("TestModule");
     llvm::Function * testFunc = genFunc();
-    QueryCompiler::compileAndExecute(testFunc,*db);
+    std::vector<llvm::GenericValue> args;
+    QueryCompiler::compileAndExecute(testFunc,args);
 }

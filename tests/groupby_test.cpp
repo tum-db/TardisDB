@@ -180,5 +180,6 @@ void groupby_test()
 
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
-    QueryCompiler::compileAndExecute(queryFunc,*db);
+    std::vector<llvm::GenericValue> args;
+    QueryCompiler::compileAndExecute(queryFunc,args);
 }
