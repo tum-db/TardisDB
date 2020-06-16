@@ -423,6 +423,13 @@ public:
                 ) );
                 break;
             }
+            case Logical::Result::Type::TupleStreamHandler: {
+                _translated.push( std::make_unique<Physical::TupleStream>(
+                        op,
+                        std::move(child)
+                ) );
+                break;
+            }
             default:
                 throw NotImplementedException();
         }

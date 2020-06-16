@@ -11,3 +11,4 @@
 #include "Update.hpp"
 #include "Delete.hpp"
 #include "Insert.hpp"
+#include "TupleStream.hpp"
