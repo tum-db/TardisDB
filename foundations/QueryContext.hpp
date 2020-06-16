@@ -67,3 +67,5 @@ iu_p_t lookup(QueryContext & context, const std::string & symbol);
 void genOverflowException();
 
 void genOverflowEvaluation();
+
+cg_bool_t genEvaluateOverflow();

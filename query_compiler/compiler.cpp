@@ -169,7 +169,12 @@ void compileAndExecute(const std::string & query, Database &db)
     executeQueryFunction(queryFunc,queryContext);
 }
 
-void compileAndExecute(llvm::Function * queryFunction, std::vector<llvm::GenericValue> &args)
+    void compileAndExecute(llvm::Function * queryFunction, std::vector<llvm::GenericValue> &args)
+    {
+        compileAndExecuteReturn(queryFunction,args);
+    }
+
+    llvm::GenericValue compileAndExecuteReturn(llvm::Function * queryFunction, std::vector<llvm::GenericValue> &args)
 {
     auto & codeGen = getThreadLocalCodeGen();
     assert(codeGen.hasModuleGen());
@@ -200,11 +205,10 @@ void compileAndExecute(llvm::Function * queryFunction, std::vector<llvm::Generic
     const auto compilationDuration = high_resolution_clock::now() - compilationStart;
 
     const auto query_start = high_resolution_clock::now();
-    ee->runFunction(queryFunction, args);
+    llvm::GenericValue returnValue = ee->runFunction(queryFunction, args);
     const auto queryDuration = high_resolution_clock::now() - query_start;
 
-    printf("Compilation time: %lums\n", duration_cast<milliseconds>(compilationDuration).count());
-    printf("Execution time: %lums\n", duration_cast<milliseconds>(queryDuration).count());
+    return returnValue;
 }
 
 void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args)

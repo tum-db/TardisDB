@@ -29,6 +29,8 @@ void compileAndExecute(const std::string & query, Database &db);
 
 void compileAndExecute(llvm::Function * queryFunction, std::vector<llvm::GenericValue> &args);
 
+llvm::GenericValue compileAndExecuteReturn(llvm::Function * queryFunction, std::vector<llvm::GenericValue> &args);
+
 void compileAndExecute(llvm::Function * queryFunction, const std::vector<llvm::GenericValue> & args);
 
 } // end namespace QueryCompiler

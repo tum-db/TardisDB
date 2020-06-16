@@ -61,6 +61,7 @@ llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType 
 
     IfGen overflowCheck(obit);
     {
+        handler();
         Functions::genPrintfCall("arithmetic overflow\n");
     }
     overflowCheck.EndIf();

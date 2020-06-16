@@ -1,6 +1,8 @@
 
 #include "QueryContext.hpp"
 
+#include <llvm/IR/TypeBuilder.h>
+
 #include "exceptions.hpp"
 #include "algebra/logical/operators.hpp"
 
@@ -66,4 +68,18 @@ void genOverflowEvaluation()
     {
         Functions::genPrintfCall("numerical overflow\n");
     }
+    overflowCheck.EndIf();
+}
+
+cg_bool_t genEvaluateOverflow()
+{
+    auto & codeGen = getThreadLocalCodeGen();
+
+    llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
+    llvm::Value * ptrVal = codeGen->CreateIntToPtr(
+            ptrIntVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
+
+    Sql::value_op_t boolResult = Sql::LongInteger::load(ptrVal);
+
+    return boolResult->equals(*Sql::LongInteger::castString("1"));
 }
