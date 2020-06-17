@@ -509,7 +509,7 @@ protected:
 
 class Result : public UnaryOperator {
 public:
-    enum class Type { PrintToStdOut, TupleStreamHandler } _type = Type::TupleStreamHandler;
+    enum class Type { PrintToStdOut, TupleStreamHandler } _type = Type::PrintToStdOut;
 
     std::vector<iu_p_t> selection;
 
