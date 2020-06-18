@@ -340,7 +340,7 @@ llvm::Function * genEqualsTestFunc()
     return funcGen.getFunction();
 }
 
-TEST(TypesTest, PrintfRawTest) {
+/*TEST(TypesTest, PrintfRawTest) {
     ModuleGen moduleGen("PrintfRawTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genPrintfRawTestFunc();
@@ -348,7 +348,7 @@ TEST(TypesTest, PrintfRawTest) {
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
 }
 
-/*TEST(TypesTest, HashTest) {
+TEST(TypesTest, HashTest) {
     ModuleGen moduleGen("HashTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genHashTestFunc();

@@ -125,7 +125,7 @@ void executeInterop2Test() {
     std::cout << "test2: passed: " << resultinteropTest.IntVal.getZExtValue() << "\n";
 }
 
-void interop_test2() {
+void interop_test() {
     executeInterop1Test();
     executeInterop2Test();
 }
