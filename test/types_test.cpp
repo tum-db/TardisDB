@@ -362,7 +362,7 @@ TEST(TypesTest, TupleTest) {
     llvm::Function * typesTest = genTupleTestFunc();
     llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
-}*/
+}
 
 TEST(TypesTest, EqualsTest) {
     ModuleGen moduleGen("EqualsTestModule");
@@ -370,7 +370,7 @@ TEST(TypesTest, EqualsTest) {
     llvm::Function * typesTest = genEqualsTestFunc();
     llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
-}
+}*/
 
 void executePrintfRawTest() {
     ModuleGen moduleGen("PrintfRawTestModule");
