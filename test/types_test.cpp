@@ -354,7 +354,7 @@ TEST(TypesTest, PrintfRawTest) {
     llvm::Function * typesTest = genHashTestFunc();
     llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
-}*/
+}
 
 TEST(TypesTest, TupleTest) {
     ModuleGen moduleGen("TupleTestModule");
@@ -362,7 +362,7 @@ TEST(TypesTest, TupleTest) {
     llvm::Function * typesTest = genTupleTestFunc();
     llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
-}
+}*/
 
 TEST(TypesTest, EqualsTest) {
     ModuleGen moduleGen("EqualsTestModule");
