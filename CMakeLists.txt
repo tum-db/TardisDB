@@ -54,7 +54,7 @@ include("${CMAKE_SOURCE_DIR}/test/local.cmake")
 
 ### executables
 add_executable(sql sql.cpp)
-target_link_libraries(sql dblib)
+target_link_libraries(sql dblib queryCompiler queryExecutor)
 
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
@@ -118,11 +118,11 @@ set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
-target_link_libraries(dblib semanticalAnalyser sqlparser queryCompiler queryExecutor LLVM)
+target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
 
 ### main application
 add_executable(protodb main.cpp ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
-target_link_libraries(protodb dblib)
+target_link_libraries(protodb dblib queryCompiler queryExecutor)
 
 ### set up dependencies
 add_dependencies(GenerateLoader schema_parser)
