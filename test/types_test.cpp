@@ -348,13 +348,13 @@ TEST(TypesTest, PrintfRawTest) {
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
 }
 
-TEST(TypesTest, HashTest) {
+/*TEST(TypesTest, HashTest) {
     ModuleGen moduleGen("HashTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genHashTestFunc();
     llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
-}
+}*/
 
 TEST(TypesTest, TupleTest) {
     ModuleGen moduleGen("TupleTestModule");

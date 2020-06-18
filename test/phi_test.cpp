@@ -112,7 +112,6 @@ static llvm::Function * phi_4_test()
     llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
     FunctionGen funcGen(moduleGen, "phi4Test", funcTy);
 
-    // FIXME doesn't work with optimizations turned on
     {
         PhiNode<llvm::Value> node( codeGen->getInt32(0), "node" );
         IfGen check(funcGen, cg_bool_t(false));
