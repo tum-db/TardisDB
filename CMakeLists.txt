@@ -128,7 +128,6 @@ add_dependencies(GenerateLoader schema_parser)
 add_dependencies(protodb GenerateLoader)
 
 ### sub projects
-add_subdirectory(standalone_tests)
 add_subdirectory(schema_parser)
 
 ### benchmarks
