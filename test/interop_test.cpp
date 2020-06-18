@@ -6,7 +6,7 @@
 #include <iostream>
 
 #include "codegen/CodeGen.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 //#include "gtest/gtest.h"
 
 extern "C" const char* interop2()
@@ -113,7 +113,7 @@ void executeInterop1Test() {
     ModuleGen moduleGen("Interop1TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * interopTest = genInterop1Test();
-    llvm::GenericValue resultinteropTest = QueryCompiler::compileAndExecuteReturn(interopTest,args);
+    llvm::GenericValue resultinteropTest = QueryExecutor::executeFunction(interopTest,args);
     std::cout << "test1: passed: " << resultinteropTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -121,7 +121,7 @@ void executeInterop2Test() {
     ModuleGen moduleGen("Interop2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * interopTest = genInterop2Test();
-    llvm::GenericValue resultinteropTest = QueryCompiler::compileAndExecuteReturn(interopTest,args);
+    llvm::GenericValue resultinteropTest = QueryExecutor::executeFunction(interopTest,args);
     std::cout << "test2: passed: " << resultinteropTest.IntVal.getZExtValue() << "\n";
 }
 

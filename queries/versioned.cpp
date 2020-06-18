@@ -7,7 +7,7 @@
 #include "foundations/Database.hpp"
 #include "foundations/loader.hpp"
 #include "foundations/version_management.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 #include "queries/common.hpp"
 
 using namespace Algebra::Logical;
@@ -108,5 +108,5 @@ void run_versioned_1()
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
     std::vector<llvm::GenericValue> args;
-    QueryCompiler::compileAndExecute(queryFunc,args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(queryFunc,args);
 }

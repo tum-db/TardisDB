@@ -7,7 +7,7 @@
 
 #include "codegen/CodeGen.hpp"
 #include "codegen/PhiNode.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 #include "gtest/gtest.h"
 
 llvm::Function * if_1_test()
@@ -260,7 +260,7 @@ TEST(IfTest, If1Test) {
     ModuleGen moduleGen("If1TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_1_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
 }
 
@@ -268,7 +268,7 @@ TEST(IfTest, If2Test) {
     ModuleGen moduleGen("If2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_2_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
 }
 
@@ -276,7 +276,7 @@ TEST(IfTest, If3Test) {
     ModuleGen moduleGen("If3TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_3_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
 }
 
@@ -284,7 +284,7 @@ TEST(IfTest, If4Test) {
     ModuleGen moduleGen("If4TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_4_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
 }
 
@@ -292,7 +292,7 @@ TEST(IfTest, If5Test) {
     ModuleGen moduleGen("If5TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_5_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
 }
 
@@ -300,7 +300,7 @@ TEST(IfTest, If7Test) {
     ModuleGen moduleGen("If7TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_7_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
 }
 
@@ -308,7 +308,7 @@ void executeIf1Test() {
     ModuleGen moduleGen("If1TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_1_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test1: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -316,7 +316,7 @@ void executeIf2Test() {
     ModuleGen moduleGen("If2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_2_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test2: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -324,7 +324,7 @@ void executeIf3Test() {
     ModuleGen moduleGen("If3TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_3_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test3: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -332,7 +332,7 @@ void executeIf4Test() {
     ModuleGen moduleGen("If4TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_4_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test4: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -340,7 +340,7 @@ void executeIf5Test() {
     ModuleGen moduleGen("If5TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_5_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test5: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -348,7 +348,7 @@ void executeIf6Test() {
     ModuleGen moduleGen("If6TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_6_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test6: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -356,7 +356,7 @@ void executeIf7Test() {
     ModuleGen moduleGen("If7TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_7_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test7: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -364,7 +364,7 @@ void executeIf8Test() {
     ModuleGen moduleGen("If8TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_8_test();
-    llvm::GenericValue resultifTest = QueryCompiler::compileAndExecuteReturn(ifTest,args);
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     std::cout << "test8: passed: " << resultifTest.IntVal.getZExtValue() << "\n";
 }
 

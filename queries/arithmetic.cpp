@@ -10,7 +10,7 @@
 #include "foundations/Database.hpp"
 #include "foundations/loader.hpp"
 #include "foundations/version_management.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 #include "queries/common.hpp"
 
 using namespace Algebra::Logical;
@@ -164,7 +164,7 @@ void benchmark_arithmetic_1_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic1_func(*db);
 
-    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
+    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 /*
@@ -271,7 +271,7 @@ void benchmark_arithmetic_2_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic2_func(*db);
 
-    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
+    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 
@@ -360,7 +360,7 @@ void benchmark_arithmetic_3_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic3_func(*db);
 
-    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
+    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 
@@ -438,6 +438,6 @@ void benchmark_arithmetic_4_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = gen_arithmentic4_func(*db);
 
-    auto times = QueryCompiler::compileAndBenchmark(queryFunc, runs);
+    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }

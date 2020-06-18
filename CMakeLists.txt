@@ -46,6 +46,8 @@ include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
 ### libraries
 include(tools/sqlParser/local.cmake)
 include(tools/semanticalAnalyser/local.cmake)
+include(tools/queryCompiler/local.cmake)
+include(tools/queryExecutor/local.cmake)
 
 ### tests
 include("${CMAKE_SOURCE_DIR}/test/local.cmake")
@@ -61,7 +63,6 @@ file(GLOB_RECURSE FOUNDATIONS_FILES "foundations/*.cpp" "foundations/*.hpp" "fou
 file(GLOB_RECURSE NATIVE_FILES "native/*.cpp" "native/*.hpp" "native/*.tcc")
 file(GLOB_RECURSE SQL_FILES "sql/*.cpp" "sql/*.hpp" "sql/*.tcc")
 file(GLOB_RECURSE QUERIES_FILES "queries/*.cpp" "queries/*.hpp" "queries/*.tcc")
-file(GLOB_RECURSE QUERY_COMPILER_FILES "query_compiler/*.cpp" "query_compiler/*.hpp" "query_compiler/*.tcc")
 #file(GLOB_RECURSE TESTS_FILES "tests/*.cpp" "tests/*.hpp" "tests/*.tcc")
 file(GLOB_RECURSE UTILS_FILES "utils/*.cpp" "utils/*.hpp" "utils/*.tcc")
 
@@ -117,7 +118,7 @@ set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
-target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
+target_link_libraries(dblib semanticalAnalyser sqlparser queryCompiler queryExecutor LLVM)
 
 ### main application
 add_executable(protodb main.cpp ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})

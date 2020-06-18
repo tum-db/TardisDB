@@ -10,7 +10,7 @@
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 
 using namespace Sql;
 
@@ -302,5 +302,5 @@ void types_test()
     ModuleGen moduleGen("TypesTestModule");
     llvm::Function * queryFunc = genTypesTestFunc(*db);
     std::vector<llvm::GenericValue> args;
-    QueryCompiler::compileAndExecute(queryFunc,args);
+    QueryExecutor::executeFunction(queryFunc,args);
 }

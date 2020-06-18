@@ -7,7 +7,7 @@
 #include <llvm/Support/TargetSelect.h>
 
 #include "foundations/Database.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryCompiler/queryCompiler.hpp"
 #include "utils/general.hpp"
 
 void prompt()

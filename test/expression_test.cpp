@@ -9,7 +9,7 @@
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlUtils.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 
 #include "gtest/gtest.h"
 
@@ -309,7 +309,7 @@ TEST(ExpressionTest, IntegerTest1) {
     ModuleGen moduleGen("IntegerTest1Module");
     llvm::Function *testFunc = genIntegerTest1Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getSExtValue(),13);
 }
 
@@ -317,7 +317,7 @@ TEST(ExpressionTest, IntegerTest2) {
     ModuleGen moduleGen("IntegerTest2Module");
     llvm::Function *testFunc = genIntegerTest2Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     int64_t resultValue = result.IntVal.getSExtValue();
     ASSERT_EQ(resultValue,-1);
 }
@@ -326,7 +326,7 @@ TEST(ExpressionTest, IntegerTest3) {
     ModuleGen moduleGen("IntegerTest3Module");
     llvm::Function *testFunc = genIntegerTest3Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getSExtValue(),42);
 }
 
@@ -334,7 +334,7 @@ TEST(ExpressionTest, IntegerTest4) {
     ModuleGen moduleGen("IntegerTest4Module");
     llvm::Function *testFunc = genIntegerTest4Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     uint64_t intResult = result.IntVal.getSExtValue();
     ASSERT_EQ(result.IntVal.getSExtValue(), 2);
 }
@@ -343,7 +343,7 @@ TEST(ExpressionTest, IntegerTest5) {
     ModuleGen moduleGen("IntegerTest5Module");
     llvm::Function *testFunc = genIntegerTest5Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getSExtValue(),-1);
 }
 
@@ -351,7 +351,7 @@ TEST(ExpressionTest, NumericTest1) {
     ModuleGen moduleGen("NumericTest1Module");
     llvm::Function *testFunc = genNumericTest1Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -359,7 +359,7 @@ TEST(ExpressionTest, NumericTest2) {
     ModuleGen moduleGen("NumericTest2Module");
     llvm::Function *testFunc = genNumericTest2Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -367,7 +367,7 @@ TEST(ExpressionTest, NumericTest3) {
     ModuleGen moduleGen("NumericTest3Module");
     llvm::Function *testFunc = genNumericTest3Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -375,7 +375,7 @@ TEST(ExpressionTest, NumericTest4) {
     ModuleGen moduleGen("NumericTest4Module");
     llvm::Function *testFunc = genNumericTest4Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -383,7 +383,7 @@ TEST(ExpressionTest, NullableTest) {
     ModuleGen moduleGen("NullableTestModule");
     llvm::Function *testFunc = genIntegerNullableTestFunc();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -391,7 +391,7 @@ TEST(ExpressionTest, OverflowTest) {
     ModuleGen moduleGen("OverflowTestModule");
     llvm::Function *testFunc = genIntegerOverflowTestFunc();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -399,7 +399,7 @@ void expression_integer1_test() {
     ModuleGen moduleGen("IntegerTest1Module");
     llvm::Function *testFunc = genIntegerTest1Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "6+7: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -407,7 +407,7 @@ void expression_integer2_test() {
     ModuleGen moduleGen("IntegerTest2Module");
     llvm::Function *testFunc = genIntegerTest2Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "6-7: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -415,7 +415,7 @@ void expression_integer3_test() {
     ModuleGen moduleGen("IntegerTest3Module");
     llvm::Function *testFunc = genIntegerTest3Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "6*7: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -423,7 +423,7 @@ void expression_integer4_test() {
     ModuleGen moduleGen("IntegerTest4Module");
     llvm::Function *testFunc = genIntegerTest4Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "5/2: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -431,7 +431,7 @@ void expression_integer5_test() {
     ModuleGen moduleGen("IntegerTest5Module");
     llvm::Function *testFunc = genIntegerTest5Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "5>2: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -439,7 +439,7 @@ void expression_numeric1_test() {
     ModuleGen moduleGen("NumericTest1Module");
     llvm::Function *testFunc = genNumericTest1Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "6.0+7.0: " << result.IntVal.getZExtValue() << "\n";
 }
 
@@ -447,7 +447,7 @@ void expression_numeric2_test() {
     ModuleGen moduleGen("NumericTest2Module");
     llvm::Function *testFunc = genNumericTest2Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "6.0-7.0: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -455,7 +455,7 @@ void expression_numeric3_test() {
     ModuleGen moduleGen("NumericTest3Module");
     llvm::Function *testFunc = genNumericTest3Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "6.0*7.0: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -463,7 +463,7 @@ void expression_numeric4_test() {
     ModuleGen moduleGen("NumericTest4Module");
     llvm::Function *testFunc = genNumericTest4Func();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "5.0/2.0: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -471,7 +471,7 @@ void expression_nullable_test() {
     ModuleGen moduleGen("NullableTestModule");
     llvm::Function *testFunc = genIntegerNullableTestFunc();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "6-7: " << result.IntVal.getSExtValue() << "\n";
 }
 
@@ -479,7 +479,7 @@ void expression_overflow_test() {
     ModuleGen moduleGen("OverflowTestModule");
     llvm::Function *testFunc = genIntegerOverflowTestFunc();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(testFunc, args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
     std::cout << "2'005'000'000+2'005'000'000: " << result.IntVal.getSExtValue() << "\n";
 }
 

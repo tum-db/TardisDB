@@ -24,7 +24,7 @@
 #include "codegen/PhiNode.hpp"
 #include "utils/general.hpp"
 #include "gtest/gtest.h"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 
 using namespace llvm;
 
@@ -165,7 +165,7 @@ TEST(PhiTest, Phi1Test) {
     ModuleGen moduleGen("Phi1TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_1_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
 }
 
@@ -173,7 +173,7 @@ TEST(PhiTest, Phi2Test) {
     ModuleGen moduleGen("Phi2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_2_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
 }
 
@@ -181,7 +181,7 @@ TEST(PhiTest, Phi3Test) {
     ModuleGen moduleGen("Phi3TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_3_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
 }
 
@@ -189,7 +189,7 @@ TEST(PhiTest, Phi5Test) {
     ModuleGen moduleGen("Phi5TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_5_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
 }
 
@@ -197,7 +197,7 @@ void executePhi1Test() {
     ModuleGen moduleGen("Phi1TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_1_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     std::cout << "test1: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -205,7 +205,7 @@ void executePhi2Test() {
     ModuleGen moduleGen("Phi2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_2_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     std::cout << "test2: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -213,7 +213,7 @@ void executePhi3Test() {
     ModuleGen moduleGen("Phi3TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_3_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     std::cout << "test3: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -221,7 +221,7 @@ void executePhi4Test() {
     ModuleGen moduleGen("Phi4TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_4_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     std::cout << "test4: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -229,7 +229,7 @@ void executePhi5Test() {
     ModuleGen moduleGen("Phi5TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_5_test();
-    llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
+    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     std::cout << "test5: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
 }
 

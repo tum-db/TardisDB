@@ -6,7 +6,7 @@
 #include <iostream>
 
 #include "codegen/CodeGen.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 
 #include "gtest/gtest.h"
 
@@ -83,7 +83,7 @@ TEST(CodegenTest, AdditionTest) {
     ModuleGen moduleGen("CodegenAdditionTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *additionTest = codegen_addition_test();
-    llvm::GenericValue resultAdditionTest = QueryCompiler::compileAndExecuteReturn(additionTest, args);
+    llvm::GenericValue resultAdditionTest = QueryExecutor::executeFunction(additionTest, args);
     ASSERT_EQ(resultAdditionTest.IntVal.getZExtValue(), 2);
 }
 
@@ -91,7 +91,7 @@ TEST(CodegenTest, MultiplicationTest) {
     ModuleGen moduleGen("CodegenMultiplicationTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *multiplicationTest = codegen_multiplication_test();
-    llvm::GenericValue resultMultiplicationTest = QueryCompiler::compileAndExecuteReturn(multiplicationTest, args);
+    llvm::GenericValue resultMultiplicationTest = QueryExecutor::executeFunction(multiplicationTest, args);
     ASSERT_EQ(resultMultiplicationTest.IntVal.getZExtValue(), 42);
 }
 
@@ -99,7 +99,7 @@ TEST(CodegenTest, EqualTest) {
     ModuleGen moduleGen("CodegenEqualTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *equalTest = codegen_equal_test();
-    llvm::GenericValue resultEqualTest = QueryCompiler::compileAndExecuteReturn(equalTest, args);
+    llvm::GenericValue resultEqualTest = QueryExecutor::executeFunction(equalTest, args);
     ASSERT_EQ(resultEqualTest.IntVal.getZExtValue(), 1);
 }
 
@@ -107,7 +107,7 @@ TEST(CodegenTest, Equal2Test) {
     ModuleGen moduleGen("CodegenEqual2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *equal2Test = codegen_equal2_test();
-    llvm::GenericValue resultEqual2Test = QueryCompiler::compileAndExecuteReturn(equal2Test, args);
+    llvm::GenericValue resultEqual2Test = QueryExecutor::executeFunction(equal2Test, args);
     ASSERT_EQ(resultEqual2Test.IntVal.getZExtValue(), 0);
 }
 
@@ -115,7 +115,7 @@ void executeCodegenAdditionTest() {
     ModuleGen moduleGen("CodegenAdditionTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *additionTest = codegen_addition_test();
-    llvm::GenericValue resultAdditionTest = QueryCompiler::compileAndExecuteReturn(additionTest, args);
+    llvm::GenericValue resultAdditionTest = QueryExecutor::executeFunction(additionTest, args);
     std::cout << "1+1: " << resultAdditionTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -123,7 +123,7 @@ void executeCodegenMultiplicationTest() {
     ModuleGen moduleGen("CodegenMultiplicationTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *multiplicationTest = codegen_multiplication_test();
-    llvm::GenericValue resultMultiplicationTest = QueryCompiler::compileAndExecuteReturn(multiplicationTest, args);
+    llvm::GenericValue resultMultiplicationTest = QueryExecutor::executeFunction(multiplicationTest, args);
     std::cout << "6*7: " << resultMultiplicationTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -131,7 +131,7 @@ void executeCodegenEqualTest() {
     ModuleGen moduleGen("CodegenEqualTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *equalTest = codegen_equal_test();
-    llvm::GenericValue resultEqualTest = QueryCompiler::compileAndExecuteReturn(equalTest, args);
+    llvm::GenericValue resultEqualTest = QueryExecutor::executeFunction(equalTest, args);
     std::cout << "Bool(true) == Bool(true): " << resultEqualTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -139,7 +139,7 @@ void executeCodegenEqual2Test() {
     ModuleGen moduleGen("CodegenEqual2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function *equal2Test = codegen_equal2_test();
-    llvm::GenericValue resultEqual2Test = QueryCompiler::compileAndExecuteReturn(equal2Test, args);
+    llvm::GenericValue resultEqual2Test = QueryExecutor::executeFunction(equal2Test, args);
     std::cout << "Bool(true) == Bool(false): " << resultEqual2Test.IntVal.getZExtValue() << "\n";
 }
 

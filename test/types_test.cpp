@@ -11,7 +11,7 @@
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 #include "gtest/gtest.h"
 
 using namespace Sql;
@@ -376,7 +376,7 @@ void executePrintfRawTest() {
     ModuleGen moduleGen("PrintfRawTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genPrintfRawTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     std::cout << "printf raw test: passed: " << resultTypesTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -384,7 +384,7 @@ void executeHashTest() {
     ModuleGen moduleGen("HashTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genHashTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     std::cout << "load/hash value test: passed: " << resultTypesTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -392,7 +392,7 @@ void executeScanTest() {
     ModuleGen moduleGen("ScanTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genScanTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     std::cout << "scan test: passed: " << resultTypesTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -400,7 +400,7 @@ void executeTupleTest() {
     ModuleGen moduleGen("TupleTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genTupleTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     std::cout << "store/load tuple test: passed: " << resultTypesTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -408,7 +408,7 @@ void executeEqualsTest() {
     ModuleGen moduleGen("EqualsTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genEqualsTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     std::cout << "test equals(): passed: " << resultTypesTest.IntVal.getZExtValue() << "\n";
 }
 

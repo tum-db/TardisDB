@@ -6,7 +6,7 @@
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 
 #include <sstream>
 #include <vector>
@@ -142,7 +142,7 @@ TEST(LoopTest, LoopBreakTest) {
     ModuleGen moduleGen("LoopBreakTestModule");
     llvm::Function * loopBreakTest = loop_break_test();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(loopBreakTest,args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(loopBreakTest,args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -150,7 +150,7 @@ TEST(LoopTest, LoopContinueTest) {
     ModuleGen moduleGen("LoopContinueTestModule");
     llvm::Function * loopBreakTest = loop_continue_test();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(loopBreakTest,args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(loopBreakTest,args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -158,7 +158,7 @@ TEST(LoopTest, LoopWhileTest) {
     ModuleGen moduleGen("LoopWhileTestModule");
     llvm::Function * loopBreakTest = loop_while_test();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryCompiler::compileAndExecuteReturn(loopBreakTest,args);
+    llvm::GenericValue result = QueryExecutor::executeFunction(loopBreakTest,args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
@@ -166,7 +166,7 @@ void executeLoopBreakTest() {
     ModuleGen moduleGen("LoopBreakTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * loopContinueTest = loop_continue_test();
-    llvm::GenericValue resultLoopContinueTest = QueryCompiler::compileAndExecuteReturn(loopContinueTest,args);
+    llvm::GenericValue resultLoopContinueTest = QueryExecutor::executeFunction(loopContinueTest,args);
     std::cout << "test2: passed: " << resultLoopContinueTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -174,7 +174,7 @@ void executeLoopContinueTest() {
     ModuleGen moduleGen("LoopContinueTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * loopBreakTest = loop_break_test();
-    llvm::GenericValue resultLoopBreakTest = QueryCompiler::compileAndExecuteReturn(loopBreakTest,args);
+    llvm::GenericValue resultLoopBreakTest = QueryExecutor::executeFunction(loopBreakTest,args);
     std::cout << "test1: passed: " << resultLoopBreakTest.IntVal.getZExtValue() << "\n";
 }
 
@@ -182,7 +182,7 @@ void executeLoopWhileTest() {
     ModuleGen moduleGen("LoopWhileTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * loopWhileTest = loop_while_test();
-    llvm::GenericValue resultLoopWhileTest = QueryCompiler::compileAndExecuteReturn(loopWhileTest,args);
+    llvm::GenericValue resultLoopWhileTest = QueryExecutor::executeFunction(loopWhileTest,args);
     std::cout << "test2: passed: " << resultLoopWhileTest.IntVal.getZExtValue() << "\n";
 }
 

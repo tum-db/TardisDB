@@ -1,7 +1,6 @@
 #include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
 
 #include "foundations/Database.hpp"
-#include "query_compiler/queryparser.hpp"
 #include "native/sql/SqlValues.hpp"
 #include "foundations/version_management.hpp"
 

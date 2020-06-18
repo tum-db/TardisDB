@@ -14,8 +14,7 @@
 #include "foundations/exceptions.hpp"
 #include "tests/tests.hpp"
 #include "queries/queries.hpp"
-#include "query_compiler/queryparser.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryCompiler/queryCompiler.hpp"
 #include "utils/general.hpp"
 
 using namespace llvm;
@@ -45,8 +44,6 @@ void prompt()
             }
 
             QueryCompiler::compileAndExecute(input,*currentdb);
-        } catch (const QueryParser::parser_error & e) {
-            fprintf(stderr, "Failed to parse query, reason: %s\n", e.what());
         } catch (const std::exception & e) {
             fprintf(stderr, "Exception: %s\n", e.what());
         }

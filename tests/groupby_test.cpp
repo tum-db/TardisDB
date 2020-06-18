@@ -7,7 +7,7 @@
 #include "foundations/Database.hpp"
 #include "foundations/loader.hpp"
 #include "foundations/version_management.hpp"
-#include "query_compiler/compiler.hpp"
+#include "queryExecutor/queryExecutor.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -181,5 +181,5 @@ void groupby_test()
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
     std::vector<llvm::GenericValue> args;
-    QueryCompiler::compileAndExecute(queryFunc,args);
+    QueryExecutor::executeFunction(queryFunc,args);
 }
