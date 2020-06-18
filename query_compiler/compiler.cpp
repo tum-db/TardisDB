@@ -58,7 +58,6 @@ static void addPasses(llvm::legacy::PassManager & pm)
     pm.add(createGVNPass(false)); // there should be no redundant loads
     pm.add(createCFGSimplificationPass());
     pm.add(createAggressiveDCEPass());
-    pm.add(createCFGSimplificationPass());
 }
 
 static void optimize(llvm::Module & module)

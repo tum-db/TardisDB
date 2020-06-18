@@ -328,7 +328,6 @@ llvm::Function * genEqualsTestFunc()
 
     fillColumns();
 
-    Functions::genPrintfCall("=== test equals() ===\n");
     cg_bool_t eq = test_varchar1->equals(*test_varchar3);
     cg_bool_t ne = test_varchar2->equals(*test_varchar3);
 

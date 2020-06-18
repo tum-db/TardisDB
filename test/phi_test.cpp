@@ -26,11 +26,6 @@
 #include "gtest/gtest.h"
 #include "query_compiler/compiler.hpp"
 
-/* TODO
-#undef DISABLE_OPTIMIZATIONS
-#define DISABLE_OPTIMIZATIONS
-*/
-
 using namespace llvm;
 
 static llvm::Function * phi_1_test()
@@ -100,9 +95,6 @@ static llvm::Function * phi_3_test()
         }
         check.EndIf();
 
-        // test instruction reodering
-        Functions::genPrintfCall("additional instruction\n");
-
         cg_i32_t result( node.get() );
 
         funcGen.setReturnValue(codeGen->CreateICmpEQ(result, cg_i32_t(42)));
@@ -111,7 +103,7 @@ static llvm::Function * phi_3_test()
     return funcGen.getFunction();
 }
 
-/*static llvm::Function * phi_4_test()
+static llvm::Function * phi_4_test()
 {
     auto & codeGen = getThreadLocalCodeGen();
     auto & context = codeGen.getLLVMContext();
@@ -125,27 +117,20 @@ static llvm::Function * phi_3_test()
         PhiNode<llvm::Value> node( codeGen->getInt32(0), "node" );
         IfGen check(funcGen, cg_bool_t(false));
         {
-//            Functions::genPrintfCall("side effect1\n");
             node = codeGen->getInt32(7);
         }
         check.Else();
         {
-//            Functions::genPrintfCall("side effect2\n");
             node = codeGen->getInt32(42);
         }
         check.EndIf();
 
-        // test instruction reodering
-        Functions::genPrintfCall("additional instruction\n");
-
         cg_i32_t result( node.get() );
-        Functions::genPrintfCall("test4: passed: %d\n", codeGen->CreateICmpEQ(result, cg_i32_t(42)));
-
         funcGen.setReturnValue(codeGen->CreateICmpEQ(result, cg_i32_t(42)));
     }
 
     return funcGen.getFunction();
-}*/
+}
 
 static llvm::Function * phi_5_test()
 {
@@ -233,13 +218,13 @@ void executePhi3Test() {
     std::cout << "test3: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
 }
 
-/*void executePhi4Test() {
+void executePhi4Test() {
     ModuleGen moduleGen("Phi4TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_4_test();
     llvm::GenericValue resultphiTest = QueryCompiler::compileAndExecuteReturn(phiTest,args);
     std::cout << "test4: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
-}*/
+}
 
 void executePhi5Test() {
     ModuleGen moduleGen("Phi5TestModule");
@@ -253,6 +238,6 @@ void phi_test() {
     executePhi1Test();
     executePhi2Test();
     executePhi3Test();
-    //executePhi4Test();
+    executePhi4Test();
     executePhi5Test();
 }
