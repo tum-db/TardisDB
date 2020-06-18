@@ -81,13 +81,13 @@ set(DB_LIB_SOURCE_FILES
 
 set(TEST_SOURCE_FILES
 #    tests/join_test.cpp # TODO update
-	tests/if_test.cpp
-	tests/loop_test.cpp
+#	tests/if_test.cpp
+#	tests/loop_test.cpp
 	tests/interop_test.cpp
-	tests/codegen_test.cpp
+#	tests/codegen_test.cpp
 	tests/types_test.cpp
 #    tests/query_test.cpp
-	tests/expression_test.cpp
+#	tests/expression_test.cpp
 	tests/groupby_test.cpp
 	tests/tests.cpp
 	tests/tests.hpp
