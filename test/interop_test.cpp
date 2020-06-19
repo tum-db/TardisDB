@@ -7,14 +7,14 @@
 
 #include "codegen/CodeGen.hpp"
 #include "queryExecutor/queryExecutor.hpp"
-//#include "gtest/gtest.h"
+#include "gtest/gtest.h"
 
 extern "C" const char* interop2()
 {
     return "=== interop ===";
 }
 
-static const char* mangled_interop2()
+const char* mangled_interop2()
 {
     return "=== mangled_interop ===";
 }
@@ -24,7 +24,7 @@ int interop_compare(const char* result)
     return std::string(result).compare("=== interop ===");
 }
 
-static int mangled_interop_compare(const char* result)
+int mangled_interop_compare(const char* result)
 {
     return std::string(result).compare("=== mangled_interop ===");
 }
@@ -53,12 +53,15 @@ llvm::Function * genInterop1Test()
     FunctionGen funcGen(moduleGen, "interop1Test", voidFuncTy);
 
     llvm::FunctionType * funcGenerateStringTy = llvm::TypeBuilder<char * (), false>::get(codeGen.getLLVMContext());
-    llvm::CallInst * generatedStringWrapped = codeGen.CreateCall(&interop2, funcGenerateStringTy);
+    llvm::Function * func = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("interop2", funcGenerateStringTy) );
+    codeGen.getCurrentModuleGen().addFunctionMapping(func, (void*) &interop2);
+    llvm::CallInst * generatedStringWrapped = codeGen->CreateCall(func);
     cg_voidptr_t generatedString = cg_voidptr_t( llvm::cast<llvm::Value>(generatedStringWrapped) );
 
     llvm::FunctionType * funcStringCompareTy = llvm::TypeBuilder<int (char*), false>::get(codeGen.getLLVMContext());
-    llvm::CallInst * compareResultWrapped = codeGen.CreateCall(&interop_compare, funcStringCompareTy, {generatedString});
-
+    llvm::Function * funcStringCompare = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("interop_compare", funcStringCompareTy) );
+    codeGen.getCurrentModuleGen().addFunctionMapping(funcStringCompare, (void*) &interop_compare);
+    llvm::CallInst * compareResultWrapped = codeGen->CreateCall(funcStringCompare, {generatedString});
     cg_i32_t result = cg_i32_t( llvm::cast<llvm::Value>(compareResultWrapped) );
 
     funcGen.setReturnValue(codeGen->CreateICmpEQ(result,cg_i32_t(0)));
@@ -80,11 +83,15 @@ llvm::Function * genInterop2Test()
     FunctionGen funcGen(moduleGen, "interop2Test", voidFuncTy);
 
     llvm::FunctionType * funcGenerateStringTy = llvm::TypeBuilder<char * (), false>::get(codeGen.getLLVMContext());
-    llvm::CallInst * generatedStringWrapped = codeGen.CreateCall(&mangled_interop2, funcGenerateStringTy);
+    llvm::Function * func = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("mangled_interop2", funcGenerateStringTy) );
+    codeGen.getCurrentModuleGen().addFunctionMapping(func,(void *)&mangled_interop2);
+    llvm::CallInst * generatedStringWrapped = codeGen->CreateCall(func);
     cg_voidptr_t generatedString = cg_voidptr_t( llvm::cast<llvm::Value>(generatedStringWrapped) );
 
     llvm::FunctionType * funcStringCompareTy = llvm::TypeBuilder<int (char*), false>::get(codeGen.getLLVMContext());
-    llvm::CallInst * compareResultWrapped = codeGen.CreateCall(&mangled_interop_compare, funcStringCompareTy, {generatedString});
+    llvm::Function * funcStringCompare = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("mangled_interop_compare", funcStringCompareTy) );
+    codeGen.getCurrentModuleGen().addFunctionMapping(funcStringCompare,(void *)&mangled_interop_compare);
+    llvm::CallInst * compareResultWrapped = codeGen->CreateCall(funcStringCompare, { generatedString });
 
     cg_i32_t result = cg_i32_t( llvm::cast<llvm::Value>(compareResultWrapped) );
 
@@ -93,21 +100,21 @@ llvm::Function * genInterop2Test()
     return funcGen.getFunction();
 }
 
-/*TEST(InteropTest, InteropTest1) {
+TEST(InteropTest, InteropTest1) {
     ModuleGen moduleGen("Interop1TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * interopTest = genInterop1Test();
-    llvm::GenericValue resultinteropTest = QueryCompiler::compileAndExecuteReturn(interopTest,args);
-    ASSERT_EQ(resultinteropTest.IntVal.getZExtValue(),1);
+    llvm::GenericValue resultInteropTest = QueryExecutor::executeFunction(interopTest,args);
+    ASSERT_EQ(resultInteropTest.IntVal.getZExtValue(),1);
 }
 
 TEST(InteropTest, InteropTest2) {
     ModuleGen moduleGen("Interop2TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * interopTest = genInterop2Test();
-    llvm::GenericValue resultinteropTest = QueryCompiler::compileAndExecuteReturn(interopTest,args);
-    ASSERT_EQ(resultinteropTest.IntVal.getZExtValue(),1);
-}*/
+    llvm::GenericValue resultInteropTest = QueryExecutor::executeFunction(interopTest,args);
+    ASSERT_EQ(resultInteropTest.IntVal.getZExtValue(),1);
+}
 
 void executeInterop1Test() {
     ModuleGen moduleGen("Interop1TestModule");

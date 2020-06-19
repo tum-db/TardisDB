@@ -26,7 +26,9 @@ namespace Algebra {
             /*llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void*,void*,void*), false>::get(_codeGen.getLLVMContext());
             llvm::CallInst * result = _codeGen.CreateCall(&insert_tuple, funcTy, {tuplePtr,tablePtr,contextPtr});*/
             llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, void *), false>::get(_codeGen.getLLVMContext());
-            llvm::CallInst * result = _codeGen.CreateCall(&insert_tuple, funcTy, {cg_ptr8_t::fromRawPointer(tuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("insert_tuple", funcTy) );
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&insert_tuple);
+            llvm::CallInst * result = _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(tuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
             std::cout << "Insert\n";
         }
 

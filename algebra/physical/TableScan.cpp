@@ -87,7 +87,9 @@ void TableScan::produce()
         LoopBodyGen bodyGen(scanLoop);
 
         llvm::FunctionType * funcTy = llvm::TypeBuilder<tid_t (tid_t, size_t), false>::get(_codeGen.getLLVMContext());
-        llvm::CallInst * result = _codeGen.CreateCall(&markAsDanglingIfGreater, funcTy, {tid, cg_size_t(table._version_mgmt_column.size()) });
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("markAsDanglingIfGreater", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&markAsDanglingIfGreater);
+        llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_size_t(table._version_mgmt_column.size()) });
 
         cg_size_t markedTid = cg_size_t( llvm::cast<llvm::Value>(result) );
 
@@ -205,7 +207,9 @@ void TableScan::produce(cg_tid_t tid) {
     iu_set_t required = getRequired();
 
     llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
-    llvm::CallInst * result = _codeGen.CreateCall(&get_latest_tuple_wrapper, funcTy, {tid, cg_ptr8_t::fromRawPointer(&table), cg_ptr8_t::fromRawPointer(alias), _codeGen.getCurrentFunctionGen().getArg(1)});
+    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_tuple_wrapper", funcTy) );
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_tuple_wrapper);
+    llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_ptr8_t::fromRawPointer(alias), _codeGen.getCurrentFunctionGen().getArg(1)});
 
     cg_voidptr_t tuplePtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
 
@@ -233,9 +237,11 @@ void TableScan::produce(cg_tid_t tid) {
             llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
 #endif*/
 
-            llvm::FunctionType * funcGetValuePtr = llvm::TypeBuilder<void* (size_t, void *), false>::get(_codeGen.getLLVMContext());
+            llvm::FunctionType * funcGetValuePtrTy = llvm::TypeBuilder<void* (size_t, void *), false>::get(_codeGen.getLLVMContext());
             cg_size_t index_gen = cg_size_t(std::get<3>(column));
-            llvm::CallInst * resultGetValuePtr = _codeGen.CreateCall(&getValuePointer, funcGetValuePtr, {index_gen, tuplePtr});
+            llvm::Function * funcGetValuePtr = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getValuePointer", funcGetValuePtrTy) );
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcGetValuePtr,(void *)&getValuePointer);
+            llvm::CallInst * resultGetValuePtr = _codeGen->CreateCall(funcGetValuePtr, {index_gen, tuplePtr});
             cg_voidptr_t value_ptr = cg_voidptr_t( llvm::cast<llvm::Value>(resultGetValuePtr) );
 
             llvm::Value * elemPtr = _codeGen->CreatePointerCast(value_ptr,llvm::PointerType::getUnqual(toLLVMTy(ci->type)));
@@ -275,7 +281,9 @@ cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)
 {
 
     llvm::FunctionType * funcTy = llvm::TypeBuilder<uint8_t (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
-    llvm::CallInst * result = _codeGen.CreateCall(&is_visible_with_binding, funcTy, {tid, cg_ptr8_t::fromRawPointer(alias), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("is_visible_with_binding", funcTy) );
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&is_visible_with_binding);
+    llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(alias), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
 
     return cg_bool_t( _codeGen->CreateTrunc(cg_u8_t( llvm::cast<llvm::Value>(result) ), cg_bool_t::getType()) );
 }

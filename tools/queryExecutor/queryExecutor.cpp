@@ -67,7 +67,7 @@ namespace QueryExecutor {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
 #ifdef EMIT_IR
-        llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << module;
+        llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << moduleGen.getModule();
         llvm::outs().flush();
 #endif
 
@@ -75,7 +75,7 @@ namespace QueryExecutor {
         optimize(moduleGen.getModule());
 
 #ifdef EMIT_IR
-        llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << module;
+        llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << moduleGen.getModule();
         llvm::outs().flush();
 #endif
 
@@ -89,6 +89,7 @@ namespace QueryExecutor {
 //    eb.setOptLevel( llvm::CodeGenOpt::Default );
 //    eb.setOptLevel( llvm::CodeGenOpt::Aggressive );
         auto ee = std::unique_ptr<llvm::ExecutionEngine>(eb.create());
+        moduleGen.applyMapping(ee.get());
         ee->finalizeObject();
 
         const auto compilationDuration = std::chrono::high_resolution_clock::now() - compilationStart;
@@ -108,8 +109,10 @@ namespace QueryExecutor {
     BenchmarkResult executeBenchmarkFunction(llvm::Function *queryFunc, unsigned runs) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
+
+
 #ifdef EMIT_IR
-        llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << module;
+        llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << moduleGen.getModule();
         llvm::outs().flush();
 #endif
 
@@ -117,7 +120,7 @@ namespace QueryExecutor {
         optimize(moduleGen.getModule());
 
 #ifdef EMIT_IR
-        llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << module;
+        llvm::outs() << GRN << "\nOptimized module:\n\n" << RESET << moduleGen.getModule();
         llvm::outs().flush();
 #endif
 
@@ -131,6 +134,7 @@ namespace QueryExecutor {
         eb.setOptLevel(llvm::CodeGenOpt::Default);
         // eb.setOptLevel( llvm::CodeGenOpt::Aggressive );
         auto ee = std::unique_ptr<llvm::ExecutionEngine>(eb.create());
+        moduleGen.applyMapping(ee.get());
         ee->finalizeObject();
 
         const auto compilationDuration = std::chrono::high_resolution_clock::now() - compilationStart;
