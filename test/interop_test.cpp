@@ -83,14 +83,14 @@ llvm::Function * genInterop2Test()
     FunctionGen funcGen(moduleGen, "interop2Test", voidFuncTy);
 
     llvm::FunctionType * funcGenerateStringTy = llvm::TypeBuilder<char * (), false>::get(codeGen.getLLVMContext());
-    llvm::Function * func = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("interop2", funcGenerateStringTy) );
-    codeGen.getCurrentModuleGen().addFunctionMapping(func, (void*) &interop2);
+    llvm::Function * func = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("mangled_interop2", funcGenerateStringTy) );
+    codeGen.getCurrentModuleGen().addFunctionMapping(func, (void*) &mangled_interop2);
     llvm::CallInst * generatedStringWrapped = codeGen->CreateCall(func);
     cg_voidptr_t generatedString = cg_voidptr_t( llvm::cast<llvm::Value>(generatedStringWrapped) );
 
     llvm::FunctionType * funcStringCompareTy = llvm::TypeBuilder<int (char*), false>::get(codeGen.getLLVMContext());
-    llvm::Function * funcStringCompare = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("interop_compare", funcStringCompareTy) );
-    codeGen.getCurrentModuleGen().addFunctionMapping(funcStringCompare, (void*) &interop_compare);
+    llvm::Function * funcStringCompare = llvm::cast<llvm::Function>( moduleGen.getModule().getOrInsertFunction("mangled_interop_compare", funcStringCompareTy) );
+    codeGen.getCurrentModuleGen().addFunctionMapping(funcStringCompare, (void*) &mangled_interop_compare);
     llvm::CallInst * compareResultWrapped = codeGen->CreateCall(funcStringCompare, {generatedString});
     cg_i32_t result = cg_i32_t( llvm::cast<llvm::Value>(compareResultWrapped) );
 
