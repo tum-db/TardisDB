@@ -14,7 +14,7 @@ extern "C" const char* interop2()
     return "=== interop ===";
 }
 
-const char* mangled_interop2()
+extern "C" const char* mangled_interop2()
 {
     return "=== mangled_interop ===";
 }
