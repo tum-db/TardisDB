@@ -52,7 +52,7 @@ namespace QueryExecutor {
         pm.add(createInstructionCombiningPass());
         pm.add(createReassociatePass());
         pm.add(createGVNPass(false)); // there should be no redundant loads
-        pm.add(createCFGSimplificationPass());
+        //pm.add(createCFGSimplificationPass());
         pm.add(createAggressiveDCEPass());
     }
 

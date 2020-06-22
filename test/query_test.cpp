@@ -71,10 +71,6 @@ TEST_F(QueryTest, CreateTable) {
     ASSERT_NE(rangCI, nullptr);
     ASSERT_TRUE(Sql::equals(rangCI->type,Sql::getNumericTy(6,2,false),Sql::SqlTypeEqualsMode::Full));
     ASSERT_NO_THROW(db->getTable("professoren")->getColumn("rang"));
-
-    //QueryCompiler::compileAndExecute("insert into professoren version hello ( name , rang ) VALUES ( 'kemper' , 4 );",*db);
-    //QueryCompiler::compileAndExecute("select rang, name from professoren p;",*db, (void*) &callbackHandler);
-    //QueryCompiler::compileAndExecute("select name , rang from professoren version hello p;",*db);
 }
 
 TEST_F(QueryTest, CheckoutBranch) {

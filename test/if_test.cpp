@@ -296,10 +296,26 @@ TEST(IfTest, If5Test) {
     ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
 
+TEST(IfTest, If6Test) {
+    ModuleGen moduleGen("If6TestModule");
+    std::vector<llvm::GenericValue> args;
+    llvm::Function * ifTest = if_6_test();
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
+}
+
 TEST(IfTest, If7Test) {
     ModuleGen moduleGen("If7TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_7_test();
+    llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
+}
+
+TEST(IfTest, If8Test) {
+    ModuleGen moduleGen("If8TestModule");
+    std::vector<llvm::GenericValue> args;
+    llvm::Function * ifTest = if_8_test();
     llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
     ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
