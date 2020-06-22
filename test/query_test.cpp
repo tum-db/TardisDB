@@ -95,14 +95,14 @@ TEST_F(QueryTest, InsertInto) {
     QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &insertIntoCallbackHandler);
 }
 
-/*TEST_F(QueryTest, InsertIntoVersion) {
+TEST_F(QueryTest, InsertIntoVersion) {
     QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
     QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
     QueryCompiler::compileAndExecute("checkout branch hello from master;",*db);
     QueryCompiler::compileAndExecute("INSERT INTO professoren VERSION hello ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
     QueryCompiler::compileAndExecute("select id , rang from professoren version hello p;",*db, (void*) &insertIntoVersionCallbackHandler);
     QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &insertIntoCallbackHandler);
-}*/
+}
 
 TEST_F(QueryTest, Update) {
     QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
@@ -111,11 +111,11 @@ TEST_F(QueryTest, Update) {
     QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &updateCallbackHandler);
 }
 
-/*TEST_F(QueryTest, UpdateVersion) {
+TEST_F(QueryTest, UpdateVersion) {
     QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
     QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
     QueryCompiler::compileAndExecute("checkout branch hello from master;",*db);
     QueryCompiler::compileAndExecute("UPDATE professoren VERSION hello p SET rang = 5 WHERE id = 1 ;",*db);
     QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &insertIntoCallbackHandler);
     QueryCompiler::compileAndExecute("select id, rang from professoren VERSION hello p;",*db, (void*) &updateCallbackHandler);
-}*/
+}
