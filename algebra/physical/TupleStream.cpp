@@ -24,11 +24,6 @@ namespace Algebra {
 
                 columns.emplace_back(iu);
             }
-
-            _handler = [](Native::Sql::SqlTuple &tuple) {
-                std::cout << "hier\n";
-                std::cout << Native::Sql::toString(tuple) << " works!\n";
-            };
         }
 
         TupleStream::~TupleStream()
@@ -61,10 +56,6 @@ namespace Algebra {
             check.EndIf();
         }
 
-        void callTupleHandler(Native::Sql::SqlTuple &tuple) {
-            std::cout << "hier\n";
-        }
-
         void TupleStream::consume(const iu_value_mapping_t & values, const Operator & src)
         {
             std::vector<Sql::Value*> tupleValues;
@@ -83,7 +74,8 @@ namespace Algebra {
 
             // Call the update_tuple function in version_management.hpp
             llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(_codeGen.getLLVMContext());
-            llvm::CallInst * result = _codeGen.CreateCall(&TupleStream::callHandler, funcUpdateTupleTy, {cg_ptr8_t::fromRawPointer(&_handler), cg_ptr8_t::fromRawPointer(nativetuple)});
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
+            llvm::CallInst * result = _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(nativetuple)});
 
             // increment tuple counter
             cg_size_t prevCnt(_codeGen->CreateLoad(tupleCountPtr));

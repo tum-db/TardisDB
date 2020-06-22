@@ -142,62 +142,6 @@ Native::Sql::SqlTuple *get_latest_tuple_wrapper(tid_t tid, Table & table, std::s
     return new Native::Sql::SqlTuple(std::move(nativeSqlTuple->values));
 }
 
-    /*
-Sql::Value *getTupleValueOffset(size_t idx, Sql::SqlTuple *tuple) {
-    return tuple->values[idx].get();
-}
-
-void printTuple(Native::Sql::SqlTuple* tuple) {
-    std::cout << "Str: " << Native::Sql::toString(*tuple) << "\n";
-}
-
-Sql::SqlType castTypeFromSqlType(Native::Sql::SqlType original, size_t len) {
-    Sql::SqlType type;
-    switch (original.typeID) {
-        case SqlType::TypeID::UnknownID:
-            return Sql::SqlType(Sql::SqlType::TypeID::UnknownID, original.nullable);
-        case SqlType::TypeID::BoolID:
-            return Sql::SqlType(Sql::SqlType::TypeID::BoolID, original.nullable);
-        case SqlType::TypeID::IntegerID:
-            return Sql::SqlType(Sql::SqlType::TypeID::IntegerID, original.nullable);
-        case SqlType::TypeID::VarcharID:
-            type = Sql::SqlType(Sql::SqlType::TypeID::VarcharID, original.nullable);
-            type.length = len;
-            break;
-//        case SqlType::TypeID::CharID:
-//            return Char::load(ptr, type);
-        case SqlType::TypeID::NumericID:
-            return Sql::SqlType(Sql::SqlType::TypeID::NumericID, original.nullable);
-        case SqlType::TypeID::DateID:
-            return Sql::SqlType(Sql::SqlType::TypeID::DateID, original.nullable);
-        case SqlType::TypeID::TimestampID:
-            return Sql::SqlType(Sql::SqlType::TypeID::TimestampID, original.nullable);
-        case SqlType::TypeID::TextID:
-            type = Sql::SqlType(Sql::SqlType::TypeID::VarcharID, original.nullable);
-            type.length = len;
-            break;
-        default:
-            throw InvalidOperationException("unknown type");
-    }
-    return type;
-}
-
-std::unique_ptr<Sql::Value> castValueFromSqlValue(std::unique_ptr<Native::Sql::Value> &original) {
-    std::string valueString = Native::Sql::toString(*original);
-    return Sql::Value::castString(valueString,castTypeFromSqlType(original->type,valueString.size()));
-}
-
-Sql::SqlTuple *get_latest_tuple_wrapper(tid_t tid, Table & table, QueryContext & ctx) {
-    std::unique_ptr<Native::Sql::SqlTuple> nativeSqlTuple = get_latest_tuple(tid,table,ctx);
-    std::vector<Native::Sql::value_op_t> &nativeValues = nativeSqlTuple->values;
-    std::vector<Sql::value_op_t> values;
-    for (auto &nativeValue : nativeValues) {
-        values.emplace_back(std::move(castValueFromSqlValue(nativeValue)));
-    }
-    return new Sql::SqlTuple(std::move(values));
-}
-*/
-
 
 void TableScan::produce(cg_tid_t tid) {
     std::unordered_map<const InformationUnit*, std::unique_ptr<Sql::Value>> values;

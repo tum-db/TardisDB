@@ -47,6 +47,8 @@ value_op_t Value::castString(const std::string & str, SqlType type)
             return Date::castString(str);
         case SqlType::TypeID::TimestampID:
             return Timestamp::castString(str);
+        case SqlType::TypeID::TextID:
+            return Text::castString(str);
         default:
             unreachable();
     }
@@ -95,6 +97,9 @@ Integer::Integer() :
     Value(::Sql::getIntegerTy()),
     value(0)
 { }
+
+Integer::Integer(Sql::SqlType type) : Value(type), value(0)
+{}
 
 Integer::Integer(const void * src) :
     Value(::Sql::getIntegerTy()),
@@ -165,6 +170,9 @@ Numeric::Numeric() :
     Value(::Sql::getNumericFullLengthTy(2)),
     value(0)
 { }
+
+        Numeric::Numeric(Sql::SqlType type) : Value(type), value(0)
+        {}
 
 Numeric::Numeric(const void * src, SqlType type) :
     Value(type),
@@ -245,6 +253,9 @@ Bool::Bool() :
     Value(::Sql::getBoolTy()),
     value(false)
 { }
+
+        Bool::Bool(Sql::SqlType type) : Value(type), value(false)
+        {}
 
 Bool::Bool(const void * src) :
     Value(::Sql::getBoolTy()),
@@ -658,6 +669,9 @@ Date::Date() :
     value(0)
 { }
 
+        Date::Date(Sql::SqlType type) : Value(type), value(0)
+        {}
+
 Date::Date(const void * src) :
     Value(::Sql::getDateTy()),
     value(*static_cast<const value_type *>(src))
@@ -728,6 +742,9 @@ Timestamp::Timestamp() :
     Value(::Sql::getTimestampTy()),
     value(0)
 { }
+
+        Timestamp::Timestamp(Sql::SqlType type) : Value(type), value(0)
+        {}
 
 Timestamp::Timestamp(const void * src) :
     Value(::Sql::getTimestampTy()),
@@ -801,6 +818,12 @@ Text::Text() :
     value[0] = 0;
     value[1] = 0;
 }
+
+        Text::Text(Sql::SqlType type) : Value(type)
+        {
+            value[0] = 0;
+            value[1] = 0;
+        }
 
 Text::Text(const void * src) :
     Value(::Sql::getTextTy())

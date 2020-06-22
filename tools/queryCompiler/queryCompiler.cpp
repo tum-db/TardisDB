@@ -51,7 +51,7 @@ namespace QueryCompiler {
     }
 
 
-    void compileAndExecute(const std::string &query, Database &db) {
+    void compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {
         QueryContext queryContext(db);
 
         ModuleGen moduleGen("QueryModule");
@@ -66,7 +66,7 @@ namespace QueryCompiler {
         args[0].IntVal = llvm::APInt(64, 5);
         args[1].PointerVal = (void *) &queryContext;
 
-        QueryExecutor::executeFunction(queryFunc, args);
+        QueryExecutor::executeFunction(queryFunc, args, callbackFunction);
     }
 
 } // end namespace QueryCompiler

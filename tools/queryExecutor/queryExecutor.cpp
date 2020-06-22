@@ -30,6 +30,7 @@
 
 //#define EMIT_IR
 //#define DISABLE_OPTIMIZATIONS
+//#define EMIT_RUNTIME
 
 
 namespace QueryExecutor {
@@ -63,8 +64,14 @@ namespace QueryExecutor {
 
 #endif // DISABLE_OPTIMIZATIONS
 
-    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args) {
+    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
+
+        if (callbackFunction != nullptr) {
+            llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
+            moduleGen.addFunctionMapping(func,callbackFunction);
+        }
 
 #ifdef EMIT_IR
         llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << moduleGen.getModule();
@@ -99,8 +106,10 @@ namespace QueryExecutor {
         llvm::GenericValue returnValue = ee->runFunction(queryFunc, args);
         const auto queryDuration = std::chrono::high_resolution_clock::now() - query_start;
 
+#ifdef EMIT_RUNTIME
         printf("Compilation time: %lums\n", std::chrono::duration_cast<std::chrono::milliseconds>(compilationDuration).count());
         printf("Execution time: %lums\n", std::chrono::duration_cast<std::chrono::milliseconds>(queryDuration).count());
+#endif
 
         return returnValue;
     }

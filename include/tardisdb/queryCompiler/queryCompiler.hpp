@@ -11,7 +11,7 @@
 
 namespace QueryCompiler {
 
-    void compileAndExecute(const std::string & query, Database &db);
+    void compileAndExecute(const std::string & query, Database &db, void *callbackFunction = nullptr);
 
 }
 

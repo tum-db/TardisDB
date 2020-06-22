@@ -16,7 +16,7 @@ namespace QueryExecutor {
     };
 
 
-    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args);
+    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction = nullptr);
     BenchmarkResult executeBenchmarkFunction(llvm::Function *queryFunc, unsigned runs);
 }
 

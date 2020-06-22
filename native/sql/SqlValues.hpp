@@ -67,6 +67,8 @@ public:
 
     explicit Integer();
 
+    explicit Integer(SqlType type);
+
     explicit Integer(const void * src);
 
     explicit Integer(value_type constantValue);
@@ -98,6 +100,8 @@ public:
 
     explicit Numeric();
 
+    explicit Numeric(SqlType type);
+
     explicit Numeric(const void * src, SqlType type);
 
     explicit Numeric(SqlType type, value_type constantValue);
@@ -128,6 +132,8 @@ public:
     value_type value;
 
     explicit Bool();
+
+    explicit Bool(SqlType type);
 
     explicit Bool(const void * src);
 
@@ -245,6 +251,8 @@ public:
 
     explicit Text();
 
+    explicit Text(SqlType type);
+
     explicit Text(const void * src);
 
     static value_op_t castString(const std::string & str);
@@ -289,6 +297,8 @@ public:
 
     explicit Date();
 
+    explicit Date(SqlType type);
+
     explicit Date(const void * src);
 
     explicit Date(value_type constantValue);
@@ -319,6 +329,8 @@ public:
     value_type value;
 
     explicit Timestamp();
+
+    explicit Timestamp(SqlType type);
 
     explicit Timestamp(const void * src);
 

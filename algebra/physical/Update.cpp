@@ -75,7 +75,7 @@ namespace Algebra {
 
             cg_size_t tupleCnt(_codeGen->CreateLoad(tupleCountPtr));
 
-            Functions::genPrintfCall("Updated %lu tuples\n", tupleCnt);
+            //Functions::genPrintfCall("Updated %lu tuples\n", tupleCnt);
         }
 
         void Update::consume(const iu_value_mapping_t & values, const Operator & src)
@@ -120,7 +120,9 @@ namespace Algebra {
 
             // Call the update_tuple function in version_management.hpp
             llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void * (size_t, void *, void * , void *, void *), false>::get(_codeGen.getLLVMContext());
-            llvm::CallInst * result = _codeGen.CreateCall(&update_tuple_with_binding, funcUpdateTupleTy, {tid, cg_ptr8_t::fromRawPointer(alias), cg_ptr8_t::fromRawPointer(nativetuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("update_tuple_with_binding", funcUpdateTupleTy) );
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&update_tuple_with_binding);
+            llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(alias), cg_ptr8_t::fromRawPointer(nativetuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
 
 #else
 

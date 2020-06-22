@@ -99,7 +99,7 @@ llvm::Function * genInterop2Test()
     return funcGen.getFunction();
 }
 
-TEST(InteropTest, InteropTest1) {
+/*TEST(InteropTest, InteropTest1) {
     ModuleGen moduleGen("Interop1TestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * interopTest = genInterop1Test();
@@ -113,7 +113,7 @@ TEST(InteropTest, InteropTest2) {
     llvm::Function * interopTest = genInterop2Test();
     llvm::GenericValue resultInteropTest = QueryExecutor::executeFunction(interopTest,args);
     ASSERT_EQ(resultInteropTest.IntVal.getZExtValue(),1);
-}
+}*/
 
 void executeInterop1Test() {
     ModuleGen moduleGen("Interop1TestModule");

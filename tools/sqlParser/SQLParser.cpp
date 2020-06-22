@@ -326,6 +326,8 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
             } else if (token_value == "(") {
                 new_state = CreateTableTypeDetailBegin;
             } else if (lowercase_token_value == keywords::Not) {
+                query.length.emplace_back(0);
+                query.precision.emplace_back(0);
                 new_state = CreateTableTypeNot;
             }
             break;

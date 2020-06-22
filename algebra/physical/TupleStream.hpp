@@ -17,17 +17,12 @@ namespace Algebra {
 
             virtual ~TupleStream();
 
-            void setHandler(std::function<void(Native::Sql::SqlTuple&)> &handler) { _handler = handler; }
-            static void callHandler(std::function<void(Native::Sql::SqlTuple&)> handler, Native::Sql::SqlTuple &tuple) {
-                return handler(tuple);
-            }
-
             void produce() override;
             void consume(const iu_value_mapping_t & values, const Operator & src) override;
 
         private:
             std::vector<iu_p_t> selection;
-            std::function<void(Native::Sql::SqlTuple&)> _handler;
+
 
             using column_t = std::tuple<iu_p_t>;
             std::vector<column_t> columns;
