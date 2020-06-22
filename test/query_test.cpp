@@ -101,7 +101,7 @@ TEST_F(QueryTest, InsertIntoVersion) {
     QueryCompiler::compileAndExecute("checkout branch hello from master;",*db);
     QueryCompiler::compileAndExecute("INSERT INTO professoren VERSION hello ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
     QueryCompiler::compileAndExecute("select id , rang from professoren version hello p;",*db, (void*) &insertIntoVersionCallbackHandler);
-    QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &insertIntoCallbackHandler);
+    //QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &insertIntoCallbackHandler);
 }
 
 TEST_F(QueryTest, Update) {
