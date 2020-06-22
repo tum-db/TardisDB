@@ -166,7 +166,7 @@ TEST(PhiTest, Phi1Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_1_test();
     llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultphiTest.IntVal.getZExtValue(),0);
 }
 
 TEST(PhiTest, Phi2Test) {
@@ -174,7 +174,7 @@ TEST(PhiTest, Phi2Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_2_test();
     llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultphiTest.IntVal.getZExtValue(),0);
 }
 
 TEST(PhiTest, Phi3Test) {
@@ -182,7 +182,7 @@ TEST(PhiTest, Phi3Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_3_test();
     llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultphiTest.IntVal.getZExtValue(),0);
 }
 
 TEST(PhiTest, Phi5Test) {
@@ -190,7 +190,7 @@ TEST(PhiTest, Phi5Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * phiTest = phi_5_test();
     llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    ASSERT_EQ(resultphiTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultphiTest.IntVal.getZExtValue(),0);
 }
 
 void executePhi1Test() {

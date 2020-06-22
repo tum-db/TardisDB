@@ -343,7 +343,7 @@ TEST(ExpressionTest, IntegerTest5) {
     llvm::Function *testFunc = genIntegerTest5Func();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getZExtValue(),1);
+    ASSERT_NE(result.IntVal.getZExtValue(),0);
 }
 
 TEST(ExpressionTest, NumericTest1) {
@@ -351,7 +351,7 @@ TEST(ExpressionTest, NumericTest1) {
     llvm::Function *testFunc = genNumericTest1Func();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getZExtValue(),1);
+    ASSERT_NE(result.IntVal.getZExtValue(),0);
 }
 
 TEST(ExpressionTest, NumericTest2) {
@@ -359,7 +359,7 @@ TEST(ExpressionTest, NumericTest2) {
     llvm::Function *testFunc = genNumericTest2Func();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getZExtValue(),1);
+    ASSERT_NE(result.IntVal.getZExtValue(),0);
 }
 
 TEST(ExpressionTest, NumericTest3) {
@@ -367,7 +367,7 @@ TEST(ExpressionTest, NumericTest3) {
     llvm::Function *testFunc = genNumericTest3Func();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getZExtValue(),1);
+    ASSERT_NE(result.IntVal.getZExtValue(),0);
 }
 
 TEST(ExpressionTest, NumericTest4) {
@@ -375,7 +375,7 @@ TEST(ExpressionTest, NumericTest4) {
     llvm::Function *testFunc = genNumericTest4Func();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getZExtValue(),1);
+    ASSERT_NE(result.IntVal.getZExtValue(),0);
 }
 
 TEST(ExpressionTest, NullableTest) {
@@ -383,7 +383,7 @@ TEST(ExpressionTest, NullableTest) {
     llvm::Function *testFunc = genIntegerNullableTestFunc();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getZExtValue(),1);
+    ASSERT_NE(result.IntVal.getZExtValue(),0);
 }
 
 TEST(ExpressionTest, OverflowTest) {

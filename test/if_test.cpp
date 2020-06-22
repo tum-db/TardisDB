@@ -261,7 +261,7 @@ TEST(IfTest, If1Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_1_test();
     llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
-    ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
 
 TEST(IfTest, If2Test) {
@@ -269,7 +269,7 @@ TEST(IfTest, If2Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_2_test();
     llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
-    ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
 
 TEST(IfTest, If3Test) {
@@ -277,7 +277,7 @@ TEST(IfTest, If3Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_3_test();
     llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
-    ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
 
 TEST(IfTest, If4Test) {
@@ -285,7 +285,7 @@ TEST(IfTest, If4Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_4_test();
     llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
-    ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
 
 TEST(IfTest, If5Test) {
@@ -293,7 +293,7 @@ TEST(IfTest, If5Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_5_test();
     llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
-    ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
 
 TEST(IfTest, If7Test) {
@@ -301,7 +301,7 @@ TEST(IfTest, If7Test) {
     std::vector<llvm::GenericValue> args;
     llvm::Function * ifTest = if_7_test();
     llvm::GenericValue resultifTest = QueryExecutor::executeFunction(ifTest,args);
-    ASSERT_EQ(resultifTest.IntVal.getZExtValue(),1);
+    ASSERT_NE(resultifTest.IntVal.getZExtValue(),0);
 }
 
 void executeIf1Test() {
