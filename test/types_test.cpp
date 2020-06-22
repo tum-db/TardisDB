@@ -333,6 +333,7 @@ llvm::Function * genEqualsTestFunc()
 
     cg_bool_t result = eq && !ne;
 
+    Functions::genPrintfCall("Equal test succeeded: %d",result);
     // TODO test all types
 
     funcGen.setReturnValue(result);
@@ -340,11 +341,11 @@ llvm::Function * genEqualsTestFunc()
     return funcGen.getFunction();
 }
 
-/*TEST(TypesTest, PrintfRawTest) {
+TEST(TypesTest, PrintfRawTest) {
     ModuleGen moduleGen("PrintfRawTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genPrintfRawTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
 }
 
@@ -352,7 +353,7 @@ TEST(TypesTest, HashTest) {
     ModuleGen moduleGen("HashTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genHashTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
 }
 
@@ -360,7 +361,7 @@ TEST(TypesTest, TupleTest) {
     ModuleGen moduleGen("TupleTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genTupleTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
 }
 
@@ -368,9 +369,9 @@ TEST(TypesTest, EqualsTest) {
     ModuleGen moduleGen("EqualsTestModule");
     std::vector<llvm::GenericValue> args;
     llvm::Function * typesTest = genEqualsTestFunc();
-    llvm::GenericValue resultTypesTest = QueryCompiler::compileAndExecuteReturn(typesTest,args);
+    llvm::GenericValue resultTypesTest = QueryExecutor::executeFunction(typesTest,args);
     ASSERT_EQ(resultTypesTest.IntVal.getZExtValue(),1);
-}*/
+}
 
 void executePrintfRawTest() {
     ModuleGen moduleGen("PrintfRawTestModule");

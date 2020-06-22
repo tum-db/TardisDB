@@ -335,7 +335,6 @@ TEST(ExpressionTest, IntegerTest4) {
     llvm::Function *testFunc = genIntegerTest4Func();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    uint64_t intResult = result.IntVal.getSExtValue();
     ASSERT_EQ(result.IntVal.getSExtValue(), 2);
 }
 
@@ -344,7 +343,7 @@ TEST(ExpressionTest, IntegerTest5) {
     llvm::Function *testFunc = genIntegerTest5Func();
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getSExtValue(),-1);
+    ASSERT_EQ(result.IntVal.getZExtValue(),1);
 }
 
 TEST(ExpressionTest, NumericTest1) {

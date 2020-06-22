@@ -57,6 +57,8 @@ llvm::Function *codegen_equal_test() {
 
     Bool r = (Bool(true) == Bool(true));
 
+    Functions::genPrintfCall("Equal test succeeded: %d",r);
+
     funcGen.setReturnValue(r);
 
     return funcGen.getFunction();
