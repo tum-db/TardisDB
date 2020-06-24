@@ -16,7 +16,9 @@ struct SQLParserResult {
    using AttributeName = std::string;
    using Constant = std::string;
 
-   std::string opType;
+   enum OpType : unsigned int {
+       Select, Insert, Update, Delete, CreateTable, CreateBranch
+   } opType;
 
    std::vector<std::string> versions;
 

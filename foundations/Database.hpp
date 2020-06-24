@@ -46,6 +46,8 @@ public:
 
     unsigned addColumn();
 
+    unsigned cloneColumn(unsigned original);
+
     void removeColumn(unsigned column);
 
     unsigned getColumnCount() const { return _columnCount; }
@@ -93,7 +95,7 @@ public:
 
     void addRow();
 
-    void createBranch(const std::string & name);
+    void createBranch(branch_id_t parent);
 
 //    const std::string & getName() const;
 

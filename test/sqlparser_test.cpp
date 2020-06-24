@@ -12,7 +12,7 @@ namespace {
     TEST(SqlParserTest, SelectStatment) {
         std::string statement = "SELECT name FROM professoren p;";
 
-        std::string opType = "select";
+        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
@@ -29,7 +29,7 @@ namespace {
     TEST(SqlParserTest, SelectStatmentProjections) {
         std::string statement = "SELECT persnr, name, rang, raum FROM professoren p;";
 
-        std::string opType = "select";
+        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
@@ -50,7 +50,7 @@ namespace {
     TEST(SqlParserTest, SelectStatmentProjectionStar) {
         std::string statement = "SELECT * FROM professoren p;";
 
-        std::string opType = "select";
+        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
@@ -67,7 +67,7 @@ namespace {
     TEST(SqlParserTest, SelectStatmentMultiRelations) {
         std::string statement = "SELECT * FROM professoren p, studenten s;";
 
-        std::string opType = "select";
+        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
         std::set<std::pair<std::string,std::string>> relationBindings;
         relationBindings.insert(std::make_pair("professoren","p"));
         relationBindings.insert(std::make_pair("studenten","s"));
@@ -86,7 +86,7 @@ namespace {
     TEST(SqlParserTest, SelectStatmentWhereNumberCompare) {
         std::string statement = "SELECT * FROM professoren p WHERE rang = 4;";
 
-        std::string opType = "select";
+        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";

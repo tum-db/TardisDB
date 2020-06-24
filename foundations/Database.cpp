@@ -40,6 +40,22 @@ unsigned BitmapTable::addColumn()
     return column;
 }
 
+unsigned BitmapTable::cloneColumn(unsigned original)
+{
+    unsigned column = _columnCount;
+    _columnCount += 1;
+    if (_columnCount > _availableCount) {
+        resize(); // allocated one additional byte
+    }
+
+    for (size_t tid = 0, limit = _data->size(); tid < limit; ++tid) {
+        set(tid, column, isSet(tid, original));
+    }
+
+    return column;
+}
+
+
 void BitmapTable::addRow()
 {
     void * row = _data->reserve_back();
@@ -128,7 +144,7 @@ Table::Table(Database & db) : _db(db) {
     _tidColumn->columnName = "tid";
     _tidColumn->type = Sql::getLongIntegerTy(false);
 
-    createBranch("master");
+    createBranch(invalid_branch_id);
 }
 
 Table::~Table()
@@ -186,10 +202,14 @@ void Table::addRow()
     _branchBitmap.set(_columns.front().second->size() - 1,0,1);
 }
 
-void Table::createBranch(const std::string & name)
+void Table::createBranch(branch_id_t parent)
 {
-    _branchBitmap.addColumn();
-    // TODO update visibilities
+    if (parent == invalid_branch_id) {
+        _branchBitmap.addColumn();
+    } else {
+        _branchBitmap.cloneColumn(parent);
+    }
+
 }
 
 ci_p_t Table::getCI(const std::string & columnName) const
@@ -309,6 +329,9 @@ branch_id_t Database::getLargestBranchId() const {
 }
 
 branch_id_t Database::createBranch(const std::string & name, branch_id_t parent) {
+    for (auto &[tablename,table] : _tables) {
+        table->createBranch(parent);
+    }
     branch_id_t branch_id = _next_branch_id++;
     auto branch = std::make_unique<Branch>();
     branch->id = branch_id;

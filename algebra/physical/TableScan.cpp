@@ -55,26 +55,12 @@ TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, 
 TableScan::~TableScan()
 { }
 
-tid_t markAsDanglingIfGreater(tid_t tid, size_t mgmtSize) {
-    if (tid >= mgmtSize) {
-        tid = mark_as_dangling_tid(tid - mgmtSize);
-    }
-    return tid;
-}
-
 void TableScan::produce()
 {
-    //Functions::genPrintfCall("%s\n",_codeGen.getCurrentFunctionGen().getArg(1));
-
-    //llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(_codeGen.getLLVMContext());
-    //lvm::CallInst * result = _codeGen.CreateCall(&sampleFunction, funcTy, {_codeGen.getCurrentFunctionGen().getArg(1)});
-
     auto & funcGen = _codeGen.getCurrentFunctionGen();
 
-    size_t tableSize = table._version_mgmt_column.size() + table._dangling_version_mgmt_column.size();
-    if (tableSize < 1) {
-        return; // nothing to produce
-    }
+    size_t tableSize = table.size();
+    if (tableSize < 1) return;  // nothing to produce
 
     // iterate over all tuples
 #ifdef __APPLE__
@@ -86,17 +72,10 @@ void TableScan::produce()
     {
         LoopBodyGen bodyGen(scanLoop);
 
-        llvm::FunctionType * funcTy = llvm::TypeBuilder<tid_t (tid_t, size_t), false>::get(_codeGen.getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("markAsDanglingIfGreater", funcTy) );
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&markAsDanglingIfGreater);
-        llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_size_t(table._version_mgmt_column.size()) });
-
-        cg_size_t markedTid = cg_size_t( llvm::cast<llvm::Value>(result) );
-
-        auto branchId = _context.executionContext.branchId;
-        IfGen visibilityCheck(isVisible(markedTid, branchId));
+        auto branchId = _context.executionContext.branchIds[*alias];
+        IfGen visibilityCheck(isVisible(tid, branchId));
         {
-            produce(markedTid);
+            produce(tid);
         }
         visibilityCheck.EndIf();
     }
@@ -223,13 +202,8 @@ void TableScan::produce(cg_tid_t tid) {
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)
 {
-
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<uint8_t (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
-    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("is_visible_with_binding", funcTy) );
-    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&is_visible_with_binding);
-    llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(alias), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
-
-    return cg_bool_t( _codeGen->CreateTrunc(cg_u8_t( llvm::cast<llvm::Value>(result) ), cg_bool_t::getType()) );
+    auto & branchBitmap = table.getBranchBitmap();
+    return isVisibleInBranch(branchBitmap, tid, branchId);
 }
 
 } // end namespace Physical

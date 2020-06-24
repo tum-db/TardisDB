@@ -275,6 +275,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string
     if (binding != nullptr) {
         ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
     }
+    ctx.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
     return std::move(get_latest_tuple(tid,table,ctx));
 }
 

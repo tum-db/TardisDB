@@ -458,18 +458,25 @@ std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContex
     plan.parser_result = parse_sql_statement(sql);
     analyse_sql_statement(context.db, plan.parser_result);
 
-    if (plan.parser_result.opType == "select") {
-        constructSelect(context, plan);
-    } else if (plan.parser_result.opType == "insert") {
-        constructInsert(context, plan);
-    } else if (plan.parser_result.opType == "update") {
-        constructUpdate(context, plan);
-    } else if (plan.parser_result.opType == "delete") {
-        constructDelete(context, plan);
-    } else if (plan.parser_result.opType == "create") {
-        constructCreate(context, plan);
-    } else if (plan.parser_result.opType == "checkout") {
-        constructCheckout(context, plan);
+    switch (plan.parser_result.opType) {
+        case SQLParserResult::OpType::Select:
+            constructSelect(context, plan);
+            break;
+        case SQLParserResult::OpType::Insert:
+            constructInsert(context, plan);
+            break;
+        case SQLParserResult::OpType::Update:
+            constructUpdate(context, plan);
+            break;
+        case SQLParserResult::OpType::Delete:
+            constructDelete(context, plan);
+            break;
+        case SQLParserResult::OpType::CreateTable:
+            constructCreate(context, plan);
+            break;
+        case SQLParserResult::OpType::CreateBranch:
+            constructCheckout(context, plan);
+            break;
     }
 
     return std::move(plan.tree);
