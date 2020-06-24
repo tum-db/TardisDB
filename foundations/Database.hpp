@@ -93,7 +93,9 @@ public:
 
     void addColumn(const std::string & columnName, Sql::SqlType type);
 
-    void addRow();
+    void addRow(branch_id_t branchId);
+
+    void removeRowForBranch(tid_t tid, branch_id_t branchId);
 
     void createBranch(branch_id_t parent);
 

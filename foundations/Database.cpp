@@ -192,14 +192,18 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
     _columns.emplace_back(std::move(ci), std::move(column));
 }
 
-void Table::addRow()
+void Table::addRow(branch_id_t branchId)
 {
     for (auto & [ci, vec] : _columns) {
         vec->reserve_back();
     }
     _nullIndicatorTable.addRow();
     _branchBitmap.addRow();
-    _branchBitmap.set(_columns.front().second->size() - 1,0,1);
+    _branchBitmap.set(_columns.front().second->size() - 1,branchId,1);
+}
+
+void Table::removeRowForBranch(tid_t tid, branch_id_t branchId) {
+    _branchBitmap.set(tid,branchId,0);
 }
 
 void Table::createBranch(branch_id_t parent)
@@ -284,7 +288,7 @@ size_t Table::size() const
 // wrapper functions
 static void tableAddRow(Table * table)
 {
-    table->addRow();
+    table->addRow(0);
 }
 
 // generator functions

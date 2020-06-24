@@ -67,7 +67,7 @@ void update_tuple_with_binding(tid_t tid, std::string *binding, Native::Sql::Sql
 
 // the entire version chain has to be deleted
 // the tuple has to be relocated iff branch==master
-tid_t delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
+void delete_tuple(tid_t tid, Table & table, QueryContext & ctx);
 
 tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, QueryContext ctx);
 

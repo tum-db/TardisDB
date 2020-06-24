@@ -40,53 +40,27 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
     Database & db = table.getDatabase();
     size_t branch_cnt = 1 + db.getLargestBranchId();
 
-    if (branch == master_branch_id) {
-        tid = table._version_mgmt_column.size();
+    tid = table._version_mgmt_column.size();
 
-        table._version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-        VersionEntry * version_entry = table._version_mgmt_column.back().get();
-        version_entry->first = version_entry;
-        version_entry->next = nullptr;
-        version_entry->next_in_branch = nullptr;
+    table._version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+    VersionEntry * version_entry = table._version_mgmt_column.back().get();
+    version_entry->first = version_entry;
+    version_entry->next = nullptr;
+    version_entry->next_in_branch = nullptr;
 
-        // branch visibility
-        version_entry->branch_id = master_branch_id;
-        version_entry->branch_visibility.resize(branch_cnt, false);
-        version_entry->branch_visibility.set(master_branch_id);
-        version_entry->creation_ts = db.getLargestBranchId();
+    // branch visibility
+    version_entry->branch_id = branch;
+    version_entry->branch_visibility.resize(branch_cnt, false);
+    version_entry->branch_visibility.set(branch);
+    version_entry->creation_ts = db.getLargestBranchId();
 
-        // store tuple
-        table.addRow();
-        size_t column_idx = 0;
-        for (auto & value : tuple.values) {
-            void * ptr = const_cast<void *>(table.getColumn(column_idx).back());
-            value->store(ptr);
-            column_idx += 1;
-        }
-    } else {
-        auto storage = create_chain_element(table, tuple.getSize());
-
-        tid = table._dangling_version_mgmt_column.size();
-        tid = mark_as_dangling_tid(tid);
-
-        // branch visibility
-        storage->branch_id = branch;
-        storage->creation_ts = db.getLargestBranchId();
-
-        tuple.store(get_tuple_ptr(storage));
-
-        // version entry
-        table._dangling_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-        VersionEntry * version_entry = table._dangling_version_mgmt_column.back().get();
-        version_entry->first = storage;
-        version_entry->next = storage;
-        version_entry->next_in_branch = nullptr;
-        /*
-        not used in this case:
-        version_entry->branch_id;
-        */
-        version_entry->branch_visibility.resize(branch_cnt, false);
-        version_entry->branch_visibility.set(branch);
+    // store tuple
+    table.addRow(branch);
+    size_t column_idx = 0;
+    for (auto & value : tuple.values) {
+        void * ptr = const_cast<void *>(table.getColumn(column_idx).back());
+        value->store(ptr);
+        column_idx += 1;
     }
 
     return tid;
@@ -185,9 +159,10 @@ void update_tuple_with_binding(tid_t tid, std::string *binding, Native::Sql::Sql
     return update_tuple(tid,tuple,table,ctx);
 }
 
-tid_t delete_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
-    // TODO
-    throw NotImplementedException();
+void delete_tuple(tid_t tid, Table & table, QueryContext & ctx) {
+    branch_id_t branch = ctx.executionContext.branchId;
+
+    table.removeRowForBranch(tid,branch);
 }
 
 const void * get_latest_chain_element(const VersionEntry * version_entry, Table & table, QueryContext & ctx) {

@@ -122,7 +122,7 @@ void loadTable(std::istream & stream, Table & table)
     std::string rowStr;
     std::vector<RowItem> row(table.getColumnCount());
     while (std::getline(stream, rowStr)) {
-        table.addRow();
+        table.addRow(0);
 
         std::vector<std::string> items = split(rowStr, '|');
         assert(row.size() == items.size());

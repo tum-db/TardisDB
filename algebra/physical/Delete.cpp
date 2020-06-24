@@ -1,6 +1,9 @@
+#include <llvm/IR/TypeBuilder.h>
+
 #include "algebra/physical/Delete.hpp"
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlValues.hpp"
+#include "foundations/version_management.hpp"
 
 using namespace Sql;
 
@@ -39,7 +42,11 @@ namespace Algebra {
                 }
             }
 
-            Functions::genPrintfCall("Delete TID %lu\n",tid);
+            // Call the delete_tuple function in version_management.hpp
+            llvm::FunctionType * funcDeleteTupleTy = llvm::TypeBuilder<void (size_t, void *, void *), false>::get(_codeGen.getLLVMContext());
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("delete_tuple", funcDeleteTupleTy) );
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&delete_tuple);
+            llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
 
             // increment tuple counter
             cg_size_t prevCnt(_codeGen->CreateLoad(tupleCountPtr));

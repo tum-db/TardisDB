@@ -472,9 +472,9 @@ static state_t parse_next_token(Tokenizer & token_src, const state_t state, SQLP
                 query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
                 new_state = State::DeleteWhereExprRhs;
             } else if (token.type == TokenType::literal) {
-                std::string lhs = token_src.prev(2).value;
-                std::string rhs = token_value;
-                query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                BindingAttribute lhs = parse_binding_attribute(token_src.prev(2).value);
+                Constant rhs = unescape(token_value);
+                query.selections.push_back(std::make_pair(lhs, token_value));
                 new_state = State::DeleteWhereExprRhs;
             } else {
                 throw incorrect_sql_error("Expected identifier after relation reference, found '" + token_value + "'");
@@ -873,3 +873,5 @@ SQLParserResult parse_sql_statement(std::string sql) {
 // create branch hello from master;
 // insert into professoren version hello ( name , rang ) VALUES ( 'neumann' , 3 );
 // select name from professoren version hello p;
+// DELETE from professoren version hello p WHERE rang = 4;
+// DELETE FROM professoren p WHERE rang = 4;
