@@ -22,6 +22,7 @@ void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) 
     for (auto& relation : plan.parser_result.relations) {
         std::string tableName = relation.first;
         std::string tableAlias = relation.second;
+        if (tableAlias.length() == 0) tableAlias = tableName;
         std::string &branchName = plan.parser_result.versions[i];
 
         Table* table = db.getTable(tableName);
@@ -55,6 +56,7 @@ void SemanticAnalyser::construct_selects(QueryContext& context, QueryPlan& plan)
     for (auto & selection : plan.parser_result.selections) {
         std::string& productionName = selection.first.first;
         std::string& productionIUName = selection.first.second;
+        if (productionIUName.length() == 0) productionIUName = productionName;
         std::string& valueString = selection.second;
 
         iu_p_t iu = plan.ius[productionName][productionIUName];
@@ -212,6 +214,7 @@ void SemanticAnalyser::construct_update(QueryContext& context, QueryPlan & plan)
     }
 
     auto &relationName = plan.parser_result.relations[0].second;
+    if (relationName.length() == 0) relationName = plan.parser_result.relations[0].first;
     Table* table = context.db.getTable(plan.parser_result.relations[0].first);
 
     std::vector<std::pair<iu_p_t,std::string>> updateIUs;
@@ -244,6 +247,7 @@ void SemanticAnalyser::construct_delete(QueryContext& context, QueryPlan & plan)
     }
 
     auto &relationName = plan.parser_result.relations[0].second;
+    if (relationName.length() == 0) relationName = plan.parser_result.relations[0].first;
     Table* table = context.db.getTable(plan.parser_result.relations[0].first);
 
     iu_p_t tidIU;
