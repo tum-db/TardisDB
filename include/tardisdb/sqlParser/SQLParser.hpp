@@ -1,8 +1,6 @@
 #ifndef PROTODB_SQLPARSER_HPP
 #define PROTODB_SQLPARSER_HPP
 
-#include <vector>
-#include <set>
 #include <string>
 
 #include "sqlParser/Tokenizer.hpp"

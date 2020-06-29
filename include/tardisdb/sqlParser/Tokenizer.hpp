@@ -5,10 +5,10 @@
 #ifndef PROTODB_TOKENIZER_HPP
 #define PROTODB_TOKENIZER_HPP
 
-#include <string>
 #include <set>
-#include <vector>
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace tardisParser {
     // Define all SQL keywords
