@@ -38,6 +38,10 @@ namespace semanticalAnalysis {
         tardisParser::SQLParserResult &_parserResult;
         std::unique_ptr<SemanticalVerifier> _verifier;
 
+    public:
+        static std::unique_ptr<SemanticAnalyser> getSemanticAnalyser(QueryContext &context, tardisParser::SQLParserResult &parserResult);
+
+    protected:
         static void construct_scans(QueryContext& context, QueryPlan & plan);
         static void construct_selects(QueryContext & context, QueryPlan & plan);
         static void construct_joins(QueryContext & context, QueryPlan & plan);
@@ -48,10 +52,6 @@ namespace semanticalAnalysis {
     private:
         static void construct_join_graph(QueryContext & context, QueryPlan & plan);
         static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
-        static std::unique_ptr<SemanticAnalyser> getSemanticAnalyser(QueryContext &context, tardisParser::SQLParserResult &parserResult);
-
-    public:
-        static std::unique_ptr<Operator> analyseQuery(QueryContext& context, std::string sql);
     };
 
     //

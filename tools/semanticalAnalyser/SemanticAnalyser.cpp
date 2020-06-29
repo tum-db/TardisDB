@@ -290,15 +290,6 @@ namespace semanticalAnalysis {
 
         return nullptr;
     }
-
-    std::unique_ptr<Operator> SemanticAnalyser::analyseQuery(QueryContext& context, std::string sql) {
-        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(sql);
-
-        std::unique_ptr<SemanticAnalyser> analyser = getSemanticAnalyser(context,parserResult);
-        analyser->verify();
-
-        return std::move(analyser->constructTree());
-    }
 }
 
 

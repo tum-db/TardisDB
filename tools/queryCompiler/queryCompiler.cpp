@@ -56,7 +56,11 @@ namespace QueryCompiler {
 
         ModuleGen moduleGen("QueryModule");
 
-        auto queryTree = semanticalAnalysis::SemanticAnalyser::analyseQuery(queryContext, query);
+        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(query);
+
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,parserResult);
+        analyser->verify();
+        auto queryTree = analyser->constructTree();
         if (queryTree == nullptr) return;
 
         auto queryFunc = compileQuery(query, queryTree);
