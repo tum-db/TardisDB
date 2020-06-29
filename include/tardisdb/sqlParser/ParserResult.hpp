@@ -6,6 +6,7 @@
 #define PROTODB_PARSERRESULT_HPP
 
 #include <vector>
+#include <string>
 
 namespace tardisParser {
     using Relation = std::pair<std::string, std::string>; // relationName and binding
