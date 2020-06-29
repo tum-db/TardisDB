@@ -2,6 +2,8 @@
 // Created by Blum Thomas on 2020-06-27.
 //
 
+#include <algorithm>
+
 #include "sqlParser/Tokenizer.hpp"
 
 namespace tardisParser {
