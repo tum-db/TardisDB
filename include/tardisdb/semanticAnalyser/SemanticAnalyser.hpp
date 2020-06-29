@@ -10,11 +10,7 @@
 
 using namespace Algebra::Logical;
 
-class SemanticAnalyser {
-public:
-    static std::unique_ptr<Operator> parse_and_construct_tree(QueryContext& context, std::string sql);
-
-private:
+namespace semanticalAnalysis {
     struct QueryPlan {
         tardisParser::SQLParserResult parser_result;
 
@@ -28,22 +24,32 @@ private:
         std::unique_ptr<Operator> tree;
     };
 
-    static void constructSelect(QueryContext& context, QueryPlan & plan);
-    static void constructInsert(QueryContext &context, QueryPlan &plan);
-    static void constructUpdate(QueryContext& context, QueryPlan & plan);
-    static void constructDelete(QueryContext& context, QueryPlan & plan);
-    static void constructCreate(QueryContext& context, QueryPlan & plan);
-    static void constructCheckout(QueryContext& context, QueryPlan & plan);
+    class SemanticAnalyser {
+    public:
+        static std::unique_ptr<Operator> parse_and_construct_tree(QueryContext& context, std::string sql);
 
-    static void construct_scans(QueryContext& context, QueryPlan & plan);
-    static void construct_selects(QueryContext & context, QueryPlan & plan);
-    static void construct_join_graph(QueryContext & context, QueryPlan & plan);
-    static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
-    static void construct_joins(QueryContext & context, QueryPlan & plan);
-    static void construct_projection(QueryContext & context, QueryPlan & plan);
-    static void construct_update(QueryContext & context, QueryPlan & plan);
-    static void construct_delete(QueryContext & context, QueryPlan & plan);
-};
+    private:
+
+
+        static void constructSelect(QueryContext& context, QueryPlan & plan);
+        static void constructInsert(QueryContext &context, QueryPlan &plan);
+        static void constructUpdate(QueryContext& context, QueryPlan & plan);
+        static void constructDelete(QueryContext& context, QueryPlan & plan);
+        static void constructCreate(QueryContext& context, QueryPlan & plan);
+        static void constructCheckout(QueryContext& context, QueryPlan & plan);
+
+        static void construct_scans(QueryContext& context, QueryPlan & plan);
+        static void construct_selects(QueryContext & context, QueryPlan & plan);
+        static void construct_join_graph(QueryContext & context, QueryPlan & plan);
+        static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
+        static void construct_joins(QueryContext & context, QueryPlan & plan);
+        static void construct_projection(QueryContext & context, QueryPlan & plan);
+        static void construct_update(QueryContext & context, QueryPlan & plan);
+        static void construct_delete(QueryContext & context, QueryPlan & plan);
+    };
+}
+
+
 
 
 
