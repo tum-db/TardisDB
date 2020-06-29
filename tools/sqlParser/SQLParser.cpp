@@ -1,13 +1,5 @@
 #include "sqlParser/SQLParser.hpp"
 
-#include <algorithm>
-#include <cctype>
-#include <sstream>
-#include <memory>
-#include <optional>
-#include <cassert>
-#include <unordered_map>
-
 namespace tardisParser {
     // Check if token matches a certain keyword
     bool SQLParser::equals_keyword(const Token &tok, std::string keyword) {
