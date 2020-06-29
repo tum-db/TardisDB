@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "sqlParser/SQLParser.hpp"
 
 namespace tardisParser {
