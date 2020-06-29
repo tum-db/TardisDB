@@ -1,53 +1,118 @@
-#pragma once
+#ifndef PROTODB_SQLPARSER_HPP
+#define PROTODB_SQLPARSER_HPP
 
 #include <vector>
 #include <set>
 #include <string>
-#include "foundations/Database.hpp"
 
-struct incorrect_sql_error : std::runtime_error {
-   //semantic or syntactic errors
-   using std::runtime_error::runtime_error;
-};
+#include "sqlParser/Tokenizer.hpp"
+#include "sqlParser/ParserResult.hpp"
 
-struct SQLParserResult {
-   using Relation = std::pair<std::string, std::string>; //relationName and binding
-   using BindingAttribute = std::pair<std::string, std::string>; //bindingName and attribute
-   using AttributeName = std::string;
-   using Constant = std::string;
+namespace tardisParser {
+    struct incorrect_sql_error : std::runtime_error {
+        //semantic or syntactic errors
+        using std::runtime_error::runtime_error;
+    };
 
-   enum OpType : unsigned int {
-       Select, Insert, Update, Delete, CreateTable, CreateBranch
-   } opType;
+// Define all parser states
+    typedef enum State : unsigned int {
+        Init,
 
-   std::vector<std::string> versions;
+        Select,
+        SelectProjectionStar,
+        SelectProjectionAttrName,
+        SelectProjectionAttrSeparator,
+        SelectFrom,
+        SelectFromRelationName,
+        SelectFromVersion,
+        SelectFromTag,
+        SelectFromBindingName,
+        SelectFromSeparator,
+        SelectWhere,
+        SelectWhereExprLhs,
+        SelectWhereExprOp,
+        SelectWhereExprRhs,
+        SelectWhereAnd,
 
-   //SELECT
-   std::vector<Relation> relations;
-   std::vector<AttributeName> projections;
-   std::vector<std::pair<BindingAttribute, Constant>> selections;
-   std::vector<std::pair<BindingAttribute, BindingAttribute>> joinConditions;
+        Insert,
+        InsertInto,
+        InsertRelationName,
+        InsertVersion,
+        InsertTag,
+        InsertColumnsBegin,
+        InsertColumnsEnd,
+        InsertColumnName,
+        InsertColumnSeperator,
+        InsertValues,
+        InsertValuesBegin,
+        InsertValuesEnd,
+        InsertValue,
+        InsertValueSeperator,
 
-   //Modification
-   std::string relation;
-   std::vector<std::pair<std::string, std::string>> selectionsWithoutBinding;
+        Update,
+        UpdateRelationName,
+        UpdateVersion,
+        UpdateTag,
+        UpdateSet,
+        UpdateSetExprLhs,
+        UpdateSetExprOp,
+        UpdateSetExprRhs,
+        UpdateSetSeperator,
+        UpdateWhere,
+        UpdateWhereExprLhs,
+        UpdateWhereExprOp,
+        UpdateWhereExprRhs,
+        UpdateWhereAnd,
 
-   //INSERT
-   std::vector<std::string> columnNames;
-   std::vector<std::string> values;
+        Delete,
+        DeleteFrom,
+        DeleteRelationName,
+        DeleteVersion,
+        DeleteTag,
+        DeleteWhere,
+        DeleteWhereExprLhs,
+        DeleteWhereExprOp,
+        DeleteWhereExprRhs,
+        DeleteWhereAnd,
 
-   //UPDATE
-   std::vector<std::pair<std::string,std::string>> columnToValue;
+        Create,
+        CreateTable,
+        CreateTableRelationName,
+        CreateTableColumnsBegin,
+        CreateTableColumnsEnd,
+        CreateTableColumnName,
+        CreateTableColumnType,
+        CreateTableTypeDetailBegin,
+        CreateTableTypeDetailEnd,
+        CreateTableTypeDetailSeperator,
+        CreateTableTypeDetailLength,
+        CreateTableTypeDetailPrecision,
+        CreateTableTypeNot,
+        CreateTableTypeNotNull,
+        CreateTableColumnSeperator,
+        CreateBranch,
+        CreateBranchTag,
+        CreateBranchFrom,
+        CreateBranchParent,
 
-   //CREATE
-   std::vector<std::string> columnTypes;
-   std::vector<bool> nullable;
-   std::vector<uint32_t> length;
-   std::vector<uint32_t> precision;
+        Done
+    } state_t;
 
-   //Checkout
-   std::string branchId;
-   std::string parentBranchId;
-};
+    class SQLParser {
+    public:
 
-SQLParserResult parse_sql_statement(std::string sql);
+        static SQLParserResult parse_sql_statement(std::string sql);
+
+    private:
+
+        static bool equals_keyword(const Token &tok, std::string keyword);
+
+        static bool equals_controlSymbol(const Token &tok, std::string controlSymbol);
+
+        static BindingAttribute parse_binding_attribute(std::string value);
+
+        static state_t parse_next_token(Tokenizer &token_src, const state_t state, SQLParserResult &query);
+    };
+}
+
+#endif //PROTODB_SQLPARSER_HPP

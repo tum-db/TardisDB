@@ -12,13 +12,13 @@ namespace {
     TEST(SqlParserTest, SelectStatment) {
         std::string statement = "SELECT name FROM professoren p;";
 
-        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
+        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
         std::string projection = "name";
 
-        SQLParserResult result = parse_sql_statement(statement);
+        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(result.relations[0].first, relationName);
         ASSERT_EQ(result.relations[0].second, bindingName);
@@ -29,13 +29,13 @@ namespace {
     TEST(SqlParserTest, SelectStatmentProjections) {
         std::string statement = "SELECT persnr, name, rang, raum FROM professoren p;";
 
-        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
+        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
         std::set<std::string> projections = { "persnr", "name", "rang", "raum" };
 
-        SQLParserResult result = parse_sql_statement(statement);
+        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
 
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(result.relations[0].first, relationName);
@@ -50,12 +50,12 @@ namespace {
     TEST(SqlParserTest, SelectStatmentProjectionStar) {
         std::string statement = "SELECT * FROM professoren p;";
 
-        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
+        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
 
-        SQLParserResult result = parse_sql_statement(statement);
+        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
 
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(result.relations[0].first, relationName);
@@ -67,13 +67,13 @@ namespace {
     TEST(SqlParserTest, SelectStatmentMultiRelations) {
         std::string statement = "SELECT * FROM professoren p, studenten s;";
 
-        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
+        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
         std::set<std::pair<std::string,std::string>> relationBindings;
         relationBindings.insert(std::make_pair("professoren","p"));
         relationBindings.insert(std::make_pair("studenten","s"));
         std::string version = "master";
 
-        SQLParserResult result = parse_sql_statement(statement);
+        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
 
         ASSERT_EQ(result.opType, opType);
         for (auto &projection : result.relations) {
@@ -86,14 +86,14 @@ namespace {
     TEST(SqlParserTest, SelectStatmentWhereNumberCompare) {
         std::string statement = "SELECT * FROM professoren p WHERE rang = 4;";
 
-        SQLParserResult::OpType opType = SQLParserResult::OpType::Select;
+        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
         std::string whereColumn = "rang";
         std::string whereValue = "4";
 
-        SQLParserResult result = parse_sql_statement(statement);
+        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
 
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(result.relations[0].first, relationName);

@@ -16,7 +16,7 @@ public:
 
 private:
     struct QueryPlan {
-        SQLParserResult parser_result;
+        tardisParser::SQLParserResult parser_result;
 
         JoinGraph graph;
 
@@ -44,7 +44,7 @@ private:
     static void construct_update(QueryContext & context, QueryPlan & plan);
     static void construct_delete(QueryContext & context, QueryPlan & plan);
 
-    static void analyse_sql_statement(Database& db, SQLParserResult &result);
+    static void analyse_sql_statement(Database& db, tardisParser::SQLParserResult &result);
 };
 
 
