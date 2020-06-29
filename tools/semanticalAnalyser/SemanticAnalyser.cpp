@@ -1,9 +1,9 @@
-#include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
+#include "semanticAnalyser/SemanticAnalyser.hpp"
 
 #include "foundations/Database.hpp"
 #include "native/sql/SqlValues.hpp"
 #include "foundations/version_management.hpp"
-#include "include/tardisdb/semanticAnalyser/SemanticalVerifier.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -13,6 +13,7 @@
 #include <native/sql/SqlTuple.hpp>
 
 namespace semanticalAnalysis {
+
     void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan) {
         auto& db = context.db;
 
@@ -270,39 +271,33 @@ namespace semanticalAnalysis {
         plan.tree = std::make_unique<Delete>( std::move(production), tidIU, *table);
     }
 
-
-
-    std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
-        QueryPlan plan;
-        plan.parser_result = tardisParser::SQLParser::parse_sql_statement(sql);
-
-        semanticalAnalysis::SemanticalVerifier verifier(context.db);
-        verifier.analyse_sql_statement(plan.parser_result);
-
-        std::unique_ptr<SemanticAnalyser> analyser;
-        switch (plan.parser_result.opType) {
+    std::unique_ptr<SemanticAnalyser> SemanticAnalyser::getSemanticAnalyser(QueryContext &context,
+            tardisParser::SQLParserResult &parserResult) {
+        switch (parserResult.opType) {
             case tardisParser::SQLParserResult::OpType::Select:
-                analyser = std::make_unique<SelectAnalyser>(context);
-                break;
+                return std::make_unique<SelectAnalyser>(context,parserResult);
             case tardisParser::SQLParserResult::OpType::Insert:
-                analyser = std::make_unique<InsertAnalyser>(context);
-                break;
+                return std::make_unique<InsertAnalyser>(context,parserResult);
             case tardisParser::SQLParserResult::OpType::Update:
-                analyser = std::make_unique<UpdateAnalyser>(context);
-                break;
+                return std::make_unique<UpdateAnalyser>(context,parserResult);
             case tardisParser::SQLParserResult::OpType::Delete:
-                analyser = std::make_unique<DeleteAnalyser>(context);
-                break;
+                return std::make_unique<DeleteAnalyser>(context,parserResult);
             case tardisParser::SQLParserResult::OpType::CreateTable:
-                analyser = std::make_unique<CreateTableAnalyser>(context);
-                break;
+                return std::make_unique<CreateTableAnalyser>(context,parserResult);
             case tardisParser::SQLParserResult::OpType::CreateBranch:
-                analyser = std::make_unique<CreateBranchAnalyser>(context);
-                break;
+                return std::make_unique<CreateBranchAnalyser>(context,parserResult);
         }
-        analyser->constructTree(plan);
 
-        return std::move(plan.tree);
+        return nullptr;
+    }
+
+    std::unique_ptr<Operator> SemanticAnalyser::analyseQuery(QueryContext& context, std::string sql) {
+        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(sql);
+
+        std::unique_ptr<SemanticAnalyser> analyser = getSemanticAnalyser(context,parserResult);
+        analyser->verify();
+
+        return std::move(analyser->constructTree());
     }
 }
 

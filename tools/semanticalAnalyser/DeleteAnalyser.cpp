@@ -6,10 +6,15 @@
 
 namespace semanticalAnalysis {
 
-    void DeleteAnalyser::constructTree(QueryPlan& plan) {
+    std::unique_ptr<Operator> DeleteAnalyser::constructTree() {
+        QueryPlan plan;
+        plan.parser_result = _parserResult;
+
         construct_scans(_context, plan);
         construct_selects(_context, plan);
         construct_delete(_context, plan);
+
+        return std::move(plan.tree);
     }
 
 }

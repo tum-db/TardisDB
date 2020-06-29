@@ -6,11 +6,16 @@
 
 namespace semanticalAnalysis {
 
-    void SelectAnalyser::constructTree(QueryPlan& plan) {
+    std::unique_ptr<Operator> SelectAnalyser::constructTree() {
+        QueryPlan plan;
+        plan.parser_result = _parserResult;
+
         construct_scans(_context, plan);
         construct_selects(_context, plan);
         construct_joins(_context,plan);
         construct_projection(_context, plan);
+
+        return std::move(plan.tree);
     }
 
 }

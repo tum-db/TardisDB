@@ -6,7 +6,10 @@
 
 namespace semanticalAnalysis {
 
-    void InsertAnalyser::constructTree(QueryPlan &plan) {
+    std::unique_ptr<Operator> InsertAnalyser::constructTree() {
+        QueryPlan plan;
+        plan.parser_result = _parserResult;
+
         auto& db = _context.db;
         Table* table = db.getTable(plan.parser_result.relation);
 
@@ -18,7 +21,7 @@ namespace semanticalAnalysis {
                 _context.executionContext.branchId = 0;
             }
         } else {
-            return;
+            return nullptr;
         }
 
         std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
@@ -34,6 +37,8 @@ namespace semanticalAnalysis {
         Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
 
         plan.tree = std::make_unique<Insert>(_context,*table,tuple);
+
+        return std::move(plan.tree);
     }
 
 }

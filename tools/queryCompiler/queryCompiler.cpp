@@ -56,7 +56,7 @@ namespace QueryCompiler {
 
         ModuleGen moduleGen("QueryModule");
 
-        auto queryTree = semanticalAnalysis::SemanticAnalyser::parse_and_construct_tree(queryContext, query);
+        auto queryTree = semanticalAnalysis::SemanticAnalyser::analyseQuery(queryContext, query);
         if (queryTree == nullptr) return;
 
         auto queryFunc = compileQuery(query, queryTree);

@@ -7,6 +7,7 @@
 
 #include "sqlParser/ParserResult.hpp"
 #include "foundations/Database.hpp"
+#include "foundations/QueryContext.hpp"
 
 namespace semanticalAnalysis {
     struct semantic_sql_error : std::runtime_error {
@@ -16,10 +17,10 @@ namespace semanticalAnalysis {
 
     class SemanticalVerifier {
     public:
-        SemanticalVerifier(Database &db) : _db(db) {}
+        SemanticalVerifier(QueryContext &context) : _context(context) {}
         void analyse_sql_statement(tardisParser::SQLParserResult &result);
     private:
-        Database& _db;
+        QueryContext& _context;
     };
 }
 

@@ -2,7 +2,7 @@
 // Created by Blum Thomas on 2020-06-29.
 //
 
-#include "include/tardisdb/semanticAnalyser/SemanticalVerifier.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 namespace semanticalAnalysis {
 
@@ -91,9 +91,9 @@ namespace semanticalAnalysis {
     }
 
     void SemanticalVerifier::analyse_sql_statement(tardisParser::SQLParserResult &result) {
-        auto scope = construct_scope(_db, result);
+        auto scope = construct_scope(_context.db, result);
         fully_qualify_names(scope, result);
-        validate_sql_statement(scope, _db, result);
+        validate_sql_statement(scope, _context.db, result);
     }
 
 }

@@ -6,7 +6,10 @@
 
 namespace semanticalAnalysis {
 
-    void CreateBranchAnalyser::constructTree(QueryPlan& plan) {
+    std::unique_ptr<Operator> CreateBranchAnalyser::constructTree() {
+        QueryPlan plan;
+        plan.parser_result = _parserResult;
+
         // Get branchName and parentBranchId from statement
         std::string &branchName = plan.parser_result.branchId;
         std::string &parentBranchName = plan.parser_result.parentBranchId;
@@ -21,6 +24,8 @@ namespace semanticalAnalysis {
         branch_id_t branchid = _context.db.createBranch(branchName, _parentBranchId);
 
         std::cout << "Created Branch " << branchid << "\n";
+
+        return std::move(plan.tree);
     }
 
 }

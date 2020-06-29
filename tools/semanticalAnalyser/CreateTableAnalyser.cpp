@@ -6,7 +6,10 @@
 
 namespace semanticalAnalysis {
 
-    void CreateTableAnalyser::constructTree(QueryPlan& plan) {
+    std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
+        QueryPlan plan;
+        plan.parser_result = _parserResult;
+
         auto & createdTable = _context.db.createTable(plan.parser_result.relation);
 
         for (int i = 0; i < plan.parser_result.columnNames.size(); i++) {
@@ -39,6 +42,8 @@ namespace semanticalAnalysis {
 
             createdTable.addColumn(columnName, sqlType);
         }
+
+        return std::move(plan.tree);
     }
 
 }
