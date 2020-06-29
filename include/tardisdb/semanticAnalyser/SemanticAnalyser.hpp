@@ -26,26 +26,74 @@ namespace semanticalAnalysis {
 
     class SemanticAnalyser {
     public:
-        static std::unique_ptr<Operator> parse_and_construct_tree(QueryContext& context, std::string sql);
+        SemanticAnalyser(QueryContext &context) : _context(context) {}
+        virtual ~SemanticAnalyser() {};
 
-    private:
+        virtual bool verify() = 0;
+        virtual void constructTree(QueryPlan & plan) = 0;
 
-
-        static void constructSelect(QueryContext& context, QueryPlan & plan);
-        static void constructInsert(QueryContext &context, QueryPlan &plan);
-        static void constructUpdate(QueryContext& context, QueryPlan & plan);
-        static void constructDelete(QueryContext& context, QueryPlan & plan);
-        static void constructCreate(QueryContext& context, QueryPlan & plan);
-        static void constructCheckout(QueryContext& context, QueryPlan & plan);
+    protected:
+        QueryContext &_context;
 
         static void construct_scans(QueryContext& context, QueryPlan & plan);
         static void construct_selects(QueryContext & context, QueryPlan & plan);
-        static void construct_join_graph(QueryContext & context, QueryPlan & plan);
-        static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
         static void construct_joins(QueryContext & context, QueryPlan & plan);
         static void construct_projection(QueryContext & context, QueryPlan & plan);
         static void construct_update(QueryContext & context, QueryPlan & plan);
         static void construct_delete(QueryContext & context, QueryPlan & plan);
+
+    private:
+        static void construct_join_graph(QueryContext & context, QueryPlan & plan);
+        static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
+
+    public:
+        static std::unique_ptr<Operator> parse_and_construct_tree(QueryContext& context, std::string sql);
+    };
+
+    //
+    // StatementTypeAnalyser
+    //
+
+    class SelectAnalyser : public SemanticAnalyser {
+    public:
+        SelectAnalyser(QueryContext &context) : SemanticAnalyser(context) {}
+        bool verify() override { return true; }
+        void constructTree(QueryPlan & plan) override;
+    };
+
+    class InsertAnalyser : public SemanticAnalyser {
+    public:
+        InsertAnalyser(QueryContext &context) : SemanticAnalyser(context) {}
+        bool verify() override { return true; }
+        void constructTree(QueryPlan & plan) override;
+    };
+
+    class UpdateAnalyser : public SemanticAnalyser {
+    public:
+        UpdateAnalyser(QueryContext &context) : SemanticAnalyser(context) {}
+        bool verify() override { return true; }
+        void constructTree(QueryPlan & plan) override;
+    };
+
+    class DeleteAnalyser : public SemanticAnalyser {
+    public:
+        DeleteAnalyser(QueryContext &context) : SemanticAnalyser(context) {}
+        bool verify() override { return true; }
+        void constructTree(QueryPlan & plan) override;
+    };
+
+    class CreateTableAnalyser : public SemanticAnalyser {
+    public:
+        CreateTableAnalyser(QueryContext &context) : SemanticAnalyser(context) {}
+        bool verify() override { return true; }
+        void constructTree(QueryPlan & plan) override;
+    };
+
+    class CreateBranchAnalyser : public SemanticAnalyser {
+    public:
+        CreateBranchAnalyser(QueryContext &context) : SemanticAnalyser(context) {}
+        bool verify() override { return true; }
+        void constructTree(QueryPlan & plan) override;
     };
 }
 

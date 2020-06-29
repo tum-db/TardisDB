@@ -174,6 +174,9 @@ namespace semanticalAnalysis {
     }
 
     void SemanticAnalyser::construct_joins(QueryContext & context, QueryPlan & plan) {
+        // Construct the join graph
+        construct_join_graph(context,plan);
+
         //Start with the first vertex in the vector of vertices of the join graph
         std::string firstVertexName = plan.graph.getFirstVertexName();
 
@@ -267,107 +270,7 @@ namespace semanticalAnalysis {
         plan.tree = std::make_unique<Delete>( std::move(production), tidIU, *table);
     }
 
-    void SemanticAnalyser::constructSelect(QueryContext& context, QueryPlan& plan) {
-        construct_scans(context, plan);
-        construct_selects(context, plan);
-        construct_join_graph(context,plan);
-        construct_joins(context,plan);
-        construct_projection(context, plan);
-    }
 
-    void SemanticAnalyser::constructInsert(QueryContext &context, QueryPlan &plan) {
-        auto& db = context.db;
-        Table* table = db.getTable(plan.parser_result.relation);
-
-        if (plan.parser_result.versions.size() == 1) {
-            std::string &branchName = plan.parser_result.versions[0];
-            if (branchName.compare("master") != 0) {
-                context.executionContext.branchId = db._branchMapping[branchName];
-            } else {
-                context.executionContext.branchId = 0;
-            }
-        } else {
-            return;
-        }
-
-        std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
-
-        for (int i=0; i<plan.parser_result.columnNames.size(); i++) {
-            Native::Sql::SqlType type = table->getCI(plan.parser_result.columnNames[i])->type;
-            std::string &value = plan.parser_result.values[i];
-            std::unique_ptr<Native::Sql::Value> sqlvalue = Native::Sql::Value::castString(value,type);
-
-            sqlvalues.emplace_back(std::move(sqlvalue));
-        }
-
-        Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
-
-        plan.tree = std::make_unique<Insert>(context,*table,tuple);
-    }
-
-    void SemanticAnalyser::constructUpdate(QueryContext& context, QueryPlan& plan) {
-        construct_scans(context, plan);
-        construct_selects(context, plan);
-        construct_update(context, plan);
-    }
-
-    void SemanticAnalyser::constructDelete(QueryContext& context, QueryPlan& plan) {
-        construct_scans(context, plan);
-        construct_selects(context, plan);
-        construct_delete(context, plan);
-    }
-
-    void SemanticAnalyser::constructCreate(QueryContext& context, QueryPlan& plan) {
-        auto & createdTable = context.db.createTable(plan.parser_result.relation);
-
-        for (int i = 0; i < plan.parser_result.columnNames.size(); i++) {
-            std::string &columnName = plan.parser_result.columnNames[i];
-            std::string &columnType = plan.parser_result.columnTypes[i];
-            bool nullable = plan.parser_result.nullable[i];
-            uint32_t length = plan.parser_result.length[i];
-            uint32_t precision = plan.parser_result.precision[i];
-
-            Sql::SqlType sqlType;
-            if (columnType.compare("bool") == 0) {
-                sqlType = Sql::getBoolTy(nullable);
-            } else if (columnType.compare("date") == 0) {
-                sqlType = Sql::getDateTy(nullable);
-            } else if (columnType.compare("integer") == 0) {
-                sqlType = Sql::getIntegerTy(nullable);
-            } else if (columnType.compare("longinteger") == 0) {
-                sqlType = Sql::getLongIntegerTy(nullable);
-            } else if (columnType.compare("numeric") == 0) {
-                sqlType = Sql::getNumericTy(length,precision,nullable);
-            } else if (columnType.compare("char") == 0) {
-                sqlType = Sql::getCharTy(length, nullable);
-            } else if (columnType.compare("varchar") == 0) {
-                sqlType = Sql::getVarcharTy(length, nullable);
-            } else if (columnType.compare("timestamp") == 0) {
-                sqlType = Sql::getTimestampTy(nullable);
-            } else if (columnType.compare("text") == 0) {
-                sqlType = Sql::getTextTy(nullable);
-            }
-
-            createdTable.addColumn(columnName, sqlType);
-        }
-    }
-
-    void SemanticAnalyser::constructCheckout(QueryContext& context, QueryPlan& plan) {
-        // Get branchName and parentBranchId from statement
-        std::string &branchName = plan.parser_result.branchId;
-        std::string &parentBranchName = plan.parser_result.parentBranchId;
-
-        // Search for mapped branchId of parentBranchName
-        branch_id_t _parentBranchId = 0;
-        if (parentBranchName.compare("master") != 0) {
-            _parentBranchId = context.db._branchMapping[parentBranchName];
-        }
-
-        // Add new branch
-        branch_id_t branchid = context.db.createBranch(branchName, _parentBranchId);
-
-        std::cout << "Created Branch " << branchid << "\n";
-    }
 
     std::unique_ptr<Operator> SemanticAnalyser::parse_and_construct_tree(QueryContext& context, std::string sql) {
         QueryPlan plan;
@@ -376,26 +279,28 @@ namespace semanticalAnalysis {
         semanticalAnalysis::SemanticalVerifier verifier(context.db);
         verifier.analyse_sql_statement(plan.parser_result);
 
+        std::unique_ptr<SemanticAnalyser> analyser;
         switch (plan.parser_result.opType) {
             case tardisParser::SQLParserResult::OpType::Select:
-                constructSelect(context, plan);
+                analyser = std::make_unique<SelectAnalyser>(context);
                 break;
             case tardisParser::SQLParserResult::OpType::Insert:
-                constructInsert(context, plan);
+                analyser = std::make_unique<InsertAnalyser>(context);
                 break;
             case tardisParser::SQLParserResult::OpType::Update:
-                constructUpdate(context, plan);
+                analyser = std::make_unique<UpdateAnalyser>(context);
                 break;
             case tardisParser::SQLParserResult::OpType::Delete:
-                constructDelete(context, plan);
+                analyser = std::make_unique<DeleteAnalyser>(context);
                 break;
             case tardisParser::SQLParserResult::OpType::CreateTable:
-                constructCreate(context, plan);
+                analyser = std::make_unique<CreateTableAnalyser>(context);
                 break;
             case tardisParser::SQLParserResult::OpType::CreateBranch:
-                constructCheckout(context, plan);
+                analyser = std::make_unique<CreateBranchAnalyser>(context);
                 break;
         }
+        analyser->constructTree(plan);
 
         return std::move(plan.tree);
     }
