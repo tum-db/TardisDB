@@ -130,14 +130,14 @@ namespace {
         QueryCompiler::compileAndExecute("select id, rang from professoren VERSION hello p;",*db, (void*) &stateKemperUpdatedCallbackHandler);
     }
 
-/*TEST_F(QueryTest, UpdateMasterVersion) {
+TEST_F(QueryTest, UpdateMasterVersion) {
     QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
     QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
     QueryCompiler::compileAndExecute("create branch hello from master;",*db);
     QueryCompiler::compileAndExecute("UPDATE professoren SET rang = 5 WHERE id = 1 ;",*db);
     QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperUpdatedCallbackHandler);
     QueryCompiler::compileAndExecute("select id, rang from professoren VERSION hello p;",*db, (void*) &stateKemperCallbackHandler);
-}*/
+}
 
     TEST_F(QueryTest, Delete) {
         QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);

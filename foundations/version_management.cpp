@@ -109,8 +109,8 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         auto storage = create_chain_element(table, old_tuple->getSize());
 
         // branch visibility
-        storage->branch_id = master_branch_id;
-        storage->creation_ts = db.getLargestBranchId();
+        storage->branch_id = version_entry->branch_id;
+        storage->creation_ts = version_entry->creation_ts;
 
         old_tuple->store(get_tuple_ptr(storage));
 //std::cout << toString(*old_tuple) << " to store" << std::endl;
@@ -123,6 +123,8 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         }
         version_entry->next = storage;
         version_entry->next_in_branch = storage;
+        version_entry->branch_id = branch;
+        version_entry->creation_ts = db.getLargestBranchId();
 
         // new master
         update_master(tid, tuple, table);
