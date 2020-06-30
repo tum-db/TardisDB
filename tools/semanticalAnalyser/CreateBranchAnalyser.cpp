@@ -8,11 +8,10 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> CreateBranchAnalyser::constructTree() {
         QueryPlan plan;
-        plan.parser_result = _parserResult;
 
         // Get branchName and parentBranchId from statement
-        std::string &branchName = plan.parser_result.branchId;
-        std::string &parentBranchName = plan.parser_result.parentBranchId;
+        std::string &branchName = _parserResult.branchId;
+        std::string &parentBranchName = _parserResult.parentBranchId;
 
         // Search for mapped branchId of parentBranchName
         branch_id_t _parentBranchId = 0;
@@ -25,7 +24,7 @@ namespace semanticalAnalysis {
 
         std::cout << "Created Branch " << branchid << "\n";
 
-        return std::move(plan.tree);
+        return nullptr;
     }
 
 }

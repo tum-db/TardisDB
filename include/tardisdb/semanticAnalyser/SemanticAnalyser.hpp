@@ -13,16 +13,12 @@ using namespace Algebra::Logical;
 
 namespace semanticalAnalysis {
     struct QueryPlan {
-        tardisParser::SQLParserResult parser_result;
-
         JoinGraph graph;
 
         std::unordered_map<std::string,std::unordered_map<std::string, iu_p_t>> ius;
-        std::unordered_map<std::string, Table *> iuNameToTable;
         std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
 
         std::unique_ptr<Operator> joinedTree;
-        std::unique_ptr<Operator> tree;
     };
 
     class SemanticAnalyser {
@@ -42,15 +38,12 @@ namespace semanticalAnalysis {
         static std::unique_ptr<SemanticAnalyser> getSemanticAnalyser(QueryContext &context, tardisParser::SQLParserResult &parserResult);
 
     protected:
-        static void construct_scans(QueryContext& context, QueryPlan & plan);
-        static void construct_selects(QueryContext & context, QueryPlan & plan);
-        static void construct_joins(QueryContext & context, QueryPlan & plan);
-        static void construct_projection(QueryContext & context, QueryPlan & plan);
-        static void construct_update(QueryContext & context, QueryPlan & plan);
-        static void construct_delete(QueryContext & context, QueryPlan & plan);
+        static void construct_scans(QueryContext& context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
+        static void construct_selects(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
+        static void construct_joins(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
 
     private:
-        static void construct_join_graph(QueryContext & context, QueryPlan & plan);
+        static void construct_join_graph(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
         static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
     };
 

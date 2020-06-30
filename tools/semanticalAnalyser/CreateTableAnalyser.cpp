@@ -8,16 +8,15 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
         QueryPlan plan;
-        plan.parser_result = _parserResult;
 
-        auto & createdTable = _context.db.createTable(plan.parser_result.relation);
+        auto & createdTable = _context.db.createTable(_parserResult.relation);
 
-        for (int i = 0; i < plan.parser_result.columnNames.size(); i++) {
-            std::string &columnName = plan.parser_result.columnNames[i];
-            std::string &columnType = plan.parser_result.columnTypes[i];
-            bool nullable = plan.parser_result.nullable[i];
-            uint32_t length = plan.parser_result.length[i];
-            uint32_t precision = plan.parser_result.precision[i];
+        for (int i = 0; i < _parserResult.columnNames.size(); i++) {
+            std::string &columnName = _parserResult.columnNames[i];
+            std::string &columnType = _parserResult.columnTypes[i];
+            bool nullable = _parserResult.nullable[i];
+            uint32_t length = _parserResult.length[i];
+            uint32_t precision = _parserResult.precision[i];
 
             Sql::SqlType sqlType;
             if (columnType.compare("bool") == 0) {
@@ -43,7 +42,7 @@ namespace semanticalAnalysis {
             createdTable.addColumn(columnName, sqlType);
         }
 
-        return std::move(plan.tree);
+        return nullptr;
     }
 
 }
