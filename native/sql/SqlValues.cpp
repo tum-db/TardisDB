@@ -70,8 +70,9 @@ value_op_t Value::load(const void * ptr, SqlType type)
             return Integer::load(ptr);
         case SqlType::TypeID::VarcharID:
             return Text::load(ptr);
-//        case SqlType::TypeID::CharID:
-//            return Char::load(ptr, type);
+            // TODO: Implement Varchar and Char
+        case SqlType::TypeID::CharID:
+            return Text::load(ptr);
         case SqlType::TypeID::NumericID:
             return Numeric::load(ptr, type);
         case SqlType::TypeID::DateID:

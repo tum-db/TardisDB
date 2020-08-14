@@ -56,6 +56,10 @@ include("${CMAKE_SOURCE_DIR}/test/local.cmake")
 add_executable(sql sql.cpp)
 target_link_libraries(sql dblib queryCompiler queryExecutor)
 
+### benchmarks
+add_executable(semanticalBench benchmark/semanticalAnalysis.cpp)
+target_link_libraries(semanticalBench dblib queryCompiler queryExecutor)
+
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
 file(GLOB_RECURSE CODEGEN_FILES "codegen/*.cpp" "codegen/*.hpp" "codegen/*.tcc")
