@@ -57,7 +57,7 @@ add_executable(sql sql.cpp)
 target_link_libraries(sql dblib queryCompiler queryExecutor)
 
 ### benchmarks
-add_executable(semanticalBench benchmark/semanticalAnalysis.cpp)
+add_executable(semanticalBench benchmark/semanticalBench.cpp)
 target_link_libraries(semanticalBench dblib queryCompiler queryExecutor)
 
 ### locate source files
