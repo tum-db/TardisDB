@@ -64,14 +64,14 @@ namespace QueryExecutor {
 
 #endif // DISABLE_OPTIMIZATIONS
 
+    void defaultStreamingCallback(Native::Sql::SqlTuple *tuple) {}
+
     llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
-        if (callbackFunction != nullptr) {
-            llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
-            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
-            moduleGen.addFunctionMapping(func,callbackFunction);
-        }
+        llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
+        moduleGen.addFunctionMapping(func,(callbackFunction == nullptr ? (void*) defaultStreamingCallback : callbackFunction));
 
 #ifdef EMIT_IR
         llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << moduleGen.getModule();
@@ -115,10 +115,12 @@ namespace QueryExecutor {
     }
 
 /// \return A pair with the compilation time in microseconds as first element and the execution time as second
-    BenchmarkResult executeBenchmarkFunction(llvm::Function *queryFunc, unsigned runs) {
+    BenchmarkResult executeBenchmarkFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, unsigned runs) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
-
+        llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
+        moduleGen.addFunctionMapping(func,(void*) defaultStreamingCallback);
 
 #ifdef EMIT_IR
         llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << moduleGen.getModule();
@@ -138,9 +140,9 @@ namespace QueryExecutor {
         const auto compilationStart = std::chrono::high_resolution_clock::now();
 
         llvm::EngineBuilder eb(moduleGen.finalizeModule());
-        // eb.setOptLevel( llvm::CodeGenOpt::None );
+         eb.setOptLevel( llvm::CodeGenOpt::None );
         // eb.setOptLevel( llvm::CodeGenOpt::Less );
-        eb.setOptLevel(llvm::CodeGenOpt::Default);
+        // eb.setOptLevel(llvm::CodeGenOpt::Default);
         // eb.setOptLevel( llvm::CodeGenOpt::Aggressive );
         auto ee = std::unique_ptr<llvm::ExecutionEngine>(eb.create());
         moduleGen.applyMapping(ee.get());
@@ -148,12 +150,10 @@ namespace QueryExecutor {
 
         const auto compilationDuration = std::chrono::high_resolution_clock::now() - compilationStart;
 
-        std::vector<llvm::GenericValue> noargs;
-
         long timeAcc = 0;
         for (unsigned i = 0; i < runs; ++i) {
             const auto query_start = std::chrono::high_resolution_clock::now();
-            ee->runFunction(queryFunc, noargs);
+            ee->runFunction(queryFunc, args);
             const auto queryDuration = std::chrono::high_resolution_clock::now() - query_start;
 
             timeAcc += std::chrono::duration_cast<std::chrono::microseconds>(queryDuration).count();

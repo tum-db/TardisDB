@@ -29,7 +29,6 @@ namespace Algebra {
             llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("insert_tuple", funcTy) );
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&insert_tuple);
             llvm::CallInst * result = _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(tuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
-            std::cout << "Insert\n";
         }
 
     } // end namespace Physical

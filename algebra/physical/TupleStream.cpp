@@ -39,21 +39,6 @@ namespace Algebra {
 #endif
 
             child->produce();
-
-            cg_size_t tupleCnt(_codeGen->CreateLoad(tupleCountPtr));
-#ifdef __APPLE__
-            IfGen check(tupleCnt == cg_size_t(0ull));
-#else
-            IfGen check(tupleCnt == cg_size_t(0ul));
-#endif
-            {
-                Functions::genPrintfCall("Empty result set\n");
-            }
-            check.Else();
-            {
-                Functions::genPrintfCall("Produced %lu tuples\n", tupleCnt);
-            }
-            check.EndIf();
         }
 
         void TupleStream::consume(const iu_value_mapping_t & values, const Operator & src)

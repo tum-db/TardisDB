@@ -171,7 +171,8 @@ void benchmark_tpc_h_1(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
 
-    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, runs);
+    std::vector<llvm::GenericValue> noargs;
+    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, noargs, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 
@@ -192,7 +193,8 @@ void benchmark_tpc_h_1_null(unsigned runs)
     ModuleGen moduleGen("QueryModule");
     llvm::Function * queryFunc = genFunc(*db);
 
-    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, runs);
+    std::vector<llvm::GenericValue> noargs;
+    auto times = QueryExecutor::executeBenchmarkFunction(queryFunc, noargs, runs);
     printf("average run time: %f ms\n", times.executionTime / 1000.0);
 }
 

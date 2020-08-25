@@ -73,4 +73,41 @@ namespace QueryCompiler {
         QueryExecutor::executeFunction(queryFunc, args, callbackFunction);
     }
 
+    BenchmarkResult compileAndBenchmark(const std::string &query, Database &db) {
+        QueryContext queryContext(db);
+
+        ModuleGen moduleGen("QueryModule");
+
+        const auto parsingStart = std::chrono::high_resolution_clock::now();
+        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(query);
+        const auto parsingDuration = std::chrono::high_resolution_clock::now() - parsingStart;
+
+        const auto analysingStart = std::chrono::high_resolution_clock::now();
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,parserResult);
+        analyser->verify();
+        auto queryTree = analyser->constructTree();
+        const auto analysingDuration = std::chrono::high_resolution_clock::now() - analysingStart;
+        if (queryTree == nullptr) unreachable();
+
+        const auto translationStart = std::chrono::high_resolution_clock::now();
+        auto queryFunc = compileQuery(query, queryTree);
+        const auto translationDuration = std::chrono::high_resolution_clock::now() - translationStart;
+        if (queryFunc == nullptr) unreachable();
+
+        std::vector<llvm::GenericValue> args(2);
+        args[0].IntVal = llvm::APInt(64, 5);
+        args[1].PointerVal = (void *) &queryContext;
+
+        QueryExecutor::BenchmarkResult llvmresult = QueryExecutor::executeBenchmarkFunction(queryFunc, args);
+
+        BenchmarkResult result;
+        result.parsingTime = std::chrono::duration_cast<std::chrono::microseconds>(parsingDuration).count();
+        result.analysingTime = std::chrono::duration_cast<std::chrono::microseconds>(analysingDuration).count();
+        result.translationTime = std::chrono::duration_cast<std::chrono::microseconds>(translationDuration).count();
+        result.llvmCompilationTime = llvmresult.compilationTime;
+        result.executionTime = llvmresult.executionTime;
+
+        return result;
+    }
+
 } // end namespace QueryCompiler
