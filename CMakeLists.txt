@@ -3,6 +3,10 @@ project(protodb)
 
 set(CMAKE_CXX_STANDARD 17)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBXML REQUIRED libxml++-2.6)
+pkg_check_modules(GLIBMM REQUIRED glibmm-2.4)
+
 
 ### set up boost
 if(APPLE)
@@ -24,7 +28,6 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
-#		${CMAKE_BINARY_DIR}/vendor/libxml2/include/libxml2
 		)
 add_definitions(${LLVM_DEFINITIONS})
 
@@ -43,7 +46,6 @@ llvm_map_components_to_libnames(LLVM_LIBS
 
 ### tools
 include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/pugixml.cmake")
 
 ### libraries
 include(tools/sqlParser/local.cmake)
@@ -60,8 +62,10 @@ target_link_libraries(sql dblib queryCompiler queryExecutor)
 
 ### benchmarks
 add_executable(semanticalBench benchmark/semanticalBench.cpp)
-add_dependencies(semanticalBench libxml++)
-target_link_libraries(semanticalBench dblib queryCompiler queryExecutor)
+target_include_directories(semanticalBench PUBLIC include)
+target_include_directories(semanticalBench SYSTEM PUBLIC ${LIBXML_INCLUDE_DIRS})
+target_include_directories(semanticalBench SYSTEM PUBLIC ${GLIBMM_INCLUDE_DIRS})
+target_link_libraries(semanticalBench dblib queryCompiler queryExecutor ${LIBXML_LIBRARIES} ${GLIBMM_LIBRARIES})
 
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
