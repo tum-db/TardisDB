@@ -23,6 +23,8 @@ build_debug:
             - ./build/tester
         expire_in: 1 hrs
     tags:
+        - "libxml++2.6-dev"
+        - "libglibmm-2.4-dev"
         - "clang-6.0"
         - "llvm-6.0"
         - "cmake"
