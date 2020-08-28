@@ -24,6 +24,7 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
+#		${CMAKE_BINARY_DIR}/vendor/libxml2/include/libxml2
 		)
 add_definitions(${LLVM_DEFINITIONS})
 
@@ -42,6 +43,7 @@ llvm_map_components_to_libnames(LLVM_LIBS
 
 ### tools
 include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
+include("${CMAKE_SOURCE_DIR}/vendor/pugixml.cmake")
 
 ### libraries
 include(tools/sqlParser/local.cmake)
@@ -58,6 +60,7 @@ target_link_libraries(sql dblib queryCompiler queryExecutor)
 
 ### benchmarks
 add_executable(semanticalBench benchmark/semanticalBench.cpp)
+add_dependencies(semanticalBench libxml++)
 target_link_libraries(semanticalBench dblib queryCompiler queryExecutor)
 
 ### locate source files

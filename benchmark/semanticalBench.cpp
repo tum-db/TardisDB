@@ -22,6 +22,34 @@
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
 
+#include <libxml++/libxml++.h>
+#include <string>
+
+class WikiParser : public xmlpp::SaxParser {
+public:
+    WikiParser();
+    ~WikiParser() override;
+
+protected:
+    // overrides:
+    void on_start_document() override;
+    void on_end_document() override;
+    void on_start_element(const Glib::ustring &name,
+                          const AttributeList &properties) override;
+    void on_end_element(const Glib::ustring &name) override;
+    void on_characters(const Glib::ustring &characters) override;
+    void on_comment(const Glib::ustring &text) override;
+    void on_warning(const Glib::ustring &text) override;
+    void on_error(const Glib::ustring &text) override;
+    void on_fatal_error(const Glib::ustring &text) override;
+
+private:
+    bool isTextNode;
+    Glib::ustring currentText;
+    pqxx::connection connection;
+};
+
+
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -314,7 +342,7 @@ std::unique_ptr<Database> loadTPCC() {
         stock.addColumn("s_data", Sql::getVarcharTy(50, false));
     }
 
-    std::discrete_distribution<int> distribution = { 2 , 1 , 1 };
+    std::discrete_distribution<int> distribution = { 1 , 1 };
     branch_id_t highestBranchID = 0;
     for (int i=1; i<distribution.probabilities().size(); i++) {
         std::string branchName = "branch";
@@ -400,29 +428,73 @@ std::unique_ptr<Database> loadTPCC() {
     return tpccDb;
 }
 
-void prompt(Database &currentdb)
-{
-    while (true) {
-        try {
-            printf(">>> ");
-            fflush(stdout);
+std::unique_ptr<Database> loadWiki() {
+    auto tpccDb = std::make_unique<Database>();
 
-            std::string input = readline();
-            if (input == "quit\n") {
-                break;
-            }
+    std::cout << "Table Sizes:\n";
+    std::cout << "Warehouse:\t" << tpccDb->getTable("warehouse")->size() << "\n";
+    std::cout << "District:\t" << tpccDb->getTable("district")->size() << "\n";
+    std::cout << "Customer:\t" << tpccDb->getTable("customer")->size() << "\n";
+    std::cout << "History:\t" << tpccDb->getTable("history")->size() << "\n";
+    std::cout << "NewOrder:\t" << tpccDb->getTable("neworder")->size() << "\n";
+    std::cout << "Order:\t\t" << tpccDb->getTable("order")->size() << "\n";
+    std::cout << "Orderline:\t" << tpccDb->getTable("orderline")->size() << "\n";
+    std::cout << "Item:\t\t" << tpccDb->getTable("item")->size() << "\n";
+    std::cout << "Stock:\t\t" << tpccDb->getTable("stock")->size() << "\n";
 
-            QueryCompiler::compileAndExecute(input,currentdb);
-        } catch (const std::exception & e) {
-            fprintf(stderr, "Exception: %s\n", e.what());
-        }
+    return tpccDb;
+}
+
+void benchmarkQuery(std::string query, Database &db, unsigned runs) {
+    std::vector<QueryCompiler::BenchmarkResult> results;
+    for (int i = 0; i < runs; i++) {
+        results.push_back(QueryCompiler::compileAndBenchmark(query,db));
     }
+
+    double parsingTime = 0;
+    double analsingTime = 0;
+    double translationTime = 0;
+    double compileTime = 0;
+    double executionTime = 0;
+    for (auto &result : results) {
+        parsingTime += result.parsingTime;
+        analsingTime += result.analysingTime;
+        translationTime += result.translationTime;
+        compileTime += result.llvmCompilationTime;
+        executionTime += result.executionTime;
+    }
+
+    std::cout << "Parsing time: " << (parsingTime / runs) << std::endl;
+    std::cout << "Analysing time: " << (analsingTime / runs) << std::endl;
+    std::cout << "Translation time: " << (translationTime / runs) << std::endl;
+    std::cout << "Compile time: " << (compileTime / runs) << std::endl;
+    std::cout << "Execution time: " << (executionTime / runs) << std::endl;
 }
 
 void run_benchmark() {
     std::unique_ptr<Database> db = loadTPCC();
 
-    prompt(*db);
+    /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
+    QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse VERSION branch1 w;",*db, (void*) example);
+
+    QueryCompiler::compileAndExecute("SELECT d_id FROM district d;",*db, (void*) example);
+    QueryCompiler::compileAndExecute("SELECT d_id FROM district VERSION branch1 d;",*db, (void*) example);*/
+
+    benchmarkQuery("SELECT o_id FROM order o;",*db,5);
+    benchmarkQuery("SELECT o_id FROM order VERSION branch1 o;",*db,5);
+
+    benchmarkQuery("SELECT o_w_id FROM order o WHERE o_id = 10;",*db,5);
+    benchmarkQuery("SELECT o_w_id FROM order VERSION branch1 o WHERE o_id = 10;",*db,5);
+
+    benchmarkQuery("INSERT INTO neworder (no_o_id,no_d_id,no_w_id) VALUES (1,2,3);",*db,5);
+    benchmarkQuery("INSERT INTO neworder VERSION branch1 (no_o_id,no_d_id,no_w_id) VALUES (1,2,3);",*db,5);
+
+    benchmarkQuery("UPDATE order SET o_w_id = 2 WHERE o_id = 10;",*db,1);
+    benchmarkQuery("UPDATE order VERSION branch1 SET o_w_id = 2 WHERE o_id = 10;",*db,1);
+
+    benchmarkQuery("DELETE FROM neworder WHERE no_o_id = 1;",*db,1);
+    benchmarkQuery("DELETE FROM neworder VERSION branch1 WHERE no_o_id = 1;",*db,1);
+
 }
 
 int main(int argc, char * argv[]) {
