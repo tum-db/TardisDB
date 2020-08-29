@@ -22,33 +22,6 @@
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
 
-#include <libxml++/libxml++.h>
-#include <string>
-
-class WikiParser : public xmlpp::SaxParser {
-public:
-    WikiParser();
-    ~WikiParser() override;
-
-protected:
-    // overrides:
-    void on_start_document() override;
-    void on_end_document() override;
-    void on_start_element(const Glib::ustring &name,
-                          const AttributeList &properties) override;
-    void on_end_element(const Glib::ustring &name) override;
-    void on_characters(const Glib::ustring &characters) override;
-    void on_comment(const Glib::ustring &text) override;
-    void on_warning(const Glib::ustring &text) override;
-    void on_error(const Glib::ustring &text) override;
-    void on_fatal_error(const Glib::ustring &text) override;
-
-private:
-    bool isTextNode;
-    Glib::ustring currentText;
-    pqxx::connection connection;
-};
-
 
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {

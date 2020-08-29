@@ -3,11 +3,6 @@ project(protodb)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBXML REQUIRED libxml++-2.6)
-pkg_check_modules(GLIBMM REQUIRED glibmm-2.4)
-
-
 ### set up boost
 if(APPLE)
 	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/boost/lib/cmake/Boost-1.72.0)
@@ -52,6 +47,7 @@ include(tools/sqlParser/local.cmake)
 include(tools/semanticalAnalyser/local.cmake)
 include(tools/queryCompiler/local.cmake)
 include(tools/queryExecutor/local.cmake)
+include(tools/wikiParser/local.cmake)
 
 ### tests
 include("${CMAKE_SOURCE_DIR}/test/local.cmake")
@@ -62,10 +58,7 @@ target_link_libraries(sql dblib queryCompiler queryExecutor)
 
 ### benchmarks
 add_executable(semanticalBench benchmark/semanticalBench.cpp)
-target_include_directories(semanticalBench PUBLIC include)
-target_include_directories(semanticalBench SYSTEM PUBLIC ${LIBXML_INCLUDE_DIRS})
-target_include_directories(semanticalBench SYSTEM PUBLIC ${GLIBMM_INCLUDE_DIRS})
-target_link_libraries(semanticalBench dblib queryCompiler queryExecutor ${LIBXML_LIBRARIES} ${GLIBMM_LIBRARIES})
+target_link_libraries(semanticalBench dblib queryCompiler queryExecutor wikiparser)
 
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
