@@ -4,18 +4,37 @@
 
 #include <iostream>
 #include "wikiParser/WikiParser.hpp"
+#include <glibmm/convert.h>
 
 namespace wikiparser {
 
-    void WikiParser::on_start_document() {
+    WikiParser::WikiParser(std::function<void(Page)> &pageCallback,
+                             std::function<void(Revision)> &revisionCallback,
+                             std::function<void(Content)> &textCallback)
+            : xmlpp::SaxParser(),
+            pageCallback(pageCallback),
+            revisionCallback(revisionCallback),
+            textCallback(textCallback)
+    {
+    }
+
+    WikiParser::~WikiParser()
+    {
+    }
+
+    void WikiParser::on_start_document()
+    {
         state = State::Init;
     }
 
-    void WikiParser::on_end_document() {
+    void WikiParser::on_end_document()
+    {
         state = State::Done;
     }
 
-    void WikiParser::on_start_element(const Glib::ustring &name, const AttributeList &attributes) {
+    void WikiParser::on_start_element(const Glib::ustring& name,
+                                       const AttributeList& attributes)
+    {
         switch (state) {
             case State::Init:
                 if (name.compare("page") == 0) {
@@ -27,6 +46,8 @@ namespace wikiparser {
                     state = State::PageID;
                 } else if (name.compare("title") == 0) {
                     state = State::PageTitle;
+                } else if (name.compare("revision") == 0) {
+                    state = State::RevisionStart;
                 }
                 break;
             case State::PageID:
@@ -46,7 +67,7 @@ namespace wikiparser {
                 } else if (name.compare("text") == 0) {
                     for (auto &attribute : attributes) {
                         if (attribute.name.compare("id") == 0) {
-                            textID = std::stoi(attribute.value);
+                            textID = std::stoi(attribute.value.raw());
                             break;
                         }
                     }
@@ -73,13 +94,15 @@ namespace wikiparser {
         }
     }
 
-    void WikiParser::on_end_element(const Glib::ustring &name) {
+    void WikiParser::on_end_element(const Glib::ustring& name)
+    {
         switch (state) {
             case State::Init:
                 break;
             case State::PageStart:
                 if (name.compare("page") == 0) {
                     state = State::PageEnd;
+                    pageCallback(Page(pageId,pageTitle));
                 }
             case State::PageID:
                 if (name.compare("id") == 0) {
@@ -98,7 +121,9 @@ namespace wikiparser {
                 break;
             case State::RevisionStart:
                 if (name.compare("revision") == 0) {
-                    state = State::RevisionEnd;
+                    state = State::PageStart;
+                    revisionCallback(Revision(revisionId,revisionParentId));
+                    textCallback(Content(textID,contenttext));
                 }
             case State::RevisionID:
                 if (name.compare("id") == 0) {
@@ -122,33 +147,34 @@ namespace wikiparser {
         }
     }
 
-    void WikiParser::on_characters(const Glib::ustring &text) {
+    void WikiParser::on_characters(const Glib::ustring& text)
+    {
         switch (state) {
             case State::Init:
                 break;
             case State::PageStart:
                 break;
             case State::PageID:
-                pageId = std::stoi(text);
+                pageId = std::stoi(text.raw());
                 break;
             case State::PageTitle:
-                pageTitle = text;
+                pageTitle = text.raw();
                 break;
             case State::PageEnd:
                 break;
             case State::RevisionStart:
                 break;
             case State::RevisionID:
-                revisionId = std::stoi(text);
+                revisionId = std::stoi(text.raw());
                 break;
             case State::RevisionParent:
-                revisionParentId = std::stoi(text);
+                revisionParentId = std::stoi(text.raw());
                 break;
             case State::TextID:
-                textID = std::stoi(text);
+                textID = std::stoi(text.raw());
                 break;
             case State::Text:
-                contenttext = text;
+                contenttext = text.raw();
                 break;
             case State::RevisionEnd:
                 break;
@@ -157,18 +183,42 @@ namespace wikiparser {
         }
     }
 
-    void WikiParser::on_comment(const Glib::ustring &text) {}
+    void WikiParser::on_comment(const Glib::ustring& text) {}
 
-    void WikiParser::on_warning(const Glib::ustring &text) {
-        std::cout << "WARNING: " << text << std::endl;
+    void WikiParser::on_warning(const Glib::ustring& text)
+    {
+        try
+        {
+            std::cout << "on_warning(): " << text << std::endl;
+        }
+        catch(const Glib::ConvertError& ex)
+        {
+            std::cerr << "MySaxParser::on_warning(): Exception caught while converting text for std::cout: " << ex.what() << std::endl;
+        }
     }
 
-    void WikiParser::on_error(const Glib::ustring &text) {
-        std::cout << "ERROR: " << text << std::endl;
+    void WikiParser::on_error(const Glib::ustring& text)
+    {
+        try
+        {
+            std::cout << "on_error(): " << text << std::endl;
+        }
+        catch(const Glib::ConvertError& ex)
+        {
+            std::cerr << "MySaxParser::on_error(): Exception caught while converting text for std::cout: " << ex.what() << std::endl;
+        }
     }
 
-    void WikiParser::on_fatal_error(const Glib::ustring &text) {
-        std::cout << "FATAL ERROR: " << text << std::endl;
+    void WikiParser::on_fatal_error(const Glib::ustring& text)
+    {
+        try
+        {
+            std::cout << "on_fatal_error(): " << text << std::endl;
+        }
+        catch(const Glib::ConvertError& ex)
+        {
+            std::cerr << "MySaxParser::on_characters(): Exception caught while converting value for std::cout: " << ex.what() << std::endl;
+        }
     }
 
 }

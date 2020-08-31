@@ -22,6 +22,7 @@
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
 
+#include "wikiParser/WikiParser.hpp"
 
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
@@ -404,6 +405,36 @@ std::unique_ptr<Database> loadTPCC() {
 std::unique_ptr<Database> loadWiki() {
     auto tpccDb = std::make_unique<Database>();
 
+    std::function<void(wikiparser::Page)> pageCallback = [](wikiparser::Page page) {
+        std::cout << "Page: ID: " << page.id << "\ttitle: " << page.title << std::endl;
+    };
+    std::function<void(wikiparser::Revision)> revisionCallback = [](wikiparser::Revision revision) {
+        std::cout << "Revision: ID: " << revision.id << "\tparent: " << revision.parent << std::endl;
+    };
+    std::function<void(wikiparser::Content)> contentCallback = [](wikiparser::Content content) {
+        std::cout << "Content: ID: " << content.textid << "\ttext: " << content.text << std::endl;
+    };
+
+    try
+    {
+        wikiparser::WikiParser parser(pageCallback,revisionCallback,contentCallback);
+        parser.set_substitute_entities(true);
+        parser.parse_file("enwiki-20200801-stub-meta-history1.xml");
+    }
+    catch(const xmlpp::exception& ex)
+    {
+        std::cerr << "libxml++ exception: " << ex.what() << std::endl;
+    }
+    /*try {
+        wikiparser::WikiParser parser(pageCallback, revisionCallback, contentCallback);
+        parser.set_substitute_entities(false);
+        std::ifstream ifs ("enwiki-20200801-stub-meta-history1.xml", std::ifstream::in);
+        ifs.re
+        parser.parse_stream(ifs);
+    } catch (const xmlpp::exception& ex) {
+        std::cerr << "libxml++ exception: " << ex.what() << std::endl;
+    }*/
+
     std::cout << "Table Sizes:\n";
     std::cout << "Warehouse:\t" << tpccDb->getTable("warehouse")->size() << "\n";
     std::cout << "District:\t" << tpccDb->getTable("district")->size() << "\n";
@@ -445,7 +476,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
 }
 
 void run_benchmark() {
-    std::unique_ptr<Database> db = loadTPCC();
+    std::unique_ptr<Database> db = loadWiki();
 
     /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
     QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse VERSION branch1 w;",*db, (void*) example);
@@ -453,7 +484,7 @@ void run_benchmark() {
     QueryCompiler::compileAndExecute("SELECT d_id FROM district d;",*db, (void*) example);
     QueryCompiler::compileAndExecute("SELECT d_id FROM district VERSION branch1 d;",*db, (void*) example);*/
 
-    benchmarkQuery("SELECT o_id FROM order o;",*db,5);
+    /*benchmarkQuery("SELECT o_id FROM order o;",*db,5);
     benchmarkQuery("SELECT o_id FROM order VERSION branch1 o;",*db,5);
 
     benchmarkQuery("SELECT o_w_id FROM order o WHERE o_id = 10;",*db,5);
@@ -466,7 +497,7 @@ void run_benchmark() {
     benchmarkQuery("UPDATE order VERSION branch1 SET o_w_id = 2 WHERE o_id = 10;",*db,1);
 
     benchmarkQuery("DELETE FROM neworder WHERE no_o_id = 1;",*db,1);
-    benchmarkQuery("DELETE FROM neworder VERSION branch1 WHERE no_o_id = 1;",*db,1);
+    benchmarkQuery("DELETE FROM neworder VERSION branch1 WHERE no_o_id = 1;",*db,1);*/
 
 }
 
