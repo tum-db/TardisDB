@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <random>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -405,8 +406,18 @@ std::unique_ptr<Database> loadTPCC() {
 std::unique_ptr<Database> loadWiki() {
     auto tpccDb = std::make_unique<Database>();
 
-    std::function<void(wikiparser::Page)> pageCallback = [](wikiparser::Page page) {
-        std::cout << "Page: ID: " << page.id << "\ttitle: " << page.title << std::endl;
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
+
+    std::function<void(wikiparser::Page)> pageCallback = [db = tpccDb.get()](wikiparser::Page page) {
+        std::stringstream ss;
+        ss << "INSERT INTO page ( id , title ) VALUES ( ";
+        ss << page.id;
+        ss << " , ";
+        ss << page.title;
+        ss << " );";
+        QueryCompiler::compileAndExecute(ss.str(),*db);
     };
     std::function<void(wikiparser::Revision)> revisionCallback = [](wikiparser::Revision revision) {
         std::cout << "Revision: ID: " << revision.id << "\tparent: " << revision.parent << std::endl;
@@ -436,15 +447,9 @@ std::unique_ptr<Database> loadWiki() {
     }*/
 
     std::cout << "Table Sizes:\n";
-    std::cout << "Warehouse:\t" << tpccDb->getTable("warehouse")->size() << "\n";
-    std::cout << "District:\t" << tpccDb->getTable("district")->size() << "\n";
-    std::cout << "Customer:\t" << tpccDb->getTable("customer")->size() << "\n";
-    std::cout << "History:\t" << tpccDb->getTable("history")->size() << "\n";
-    std::cout << "NewOrder:\t" << tpccDb->getTable("neworder")->size() << "\n";
-    std::cout << "Order:\t\t" << tpccDb->getTable("order")->size() << "\n";
-    std::cout << "Orderline:\t" << tpccDb->getTable("orderline")->size() << "\n";
-    std::cout << "Item:\t\t" << tpccDb->getTable("item")->size() << "\n";
-    std::cout << "Stock:\t\t" << tpccDb->getTable("stock")->size() << "\n";
+    std::cout << "Page:\t" << tpccDb->getTable("page")->size() << "\n";
+    std::cout << "Revision:\t" << tpccDb->getTable("revision")->size() << "\n";
+    std::cout << "Content:\t" << tpccDb->getTable("content")->size() << "\n";
 
     return tpccDb;
 }
