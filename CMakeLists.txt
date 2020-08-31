@@ -3,6 +3,8 @@ project(protodb)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(LIBXML_AVAILABLE false)
+
 ### set up boost
 if(APPLE)
 	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/boost/lib/cmake/Boost-1.72.0)
@@ -47,7 +49,9 @@ include(tools/sqlParser/local.cmake)
 include(tools/semanticalAnalyser/local.cmake)
 include(tools/queryCompiler/local.cmake)
 include(tools/queryExecutor/local.cmake)
-include(tools/wikiParser/local.cmake)
+if(LIBXML_AVAILABLE)
+	include(tools/wikiParser/local.cmake)
+endif(LIBXML_AVAILABLE)
 
 ### tests
 include("${CMAKE_SOURCE_DIR}/test/local.cmake")
@@ -58,7 +62,10 @@ target_link_libraries(sql dblib queryCompiler queryExecutor)
 
 ### benchmarks
 add_executable(semanticalBench benchmark/semanticalBench.cpp)
-target_link_libraries(semanticalBench dblib queryCompiler queryExecutor wikiparser)
+target_link_libraries(semanticalBench dblib queryCompiler queryExecutor)
+if(LIBXML_AVAILABLE)
+	target_link_libraries(semanticalBench wikiparser)
+endif(LIBXML_AVAILABLE)
 
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")

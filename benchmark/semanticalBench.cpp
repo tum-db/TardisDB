@@ -23,7 +23,9 @@
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
 
-#include "wikiParser/WikiParser.hpp"
+#if LIBXML_AVAILABLE
+    #include "wikiParser/WikiParser.hpp"
+#endif
 
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
@@ -403,6 +405,7 @@ std::unique_ptr<Database> loadTPCC() {
     return tpccDb;
 }
 
+#if LIBXML_AVAILABLE
 std::unique_ptr<Database> loadWiki() {
     auto tpccDb = std::make_unique<Database>();
 
@@ -453,6 +456,7 @@ std::unique_ptr<Database> loadWiki() {
 
     return tpccDb;
 }
+#endif
 
 void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::vector<QueryCompiler::BenchmarkResult> results;
@@ -481,7 +485,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
 }
 
 void run_benchmark() {
-    std::unique_ptr<Database> db = loadWiki();
+    std::unique_ptr<Database> db = loadTPCC();
 
     /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
     QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse VERSION branch1 w;",*db, (void*) example);
