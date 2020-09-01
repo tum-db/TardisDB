@@ -3,6 +3,7 @@
 //
 
 #include <fstream>
+#include <iostream>
 #include "gflags/gflags.h"
 #include "wikiParser/WikiParser.hpp"
 
@@ -70,15 +71,6 @@ int main(int argc, char * argv[])
     {
         std::cerr << "libxml++ exception: " << ex.what() << std::endl;
     }
-    /*try {
-        wikiparser::WikiParser parser(pageCallback, revisionCallback, contentCallback);
-        parser.set_substitute_entities(false);
-        std::ifstream ifs ("enwiki-20200801-stub-meta-history1.xml", std::ifstream::in);
-        ifs.re
-        parser.parse_stream(ifs);
-    } catch (const xmlpp::exception& ex) {
-        std::cerr << "libxml++ exception: " << ex.what() << std::endl;
-    }*/
 
     pagefile.close();
     revisionfile.close();
