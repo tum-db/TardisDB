@@ -112,8 +112,9 @@ void *getValuePointer(size_t idx, Native::Sql::SqlTuple *tuple) {
     }
 }
 
-
-
+void freeTupleCall(Native::Sql::SqlTuple *tuple) {
+    delete(tuple);
+}
 
 Native::Sql::SqlTuple *get_latest_tuple_wrapper(tid_t tid, Table & table, std::string *alias, QueryContext & ctx) {
     std::unique_ptr<Native::Sql::SqlTuple> nativeSqlTuple = get_latest_tuple_with_binding(alias, tid, table, ctx);
@@ -190,7 +191,10 @@ void TableScan::produce(cg_tid_t tid) {
     }
 
     // Free memory of Tuple Pointer
-    Functions::genFreeCall(tuplePtr);
+    llvm::FunctionType * funcFreeTy = llvm::TypeBuilder<void (void *), false>::get(_codeGen.getLLVMContext());
+    llvm::Function * funcFree = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("delete", funcFreeTy) );
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcFree,(void *)&freeTupleCall);
+    _codeGen->CreateCall(funcFree, {tuplePtr});
 
     iu_value_mapping_t returnValues;
     for (auto& mapping : values) {
