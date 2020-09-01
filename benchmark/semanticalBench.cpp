@@ -406,34 +406,133 @@ std::unique_ptr<Database> loadTPCC() {
 }
 
 #if LIBXML_AVAILABLE
+
+class DistributionEngine {
+public:
+    std::discrete_distribution<int> distribution = { 1 , 1 };
+    std::default_random_engine generator;
+
+    DistributionEngine(std::discrete_distribution<int> distribution) : distribution(distribution) {}
+    int generate() {
+        distribution(generator);
+    }
+};
+
 std::unique_ptr<Database> loadWiki() {
     auto tpccDb = std::make_unique<Database>();
 
     QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
-    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
-    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE BRANCH branch1 FROM master;",*tpccDb);
 
-    std::function<void(wikiparser::Page)> pageCallback = [db = tpccDb.get()](wikiparser::Page page) {
+    DistributionEngine distributionEngine = DistributionEngine({ 2 , 1 });
+
+    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>)> insertCallback =
+            [db = tpccDb.get(),distributionEnginePtr = &distributionEngine](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents) {
+        if (revisions.size() != contents.size()) return;
+
+        std::vector<int> branchMappings(0);
+        for (int i=0; i<revisions.size();i++) {
+            branchMappings.push_back(distributionEnginePtr->generate());
+        }
+        std::sort(branchMappings.begin(),branchMappings.end());
+
+        std::string statement = "";
+
         std::stringstream ss;
         ss << "INSERT INTO page ( id , title ) VALUES ( ";
         ss << page.id;
-        ss << " , ";
+        ss << " , '";
+        std::replace( page.title.begin(), page.title.end(), ' ', '~' );
         ss << page.title;
-        ss << " );";
-        QueryCompiler::compileAndExecute(ss.str(),*db);
+        ss << "' );";
+        statement = ss.str();
+        QueryCompiler::compileAndExecute(statement,*db);
+
+        for (int i=0; i<revisions.size(); i++) {
+            std::string branchID = "";
+            if (branchMappings[i] <= 0) {
+                branchID = "master";
+            } else {
+                std::stringstream ssBranch;
+                ssBranch << "branch";
+                ssBranch << branchMappings[i];
+                branchID = ssBranch.str();
+            }
+            std::stringstream ssContent;
+            ssContent << "INSERT INTO content VERSION ";
+            ssContent << branchID;
+            ssContent << " ( id , text ) VALUES ( ";
+            ssContent << contents[i].textid;
+            ssContent << " , '";
+            std::replace( contents[i].text.begin(), contents[i].text.end(), ' ', '~' );
+            ssContent << contents[i].text;
+            ssContent << "' );";
+            statement = ssContent.str();
+            QueryCompiler::compileAndExecute(statement,*db);
+
+            std::stringstream ssRevision;
+            ssRevision << "INSERT INTO revision VERSION ";
+            ssRevision << branchID;
+            ssRevision << " ( id , parentId , pageId , textId ) VALUES ( ";
+            ssRevision << revisions[i].id;
+            ssRevision << " , ";
+            ssRevision << revisions[i].parent;
+            ssRevision << " , ";
+            ssRevision << page.id;
+            ssRevision << " , ";
+            ssRevision << contents[i].textid;
+            ssRevision << " );";
+            statement = ssRevision.str();
+            QueryCompiler::compileAndExecute(statement,*db);
+        }
+
     };
-    std::function<void(wikiparser::Revision)> revisionCallback = [](wikiparser::Revision revision) {
-        std::cout << "Revision: ID: " << revision.id << "\tparent: " << revision.parent << std::endl;
-    };
-    std::function<void(wikiparser::Content)> contentCallback = [](wikiparser::Content content) {
-        std::cout << "Content: ID: " << content.textid << "\ttext: " << content.text << std::endl;
-    };
+
+    std::ofstream pagefile;
+    pagefile.open("page.tbl");
+    std::ofstream revisionfile;
+    revisionfile.open("revision.tbl");
+    std::ofstream contentfile;
+    contentfile.open("content.tbl");
+
+    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>)> insertIntoFileCallback =
+            [&pagefile,&revisionfile,&contentfile](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents) {
+                if (revisions.size() != contents.size()) return;
+
+                std::cout << page.id << "\n";
+
+                pagefile << page.id;
+                pagefile << "|";
+                std::replace( page.title.begin(), page.title.end(), '|', '~' );
+                pagefile << page.title;
+                pagefile << "\n";
+
+                for (int i=0; i<revisions.size(); i++) {
+                    contentfile << contents[i].textid;
+                    contentfile << "|";
+                    std::replace( contents[i].text.begin(), contents[i].text.end(), '|', '~' );
+                    contentfile << contents[i].text;
+                    contentfile << "\n";
+
+                    revisionfile << revisions[i].id;
+                    revisionfile << "|";
+                    revisionfile << revisions[i].parent;
+                    revisionfile << "|";
+                    revisionfile << page.id;
+                    revisionfile << "|";
+                    revisionfile << contents[i].textid;
+                    revisionfile << "\n";
+                }
+
+            };
 
     try
     {
-        wikiparser::WikiParser parser(pageCallback,revisionCallback,contentCallback);
+        wikiparser::WikiParser parser(insertIntoFileCallback);
         parser.set_substitute_entities(true);
-        parser.parse_file("enwiki-20200801-stub-meta-history1.xml");
+        parser.parse_file("samplePage.xml");
     }
     catch(const xmlpp::exception& ex)
     {
@@ -449,10 +548,38 @@ std::unique_ptr<Database> loadWiki() {
         std::cerr << "libxml++ exception: " << ex.what() << std::endl;
     }*/
 
+    pagefile.close();
+    revisionfile.close();
+    contentfile.close();
+
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = tpccDb->getTable("page");
+        std::ifstream fs("page.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadTable(fs, item, distributionEngine.distribution);
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = tpccDb->getTable("content");
+        std::ifstream fs("content.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadTable(fs, item, distributionEngine.distribution);
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = tpccDb->getTable("revision");
+        std::ifstream fs("revision.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadTable(fs, item, distributionEngine.distribution);
+    }
+
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << tpccDb->getTable("page")->size() << "\n";
     std::cout << "Revision:\t" << tpccDb->getTable("revision")->size() << "\n";
     std::cout << "Content:\t" << tpccDb->getTable("content")->size() << "\n";
+
+
 
     return tpccDb;
 }
@@ -484,8 +611,28 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::cout << "Execution time: " << (executionTime / runs) << std::endl;
 }
 
+void prompt(Database &database)
+{
+    while (true) {
+        try {
+            printf(">>> ");
+            fflush(stdout);
+
+            std::string input = readline();
+            if (input == "quit\n") {
+                break;
+            }
+
+            QueryCompiler::compileAndExecute(input,database);
+        } catch (const std::exception & e) {
+            fprintf(stderr, "Exception: %s\n", e.what());
+        }
+    }
+}
+
 void run_benchmark() {
-    std::unique_ptr<Database> db = loadTPCC();
+    std::unique_ptr<Database> db = loadWiki();
+    prompt(*db);
 
     /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
     QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse VERSION branch1 w;",*db, (void*) example);

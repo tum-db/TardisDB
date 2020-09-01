@@ -8,13 +8,9 @@
 
 namespace wikiparser {
 
-    WikiParser::WikiParser(std::function<void(Page)> &pageCallback,
-                             std::function<void(Revision)> &revisionCallback,
-                             std::function<void(Content)> &textCallback)
+    WikiParser::WikiParser(std::function<void(Page,std::vector<Revision>,std::vector<Content>)> &insertCallback)
             : xmlpp::SaxParser(),
-            pageCallback(pageCallback),
-            revisionCallback(revisionCallback),
-            textCallback(textCallback)
+            insertCallback(insertCallback)
     {
     }
 
@@ -102,7 +98,7 @@ namespace wikiparser {
             case State::PageStart:
                 if (name.compare("page") == 0) {
                     state = State::PageEnd;
-                    pageCallback(Page(pageId,pageTitle));
+                    insertCallback(Page(pageId,pageTitle),revisions,contents);
                 }
             case State::PageID:
                 if (name.compare("id") == 0) {
@@ -122,8 +118,8 @@ namespace wikiparser {
             case State::RevisionStart:
                 if (name.compare("revision") == 0) {
                     state = State::PageStart;
-                    revisionCallback(Revision(revisionId,revisionParentId));
-                    textCallback(Content(textID,contenttext));
+                    revisions.push_back(Revision(revisionId,revisionParentId));
+                    contents.push_back(Content(textID,contenttext));
                 }
             case State::RevisionID:
                 if (name.compare("id") == 0) {

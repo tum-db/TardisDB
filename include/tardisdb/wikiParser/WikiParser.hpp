@@ -8,6 +8,7 @@
 #include <libxml++/libxml++.h>
 #include <glibmm/ustring.h>
 #include <string>
+#include <vector>
 #include <functional>
 
 namespace wikiparser {
@@ -35,9 +36,7 @@ namespace wikiparser {
     class WikiParser : public xmlpp::SaxParser
     {
     public:
-        WikiParser(std::function<void(Page)> &pageCallback,
-                    std::function<void(Revision)> &revisionCallback,
-                    std::function<void(Content)> &textCallback);
+        WikiParser(std::function<void(Page,std::vector<Revision>,std::vector<Content>)> &insertCallback);
         ~WikiParser() override;
 
     protected:
@@ -74,9 +73,7 @@ namespace wikiparser {
 
         State state = State::Init;
 
-        std::function<void(Page)> &pageCallback;
-        std::function<void(Revision)> &revisionCallback;
-        std::function<void(Content)> &textCallback;
+        std::function<void(Page,std::vector<Revision>,std::vector<Content>)> &insertCallback;
 
         size_t pageId = 0;
         std::string pageTitle = "";
@@ -84,6 +81,9 @@ namespace wikiparser {
         size_t revisionParentId = 0;
         size_t textID = 0;
         std::string contenttext = "";
+
+        std::vector<Revision> revisions;
+        std::vector<Content> contents;
     };
 }
 
