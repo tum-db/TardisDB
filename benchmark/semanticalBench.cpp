@@ -631,7 +631,7 @@ void prompt(Database &database)
 }
 
 void run_benchmark() {
-    std::unique_ptr<Database> db = loadWiki();
+    std::unique_ptr<Database> db = loadTPCC();
     prompt(*db);
 
     /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);

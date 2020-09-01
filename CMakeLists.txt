@@ -43,6 +43,7 @@ llvm_map_components_to_libnames(LLVM_LIBS
 
 ### tools
 include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
+include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
 
 ### libraries
 include(tools/sqlParser/local.cmake)
