@@ -99,6 +99,8 @@ namespace wikiparser {
                 if (name.compare("page") == 0) {
                     state = State::PageEnd;
                     insertCallback(Page(pageId,pageTitle),revisions,contents);
+                    revisions.clear();
+                    contents.clear();
                 }
             case State::PageID:
                 if (name.compare("id") == 0) {

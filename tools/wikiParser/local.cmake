@@ -23,4 +23,4 @@ target_include_directories(wikiparser SYSTEM PUBLIC ${GLIBMM_INCLUDE_DIRS})
 target_link_libraries(wikiparser ${LIBXML_LIBRARIES} ${GLIBMM_LIBRARIES})
 
 add_executable(wikic tools/wikiParser/wikic.cpp)
-target_link_libraries(wikic gflags wikiparser)
+target_link_libraries(wikic wikiparser gflags pthread)
