@@ -22,8 +22,13 @@ endif(APPLE)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
+### tools
+include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
+include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
+
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
+		${GFLAGS_INCLUDE_DIR}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
 		)
 add_definitions(${LLVM_DEFINITIONS})
@@ -40,10 +45,6 @@ llvm_map_components_to_libnames(LLVM_LIBS
 	InstCombine
 	ScalarOpts
 )
-
-### tools
-include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
 
 ### libraries
 include(tools/sqlParser/local.cmake)

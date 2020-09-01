@@ -418,7 +418,7 @@ public:
     }
 };
 
-std::unique_ptr<Database> loadWiki() {
+std::unique_ptr<Database> generateWikiTBL() {
     auto tpccDb = std::make_unique<Database>();
 
     QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
@@ -490,47 +490,9 @@ std::unique_ptr<Database> loadWiki() {
 
     };
 
-    std::ofstream pagefile;
-    pagefile.open("page.tbl");
-    std::ofstream revisionfile;
-    revisionfile.open("revision.tbl");
-    std::ofstream contentfile;
-    contentfile.open("content.tbl");
-
-    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>)> insertIntoFileCallback =
-            [&pagefile,&revisionfile,&contentfile](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents) {
-                if (revisions.size() != contents.size()) return;
-
-                std::cout << page.id << "\n";
-
-                pagefile << page.id;
-                pagefile << "|";
-                std::replace( page.title.begin(), page.title.end(), '|', '~' );
-                pagefile << page.title;
-                pagefile << "\n";
-
-                for (int i=0; i<revisions.size(); i++) {
-                    contentfile << contents[i].textid;
-                    contentfile << "|";
-                    std::replace( contents[i].text.begin(), contents[i].text.end(), '|', '~' );
-                    contentfile << contents[i].text;
-                    contentfile << "\n";
-
-                    revisionfile << revisions[i].id;
-                    revisionfile << "|";
-                    revisionfile << revisions[i].parent;
-                    revisionfile << "|";
-                    revisionfile << page.id;
-                    revisionfile << "|";
-                    revisionfile << contents[i].textid;
-                    revisionfile << "\n";
-                }
-
-            };
-
     try
     {
-        wikiparser::WikiParser parser(insertIntoFileCallback);
+        wikiparser::WikiParser parser(insertCallback);
         parser.set_substitute_entities(true);
         parser.parse_file("samplePage.xml");
     }
@@ -548,42 +510,59 @@ std::unique_ptr<Database> loadWiki() {
         std::cerr << "libxml++ exception: " << ex.what() << std::endl;
     }*/
 
-    pagefile.close();
-    revisionfile.close();
-    contentfile.close();
-
-    {
-        ModuleGen moduleGen("LoadTableModule");
-        Table *item = tpccDb->getTable("page");
-        std::ifstream fs("page.tbl");
-        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
-        loadTable(fs, item, distributionEngine.distribution);
-    }
-    {
-        ModuleGen moduleGen("LoadTableModule");
-        Table *item = tpccDb->getTable("content");
-        std::ifstream fs("content.tbl");
-        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
-        loadTable(fs, item, distributionEngine.distribution);
-    }
-    {
-        ModuleGen moduleGen("LoadTableModule");
-        Table *item = tpccDb->getTable("revision");
-        std::ifstream fs("revision.tbl");
-        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
-        loadTable(fs, item, distributionEngine.distribution);
-    }
-
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << tpccDb->getTable("page")->size() << "\n";
     std::cout << "Revision:\t" << tpccDb->getTable("revision")->size() << "\n";
     std::cout << "Content:\t" << tpccDb->getTable("content")->size() << "\n";
 
-
-
     return tpccDb;
 }
 #endif
+
+std::unique_ptr<Database> loadWiki() {
+    auto wikidb = std::make_unique<Database>();
+
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*wikidb);
+    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL);",*wikidb);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*wikidb);
+
+    std::discrete_distribution<int> distribution = { 1 };
+    branch_id_t highestBranchID = 0;
+    for (int i=1; i<distribution.probabilities().size(); i++) {
+        std::string branchName = "branch";
+        branchName += std::to_string(i);
+        highestBranchID = wikidb->createBranch(branchName,highestBranchID);
+    }
+
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = wikidb->getTable("page");
+        std::ifstream fs("page.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadTable(fs, item, distribution);
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = wikidb->getTable("content");
+        std::ifstream fs("content.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadTable(fs, item, distribution);
+    }
+    /*{
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = wikidb->getTable("revision");
+        std::ifstream fs("revision.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadTable(fs, item, distribution);
+    }*/
+
+    std::cout << "Table Sizes:\n";
+    std::cout << "Page:\t" << wikidb->getTable("page")->size() << "\n";
+    std::cout << "Revision:\t" << wikidb->getTable("revision")->size() << "\n";
+    std::cout << "Content:\t" << wikidb->getTable("content")->size() << "\n";
+
+    return wikidb;
+}
 
 void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::vector<QueryCompiler::BenchmarkResult> results;
@@ -631,7 +610,7 @@ void prompt(Database &database)
 }
 
 void run_benchmark() {
-    std::unique_ptr<Database> db = loadTPCC();
+    std::unique_ptr<Database> db = loadWiki();
     prompt(*db);
 
     /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
