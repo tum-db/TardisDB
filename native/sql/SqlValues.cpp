@@ -69,7 +69,7 @@ value_op_t Value::load(const void * ptr, SqlType type)
         case SqlType::TypeID::IntegerID:
             return Integer::load(ptr);
         case SqlType::TypeID::VarcharID:
-            return Text::load(ptr);
+            return Text::load((void*)((char*)ptr +1), reinterpret_cast<const char *>(ptr)[0]);
             // TODO: Implement Varchar and Char
         case SqlType::TypeID::CharID:
             return Text::load(ptr);
@@ -826,6 +826,13 @@ Text::Text() :
             value[1] = 0;
         }
 
+        Text::Text(const void * src, size_t length) :
+                Value(::Sql::getTextTy())
+        {
+            value[0] = (uintptr_t) length;
+            value[1] = (uintptr_t) src;
+        }
+
 Text::Text(const void * src) :
     Value(::Sql::getTextTy())
 {
@@ -881,6 +888,12 @@ value_op_t Text::load(const void * ptr)
     value_op_t sqlValue( new Text(ptr));
     return sqlValue;
 }
+
+        value_op_t Text::load(const void * ptr, size_t length)
+        {
+            value_op_t sqlValue( new Text(ptr,length));
+            return sqlValue;
+        }
 
 void Text::store(void * ptr) const
 {

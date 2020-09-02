@@ -106,7 +106,7 @@ void *getValuePointer(size_t idx, Native::Sql::SqlTuple *tuple) {
         case Native::Sql::SqlType::TypeID::TimestampID:
             return &((Native::Sql::Timestamp *)value)->value;
         case Native::Sql::SqlType::TypeID::TextID:
-            return &((Native::Sql::Text *)value)->value;
+            return ((char*)((Native::Sql::Text *)value)->value[1]) - 1;
         default:
             throw InvalidOperationException("unknown type");
     }
