@@ -132,6 +132,8 @@ llvm::Function * genLoadRowFunction(Table *table)
     return funcGen.getFunction();
 }
 
+typedef void (* FunPtr)(void *);
+
 void loadTable(std::istream & stream, Table* table, std::discrete_distribution<int> distribution)
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -145,7 +147,6 @@ void loadTable(std::istream & stream, Table* table, std::discrete_distribution<i
     ee->finalizeObject();
 
     // lookup compiled function
-    typedef void (* FunPtr)(void *);
     FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
 
     // Branch ID generator
@@ -182,6 +183,121 @@ void loadTable(std::istream & stream, Table* table, std::discrete_distribution<i
             i += 1;
         }
 
+        // load row
+        f(row.data());
+    }
+}
+
+void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std::discrete_distribution<int> distribution, int groupByColumn)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    llvm::Function * loadFun = genLoadRowFunction(table);
+
+    // compile
+    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
+    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
+    ee->finalizeObject();
+
+    // lookup compiled function
+    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
+
+    // Branch ID generator
+    std::default_random_engine generator;
+
+    std::vector<RowItem> row(table->getColumnCount());
+
+    // load each row
+    std::string rowStr;
+    std::string currentGroupItem = "";
+
+    std::vector<std::vector<std::string>> pageRows;
+    std::vector<int> branchMappings;
+    while (std::getline(stream, rowStr)) {
+        std::vector<std::string> items = split(rowStr, '|');
+
+        if (currentGroupItem.compare("") == 0) {
+            currentGroupItem = items[groupByColumn];
+            if (isDistributing) {
+                branchMappings.push_back(distribution(generator));
+            } else {
+                branchMappings.push_back(0);
+            }
+            pageRows.push_back(items);
+            continue;
+        }
+
+        if (currentGroupItem.compare(items[groupByColumn]) != 0) {
+            assert(pageRows.size() == branchMappings.size());
+            std::sort(branchMappings.begin(),branchMappings.end());
+            for (int j=0; j<pageRows.size(); j++) {
+                table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+                VersionEntry * version_entry = table->_version_mgmt_column.back().get();
+                version_entry->first = version_entry;
+                version_entry->next = nullptr;
+                version_entry->next_in_branch = nullptr;
+
+                // branch visibility
+                version_entry->branch_id = branchMappings[j];
+                version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
+                version_entry->branch_visibility.set(branchMappings[j]);
+                version_entry->creation_ts = distribution.probabilities().size();
+
+                table->addRow(branchMappings[j]);
+
+
+                assert(row.size() == pageRows[j].size());
+
+                size_t i = 0;
+                for (const std::string & itemStr : pageRows[j]) {
+                    RowItem & item = row[i];
+                    item.length = itemStr.size();
+                    item.str = itemStr.c_str();
+                    i += 1;
+                }
+                // load row
+                f(row.data());
+            }
+
+            currentGroupItem = items[groupByColumn];
+            branchMappings.clear();
+            pageRows.clear();
+        }
+
+        if (isDistributing) {
+            branchMappings.push_back(distribution(generator));
+        } else {
+            branchMappings.push_back(0);
+        }
+        pageRows.push_back(items);
+    }
+
+    assert(pageRows.size() == branchMappings.size());
+    for (int j=0; j<pageRows.size(); j++) {
+        table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+        VersionEntry * version_entry = table->_version_mgmt_column.back().get();
+        version_entry->first = version_entry;
+        version_entry->next = nullptr;
+        version_entry->next_in_branch = nullptr;
+
+        // branch visibility
+        version_entry->branch_id = branchMappings[j];
+        version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
+        version_entry->branch_visibility.set(branchMappings[j]);
+        version_entry->creation_ts = distribution.probabilities().size();
+
+        table->addRow(branchMappings[j]);
+
+        assert(row.size() == pageRows[j].size());
+
+        size_t i = 0;
+        for (const std::string & itemStr : pageRows[j]) {
+            RowItem & item = row[i];
+            item.length = itemStr.size();
+            item.str = itemStr.c_str();
+            i += 1;
+        }
         // load row
         f(row.data());
     }
@@ -526,7 +642,7 @@ std::unique_ptr<Database> loadWiki() {
     QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL);",*wikidb);
     QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*wikidb);
 
-    std::discrete_distribution<int> distribution = { 1 };
+    std::discrete_distribution<int> distribution = { 1 , 1 };
     branch_id_t highestBranchID = 0;
     for (int i=1; i<distribution.probabilities().size(); i++) {
         std::string branchName = "branch";
@@ -539,22 +655,23 @@ std::unique_ptr<Database> loadWiki() {
         Table *item = wikidb->getTable("page");
         std::ifstream fs("page.tbl");
         if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
-        loadTable(fs, item, distribution);
+        loadWikiTable(fs, false, item, distribution,0);
     }
+
     {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("content");
         std::ifstream fs("content.tbl");
         if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
-        loadTable(fs, item, distribution);
+        loadWikiTable(fs, true, item, distribution,0);
     }
-    /*{
+    {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("revision");
         std::ifstream fs("revision.tbl");
         if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
-        loadTable(fs, item, distribution);
-    }*/
+        loadWikiTable(fs, true, item, distribution,2);
+    }
 
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << wikidb->getTable("page")->size() << "\n";
@@ -594,7 +711,7 @@ void prompt(Database &database)
 {
     while (true) {
         try {
-            printf(">>> ");
+            printf("");
             fflush(stdout);
 
             std::string input = readline();
@@ -602,7 +719,7 @@ void prompt(Database &database)
                 break;
             }
 
-            QueryCompiler::compileAndExecute(input,database);
+            benchmarkQuery(input,database,5);
         } catch (const std::exception & e) {
             fprintf(stderr, "Exception: %s\n", e.what());
         }
@@ -611,13 +728,18 @@ void prompt(Database &database)
 
 void run_benchmark() {
     std::unique_ptr<Database> db = loadWiki();
-    prompt(*db);
 
     /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
     QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse VERSION branch1 w;",*db, (void*) example);
 
     QueryCompiler::compileAndExecute("SELECT d_id FROM district d;",*db, (void*) example);
     QueryCompiler::compileAndExecute("SELECT d_id FROM district VERSION branch1 d;",*db, (void*) example);*/
+
+    //benchmarkQuery("SELECT id FROM revision r WHERE r.pageId = 10;",*db,5);
+    //benchmarkQuery("SELECT id FROM revision VERSION branch1 r WHERE r.pageId = 30302;",*db,5);
+
+    //benchmarkQuery("SELECT title , text FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = 10;",*db,5);
+    //benchmarkQuery("SELECT title , text FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND r.pageId = 30302 AND p.id = r.pageId;",*db,5);
 
     /*benchmarkQuery("SELECT o_id FROM order o;",*db,5);
     benchmarkQuery("SELECT o_id FROM order VERSION branch1 o;",*db,5);
@@ -634,6 +756,7 @@ void run_benchmark() {
     benchmarkQuery("DELETE FROM neworder WHERE no_o_id = 1;",*db,1);
     benchmarkQuery("DELETE FROM neworder VERSION branch1 WHERE no_o_id = 1;",*db,1);*/
 
+    prompt(*db);
 }
 
 int main(int argc, char * argv[]) {
