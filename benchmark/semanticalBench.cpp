@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <random>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
@@ -21,6 +22,10 @@
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
+
+#if LIBXML_AVAILABLE
+    #include "wikiParser/WikiParser.hpp"
+#endif
 
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
@@ -127,6 +132,8 @@ llvm::Function * genLoadRowFunction(Table *table)
     return funcGen.getFunction();
 }
 
+typedef void (* FunPtr)(void *);
+
 void loadTable(std::istream & stream, Table* table, std::discrete_distribution<int> distribution)
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -140,7 +147,6 @@ void loadTable(std::istream & stream, Table* table, std::discrete_distribution<i
     ee->finalizeObject();
 
     // lookup compiled function
-    typedef void (* FunPtr)(void *);
     FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
 
     // Branch ID generator
@@ -177,6 +183,121 @@ void loadTable(std::istream & stream, Table* table, std::discrete_distribution<i
             i += 1;
         }
 
+        // load row
+        f(row.data());
+    }
+}
+
+void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std::discrete_distribution<int> distribution, int groupByColumn)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    llvm::Function * loadFun = genLoadRowFunction(table);
+
+    // compile
+    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
+    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
+    ee->finalizeObject();
+
+    // lookup compiled function
+    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
+
+    // Branch ID generator
+    std::default_random_engine generator;
+
+    std::vector<RowItem> row(table->getColumnCount());
+
+    // load each row
+    std::string rowStr;
+    std::string currentGroupItem = "";
+
+    std::vector<std::vector<std::string>> pageRows;
+    std::vector<int> branchMappings;
+    while (std::getline(stream, rowStr)) {
+        std::vector<std::string> items = split(rowStr, '|');
+
+        if (currentGroupItem.compare("") == 0) {
+            currentGroupItem = items[groupByColumn];
+            if (isDistributing) {
+                branchMappings.push_back(distribution(generator));
+            } else {
+                branchMappings.push_back(0);
+            }
+            pageRows.push_back(items);
+            continue;
+        }
+
+        if (currentGroupItem.compare(items[groupByColumn]) != 0) {
+            assert(pageRows.size() == branchMappings.size());
+            std::sort(branchMappings.begin(),branchMappings.end());
+            for (int j=0; j<pageRows.size(); j++) {
+                table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+                VersionEntry * version_entry = table->_version_mgmt_column.back().get();
+                version_entry->first = version_entry;
+                version_entry->next = nullptr;
+                version_entry->next_in_branch = nullptr;
+
+                // branch visibility
+                version_entry->branch_id = branchMappings[j];
+                version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
+                version_entry->branch_visibility.set(branchMappings[j]);
+                version_entry->creation_ts = distribution.probabilities().size();
+
+                table->addRow(branchMappings[j]);
+
+
+                assert(row.size() == pageRows[j].size());
+
+                size_t i = 0;
+                for (const std::string & itemStr : pageRows[j]) {
+                    RowItem & item = row[i];
+                    item.length = itemStr.size();
+                    item.str = itemStr.c_str();
+                    i += 1;
+                }
+                // load row
+                f(row.data());
+            }
+
+            currentGroupItem = items[groupByColumn];
+            branchMappings.clear();
+            pageRows.clear();
+        }
+
+        if (isDistributing) {
+            branchMappings.push_back(distribution(generator));
+        } else {
+            branchMappings.push_back(0);
+        }
+        pageRows.push_back(items);
+    }
+
+    assert(pageRows.size() == branchMappings.size());
+    for (int j=0; j<pageRows.size(); j++) {
+        table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+        VersionEntry * version_entry = table->_version_mgmt_column.back().get();
+        version_entry->first = version_entry;
+        version_entry->next = nullptr;
+        version_entry->next_in_branch = nullptr;
+
+        // branch visibility
+        version_entry->branch_id = branchMappings[j];
+        version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
+        version_entry->branch_visibility.set(branchMappings[j]);
+        version_entry->creation_ts = distribution.probabilities().size();
+
+        table->addRow(branchMappings[j]);
+
+        assert(row.size() == pageRows[j].size());
+
+        size_t i = 0;
+        for (const std::string & itemStr : pageRows[j]) {
+            RowItem & item = row[i];
+            item.length = itemStr.size();
+            item.str = itemStr.c_str();
+            i += 1;
+        }
         // load row
         f(row.data());
     }
@@ -314,7 +435,7 @@ std::unique_ptr<Database> loadTPCC() {
         stock.addColumn("s_data", Sql::getVarcharTy(50, false));
     }
 
-    std::discrete_distribution<int> distribution = { 2 , 1 , 1 };
+    std::discrete_distribution<int> distribution = { 1 , 1 };
     branch_id_t highestBranchID = 0;
     for (int i=1; i<distribution.probabilities().size(); i++) {
         std::string branchName = "branch";
@@ -400,11 +521,197 @@ std::unique_ptr<Database> loadTPCC() {
     return tpccDb;
 }
 
-void prompt(Database &currentdb)
+#if LIBXML_AVAILABLE
+
+class DistributionEngine {
+public:
+    std::discrete_distribution<int> distribution = { 1 , 1 };
+    std::default_random_engine generator;
+
+    DistributionEngine(std::discrete_distribution<int> distribution) : distribution(distribution) {}
+    int generate() {
+        distribution(generator);
+    }
+};
+
+std::unique_ptr<Database> generateWikiTBL() {
+    auto tpccDb = std::make_unique<Database>();
+
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*tpccDb);
+    QueryCompiler::compileAndExecute("CREATE BRANCH branch1 FROM master;",*tpccDb);
+
+    DistributionEngine distributionEngine = DistributionEngine({ 2 , 1 });
+
+    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>)> insertCallback =
+            [db = tpccDb.get(),distributionEnginePtr = &distributionEngine](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents) {
+        if (revisions.size() != contents.size()) return;
+
+        std::vector<int> branchMappings(0);
+        for (int i=0; i<revisions.size();i++) {
+            branchMappings.push_back(distributionEnginePtr->generate());
+        }
+        std::sort(branchMappings.begin(),branchMappings.end());
+
+        std::string statement = "";
+
+        std::stringstream ss;
+        ss << "INSERT INTO page ( id , title ) VALUES ( ";
+        ss << page.id;
+        ss << " , '";
+        std::replace( page.title.begin(), page.title.end(), ' ', '~' );
+        ss << page.title;
+        ss << "' );";
+        statement = ss.str();
+        QueryCompiler::compileAndExecute(statement,*db);
+
+        for (int i=0; i<revisions.size(); i++) {
+            std::string branchID = "";
+            if (branchMappings[i] <= 0) {
+                branchID = "master";
+            } else {
+                std::stringstream ssBranch;
+                ssBranch << "branch";
+                ssBranch << branchMappings[i];
+                branchID = ssBranch.str();
+            }
+            std::stringstream ssContent;
+            ssContent << "INSERT INTO content VERSION ";
+            ssContent << branchID;
+            ssContent << " ( id , text ) VALUES ( ";
+            ssContent << contents[i].textid;
+            ssContent << " , '";
+            std::replace( contents[i].text.begin(), contents[i].text.end(), ' ', '~' );
+            ssContent << contents[i].text;
+            ssContent << "' );";
+            statement = ssContent.str();
+            QueryCompiler::compileAndExecute(statement,*db);
+
+            std::stringstream ssRevision;
+            ssRevision << "INSERT INTO revision VERSION ";
+            ssRevision << branchID;
+            ssRevision << " ( id , parentId , pageId , textId ) VALUES ( ";
+            ssRevision << revisions[i].id;
+            ssRevision << " , ";
+            ssRevision << revisions[i].parent;
+            ssRevision << " , ";
+            ssRevision << page.id;
+            ssRevision << " , ";
+            ssRevision << contents[i].textid;
+            ssRevision << " );";
+            statement = ssRevision.str();
+            QueryCompiler::compileAndExecute(statement,*db);
+        }
+
+    };
+
+    try
+    {
+        wikiparser::WikiParser parser(insertCallback);
+        parser.set_substitute_entities(true);
+        parser.parse_file("samplePage.xml");
+    }
+    catch(const xmlpp::exception& ex)
+    {
+        std::cerr << "libxml++ exception: " << ex.what() << std::endl;
+    }
+    /*try {
+        wikiparser::WikiParser parser(pageCallback, revisionCallback, contentCallback);
+        parser.set_substitute_entities(false);
+        std::ifstream ifs ("enwiki-20200801-stub-meta-history1.xml", std::ifstream::in);
+        ifs.re
+        parser.parse_stream(ifs);
+    } catch (const xmlpp::exception& ex) {
+        std::cerr << "libxml++ exception: " << ex.what() << std::endl;
+    }*/
+
+    std::cout << "Table Sizes:\n";
+    std::cout << "Page:\t" << tpccDb->getTable("page")->size() << "\n";
+    std::cout << "Revision:\t" << tpccDb->getTable("revision")->size() << "\n";
+    std::cout << "Content:\t" << tpccDb->getTable("content")->size() << "\n";
+
+    return tpccDb;
+}
+#endif
+
+std::unique_ptr<Database> loadWiki() {
+    auto wikidb = std::make_unique<Database>();
+
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*wikidb);
+    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL);",*wikidb);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*wikidb);
+
+    std::discrete_distribution<int> distribution = { 1 , 1 };
+    branch_id_t highestBranchID = 0;
+    for (int i=1; i<distribution.probabilities().size(); i++) {
+        std::string branchName = "branch";
+        branchName += std::to_string(i);
+        highestBranchID = wikidb->createBranch(branchName,highestBranchID);
+    }
+
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = wikidb->getTable("page");
+        std::ifstream fs("page.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadWikiTable(fs, false, item, distribution,0);
+    }
+
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = wikidb->getTable("content");
+        std::ifstream fs("content.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadWikiTable(fs, true, item, distribution,0);
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = wikidb->getTable("revision");
+        std::ifstream fs("revision.tbl");
+        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        loadWikiTable(fs, true, item, distribution,2);
+    }
+
+    std::cout << "Table Sizes:\n";
+    std::cout << "Page:\t" << wikidb->getTable("page")->size() << "\n";
+    std::cout << "Revision:\t" << wikidb->getTable("revision")->size() << "\n";
+    std::cout << "Content:\t" << wikidb->getTable("content")->size() << "\n";
+
+    return wikidb;
+}
+
+void benchmarkQuery(std::string query, Database &db, unsigned runs) {
+    std::vector<QueryCompiler::BenchmarkResult> results;
+    for (int i = 0; i < runs; i++) {
+        results.push_back(QueryCompiler::compileAndBenchmark(query,db));
+    }
+
+    double parsingTime = 0;
+    double analsingTime = 0;
+    double translationTime = 0;
+    double compileTime = 0;
+    double executionTime = 0;
+    for (auto &result : results) {
+        parsingTime += result.parsingTime;
+        analsingTime += result.analysingTime;
+        translationTime += result.translationTime;
+        compileTime += result.llvmCompilationTime;
+        executionTime += result.executionTime;
+    }
+
+    std::cout << "Parsing time: " << (parsingTime / runs) << std::endl;
+    std::cout << "Analysing time: " << (analsingTime / runs) << std::endl;
+    std::cout << "Translation time: " << (translationTime / runs) << std::endl;
+    std::cout << "Compile time: " << (compileTime / runs) << std::endl;
+    std::cout << "Execution time: " << (executionTime / runs) << std::endl;
+}
+
+void prompt(Database &database)
 {
     while (true) {
         try {
-            printf(">>> ");
+            printf("");
             fflush(stdout);
 
             std::string input = readline();
@@ -412,7 +719,7 @@ void prompt(Database &currentdb)
                 break;
             }
 
-            QueryCompiler::compileAndExecute(input,currentdb);
+            benchmarkQuery(input,database,5);
         } catch (const std::exception & e) {
             fprintf(stderr, "Exception: %s\n", e.what());
         }
@@ -420,7 +727,34 @@ void prompt(Database &currentdb)
 }
 
 void run_benchmark() {
-    std::unique_ptr<Database> db = loadTPCC();
+    std::unique_ptr<Database> db = loadWiki();
+
+    /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
+    QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse VERSION branch1 w;",*db, (void*) example);
+
+    QueryCompiler::compileAndExecute("SELECT d_id FROM district d;",*db, (void*) example);
+    QueryCompiler::compileAndExecute("SELECT d_id FROM district VERSION branch1 d;",*db, (void*) example);*/
+
+    //benchmarkQuery("SELECT id FROM revision r WHERE r.pageId = 10;",*db,5);
+    //benchmarkQuery("SELECT id FROM revision VERSION branch1 r WHERE r.pageId = 30302;",*db,5);
+
+    //benchmarkQuery("SELECT title , text FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = 10;",*db,5);
+    //benchmarkQuery("SELECT title , text FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND r.pageId = 30302 AND p.id = r.pageId;",*db,5);
+
+    /*benchmarkQuery("SELECT o_id FROM order o;",*db,5);
+    benchmarkQuery("SELECT o_id FROM order VERSION branch1 o;",*db,5);
+
+    benchmarkQuery("SELECT o_w_id FROM order o WHERE o_id = 10;",*db,5);
+    benchmarkQuery("SELECT o_w_id FROM order VERSION branch1 o WHERE o_id = 10;",*db,5);
+
+    benchmarkQuery("INSERT INTO neworder (no_o_id,no_d_id,no_w_id) VALUES (1,2,3);",*db,5);
+    benchmarkQuery("INSERT INTO neworder VERSION branch1 (no_o_id,no_d_id,no_w_id) VALUES (1,2,3);",*db,5);
+
+    benchmarkQuery("UPDATE order SET o_w_id = 2 WHERE o_id = 10;",*db,1);
+    benchmarkQuery("UPDATE order VERSION branch1 SET o_w_id = 2 WHERE o_id = 10;",*db,1);
+
+    benchmarkQuery("DELETE FROM neworder WHERE no_o_id = 1;",*db,1);
+    benchmarkQuery("DELETE FROM neworder VERSION branch1 WHERE no_o_id = 1;",*db,1);*/
 
     prompt(*db);
 }

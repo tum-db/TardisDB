@@ -255,9 +255,13 @@ public:
 
     explicit Text(const void * src);
 
+    explicit Text(const void * src,size_t length);
+
     static value_op_t castString(const std::string & str);
 
     static value_op_t load(const void * ptr);
+
+    static value_op_t load(const void * ptr, size_t length);
 
     value_op_t clone() const override;
 

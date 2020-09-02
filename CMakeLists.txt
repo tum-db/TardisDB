@@ -3,6 +3,7 @@ project(protodb)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(LIBXML_AVAILABLE false)
 
 ### set up boost
 if(APPLE)
@@ -21,8 +22,13 @@ endif(APPLE)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
+### tools
+include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
+include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
+
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
+		${GFLAGS_INCLUDE_DIR}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
 		)
 add_definitions(${LLVM_DEFINITIONS})
@@ -40,14 +46,14 @@ llvm_map_components_to_libnames(LLVM_LIBS
 	ScalarOpts
 )
 
-### tools
-include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
-
 ### libraries
 include(tools/sqlParser/local.cmake)
 include(tools/semanticalAnalyser/local.cmake)
 include(tools/queryCompiler/local.cmake)
 include(tools/queryExecutor/local.cmake)
+if(LIBXML_AVAILABLE)
+	include(tools/wikiParser/local.cmake)
+endif(LIBXML_AVAILABLE)
 
 ### tests
 include("${CMAKE_SOURCE_DIR}/test/local.cmake")
@@ -59,6 +65,10 @@ target_link_libraries(sql dblib queryCompiler queryExecutor)
 ### benchmarks
 add_executable(semanticalBench benchmark/semanticalBench.cpp)
 target_link_libraries(semanticalBench dblib queryCompiler queryExecutor)
+if(LIBXML_AVAILABLE)
+	target_compile_definitions(semanticalBench PUBLIC -D LIBXML_AVAILABLE=true)
+	target_link_libraries(semanticalBench wikiparser)
+endif(LIBXML_AVAILABLE)
 
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")

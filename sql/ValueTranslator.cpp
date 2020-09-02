@@ -6,9 +6,9 @@
 
 #include "ValueTranslator.hpp"
 
-void ValueTranslator::storeStringInTextFormat(char* destination, char* source, char length) {
-    destination[0] = length;
-    std::memcpy((void*)&destination[1],source,length);
+void ValueTranslator::storeStringInTextFormat(Native::Sql::Text* destination, char* source, char length) {
+    destination->value[0] = source[0];
+    std::memcpy((void*)&(destination->value[1]),source, sizeof(uintptr_t));
 }
 
 std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sql::Value *original) {
@@ -39,7 +39,7 @@ std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sq
             funcTy = llvm::TypeBuilder<void * (void * , void *, uint8_t), false>::get(codeGen.getLLVMContext());
             func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("storeStringInTextFormat", funcTy) );
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeStringInTextFormat);
-            result = codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(&((Native::Sql::Text*) returnValue.get())->value), cg_voidptr_t(((Sql::Varchar*) original)->getLLVMValue()), cg_u8_t(((Sql::Varchar*) original)->getLength())});
+            result = codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer((Native::Sql::Text*) returnValue.get()), cg_voidptr_t(((Sql::Varchar*) original)->getLLVMValue()), cg_u8_t(((Sql::Varchar*) original)->getLength())});
             break;
         case Sql::SqlType::TypeID::NumericID:
             returnValue = std::make_unique<Native::Sql::Numeric>(original->type);
