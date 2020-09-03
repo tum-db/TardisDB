@@ -25,10 +25,14 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 ### tools
 include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
 include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
+if(LINUX)
+	include("${CMAKE_SOURCE_DIR}/vendor/perfevent.cmake")
+endif(LINUX)
 
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
 		${GFLAGS_INCLUDE_DIR}
+		${PERFEVENT_INCLUDE_DIR}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
 		)
 add_definitions(${LLVM_DEFINITIONS})
