@@ -27,6 +27,10 @@
     #include "wikiParser/WikiParser.hpp"
 #endif
 
+#ifdef __linux__
+#include "perfevent/PerfEvent.hpp"
+#endif
+
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -683,9 +687,24 @@ std::unique_ptr<Database> loadWiki() {
 
 void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::vector<QueryCompiler::BenchmarkResult> results;
-    for (int i = 0; i < runs; i++) {
-        results.push_back(QueryCompiler::compileAndBenchmark(query,db));
+
+#ifdef __linux__
+    std::string header;
+    std::string data;
+    BenchmarkParameters params;
+
+    // benchmark ACT
+    {
+        PerfEventBlock e(5, params, true);
+
+        for (int i = 0; i < runs; i++) {
+            results.push_back(QueryCompiler::compileAndBenchmark(query, db));
+        }
     }
+
+    std::cout << header << std::endl;
+    std::cout << data << std::endl;
+#endif
 
     double parsingTime = 0;
     double analsingTime = 0;
@@ -711,7 +730,6 @@ void prompt(Database &database)
 {
     while (true) {
         try {
-            printf("");
             fflush(stdout);
 
             std::string input = readline();

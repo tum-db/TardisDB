@@ -27,10 +27,6 @@
 
 #include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
 
-#ifdef Linux
-    #include "perfevent/PerfEvent.hpp"
-#endif
-
 namespace QueryCompiler {
 
     static llvm::Function *compileQuery(const std::string &query, std::unique_ptr<Operator> &queryTree) {
@@ -80,16 +76,6 @@ namespace QueryCompiler {
     BenchmarkResult compileAndBenchmark(const std::string &query, Database &db) {
         QueryContext queryContext(db);
 
-#ifdef Linux
-        std::string header;
-        std::string data;
-        BenchmarkParameters params;
-
-        // benchmark ACT
-        {
-            PerfEventBlock e(1, params, header, data, true);
-#endif
-
         ModuleGen moduleGen("QueryModule");
 
         const auto parsingStart = std::chrono::high_resolution_clock::now();
@@ -113,13 +99,6 @@ namespace QueryCompiler {
         args[1].PointerVal = (void *) &queryContext;
 
         QueryExecutor::BenchmarkResult llvmresult = QueryExecutor::executeBenchmarkFunction(queryFunc, args);
-
-#ifdef Linux
-        e.scale = 1;
-    }
-    std::cout << header << std::endl;
-    std::cout << data << std::endl;
-#endif
 
         BenchmarkResult result;
         result.parsingTime = std::chrono::duration_cast<std::chrono::microseconds>(parsingDuration).count();
