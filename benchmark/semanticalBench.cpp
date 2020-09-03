@@ -695,7 +695,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
 
     // benchmark ACT
     {
-        PerfEventBlock e(5, params, true);
+        PerfEventBlock e(runs, params, true);
 
         for (int i = 0; i < runs; i++) {
             results.push_back(QueryCompiler::compileAndBenchmark(query, db));
@@ -718,12 +718,9 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
         compileTime += result.llvmCompilationTime;
         executionTime += result.executionTime;
     }
-
-    std::cout << "Parsing time: " << (parsingTime / runs) << std::endl;
-    std::cout << "Analysing time: " << (analsingTime / runs) << std::endl;
-    std::cout << "Translation time: " << (translationTime / runs) << std::endl;
-    std::cout << "Compile time: " << (compileTime / runs) << std::endl;
-    std::cout << "Execution time: " << (executionTime / runs) << std::endl;
+    double sum = parsingTime + analsingTime + translationTime + compileTime + executionTime;
+    std::cout << "Parsing time , Analysing time , Translation time , Translation time , Compile time , Execution time , Sum" << std::endl;
+    std::cout << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << sum << std::endl;
 }
 
 void prompt(Database &database)
