@@ -696,10 +696,13 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     // benchmark ACT
     {
         PerfEventBlock e(runs, params, true);
+#endif
 
         for (int i = 0; i < runs; i++) {
             results.push_back(QueryCompiler::compileAndBenchmark(query, db));
         }
+
+#ifdef __linux__
     }
 
     std::cout << header << std::endl;
