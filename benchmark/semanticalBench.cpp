@@ -693,7 +693,6 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::string data;
     BenchmarkParameters params;
 
-    // benchmark ACT
     {
         PerfEventBlock e(runs, params, true);
 #endif
