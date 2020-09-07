@@ -55,7 +55,18 @@ namespace semanticalAnalysis {
             if (parserResult.relations.size() == 1 && productionName.length() == 0) productionName = parserResult.relations[0].first;
 
             // Construct Expression
-            iu_p_t iu = plan.ius[productionName][productionIUName];
+            iu_p_t iu;
+            if (productionName.compare("") == 0) {
+                for (auto &[_,production] : plan.ius) {
+                    for (auto &[key,value] : production) {
+                        if (key.compare(productionIUName) == 0) {
+                            iu = value;
+                        }
+                    }
+                }
+            } else {
+                iu = plan.ius[productionName][productionIUName];
+            }
             auto constExp = std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type);
             auto identifier = std::make_unique<Expressions::Identifier>(iu);
             std::unique_ptr<Expressions::Comparison> exp = std::make_unique<Expressions::Comparison>(
