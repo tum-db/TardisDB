@@ -721,7 +721,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
         executionTime += result.executionTime;
     }
     double sum = parsingTime + analsingTime + translationTime + compileTime + executionTime;
-    std::cout << "Parsing time , Analysing time , Translation time , Translation time , Compile time , Execution time , Sum" << std::endl;
+    //std::cout << "Parsing time , Analysing time , Translation time , Compile time , Execution time , Sum" << std::endl;
     std::cout << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << sum << std::endl;
 }
 
