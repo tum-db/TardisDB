@@ -96,7 +96,7 @@ void *getValuePointer(size_t idx, Native::Sql::SqlTuple *tuple) {
         case Native::Sql::SqlType::TypeID::IntegerID:
             return &((Native::Sql::Integer *)value)->value;
         case Native::Sql::SqlType::TypeID::VarcharID:
-            return &((Native::Sql::Text *)value)->value;
+            return (void*)(((char*)((Native::Sql::Varchar *)value)->value) - 1);
 //        case SqlType::TypeID::CharID:
 //            return Char::load(ptr, type);
         case Native::Sql::SqlType::TypeID::NumericID:
