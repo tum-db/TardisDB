@@ -140,7 +140,7 @@ namespace tardisParser {
         Token token = Token(TokenType::literal, ss.str());
         if (!is_delimiter(token) && !is_controlSymbol(token) && !is_keyword(token) && !is_op(token) &&
             !is_identifier(token)) {
-            unescape(token.value);
+            token.value = unescape(token.value);
         }
 
         _tokens.emplace_back(token);
