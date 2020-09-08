@@ -183,15 +183,15 @@ generate_BD() {
 }
 
 benchmark_input_for_distributions() {
-#    benchmark_input $1 $2 $3 0.9999,0.0001
-#    benchmark_input $1 $2 $3 0.999,0.001
-    benchmark_input $1 $2 $3 0.99,0.01
-    benchmark_input $1 $2 $3 0.9,0.1
-    benchmark_input $1 $2 $3 0.5,0.5
-    benchmark_input $1 $2 $3 0.1,0.9
-    benchmark_input $1 $2 $3 0.01,0.99
-#    benchmark_input $1 $2 $3 0.001,0.999
-#    benchmark_input $1 $2 $3 0.0001,0.9999
+#    benchmark_input $1 $2 $3 "0.9999,0.0001"
+#    benchmark_input $1 $2 $3 "0.999,0.001"
+    benchmark_input $1 $2 $3 "0.99,0.01"
+    benchmark_input $1 $2 $3 "0.9,0.1"
+    benchmark_input $1 $2 $3 "0.5,0.5"
+    benchmark_input $1 $2 $3 "0.1,0.9"
+    benchmark_input $1 $2 $3 "0.01,0.99"
+#    benchmark_input $1 $2 $3 "0.001,0.999"
+#    benchmark_input $1 $2 $3 "0.0001,0.9999"
 }
 
 
