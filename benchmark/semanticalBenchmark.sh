@@ -76,7 +76,7 @@ benchmark_input() {
     sum=$(bc -l <<<"${sum}/${counter}")
 
     # Append metrics to csv file
-    echo "$3;\"$4\";${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> $2
+    echo "$3;$4;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> $2
 }
 
 <<STATEMENTS
