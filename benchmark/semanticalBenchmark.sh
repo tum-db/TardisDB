@@ -16,7 +16,7 @@ COMMIT_ID=$(git rev-parse --verify HEAD)
 
 benchmark_input() {
     # Execute benchmark program and write output to file
-    (./semanticalBench "-d=$5 -r=$4" < $1) | cat > output.txt
+    (./semanticalBench "-d=$5" "-r=$4" < $1) | cat > output.txt
 
     # Declare metric arrays
     declare -a parsing_times
