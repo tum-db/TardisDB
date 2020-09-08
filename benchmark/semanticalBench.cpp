@@ -35,7 +35,7 @@
 
 DEFINE_bool(b, false, "isBenchmarking");
 DEFINE_string(l, "wikidb", "database");
-DEFINE_string(d, "1,1", "distribution");
+DEFINE_double(d, 0.5, "distribution");
 
 static bool ValidateDatabase(const char *flagname, const std::string &value) {
     return value.compare("wikidb") == 0;
@@ -47,7 +47,6 @@ static bool ValidateDistribution(const char *flagname, const std::string &value)
 }
 
 DEFINE_validator(l, &ValidateDatabase);
-DEFINE_validator(d, &ValidateDistribution);
 
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
@@ -761,17 +760,16 @@ void prompt(Database &database)
 }
 
 int main(int argc, char * argv[]) {
-    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name> [-d <Master Distribution,Branch Distribution>]]");
+    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name> [-d <Master Share>]]");
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
     llvm::InitializeNativeTargetAsmParser();
 
-    std::vector<std::string> __distribution = split(FLAGS_d,',');
     std::array<double,2> _distribution;
-    _distribution[0] = std::stod(__distribution[0]);
-    _distribution[1] = std::stod(__distribution[1]);
+    _distribution[0] = FLAGS_d;
+    _distribution[1] = 1 - _distribution[0];
     std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
 
     std::unique_ptr<Database> db = loadWiki(distribution);
