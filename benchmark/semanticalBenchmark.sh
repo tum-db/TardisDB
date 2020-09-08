@@ -12,6 +12,7 @@ else
     Red=''
 fi
 
+COMMIT_ID=$(git rev-parse --verify HEAD)
 
 benchmark_input() {
     # Execute benchmark program and write output to file
@@ -193,9 +194,10 @@ benchmark_input_for_distributions() {
 #    benchmark_input $1 $2 $3 0.0001,0.9999
 }
 
-OUTPUT_FILE='../output.csv'
-rm OUTPUT_FILE
-echo "ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time" | cat > OUTPUT_FILE
+
+OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
+rm $OUTPUT_FILE
+echo "ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time" | cat > $OUTPUT_FILE
 
 generate_MS
 generate_BS
@@ -215,22 +217,22 @@ echo "${Green}Generated Delete Statements!${Color_Off}"
 
 echo ""
 echo "Benchmark Select Statements..."
-benchmark_input_for_distributions ms_statements.txt OUTPUT_FILE 1
+benchmark_input_for_distributions ms_statements.txt $OUTPUT_FILE 1
 echo "Benchmark Select Statements with branching..."
-benchmark_input_for_distributions bs_statements.txt OUTPUT_FILE 2
+benchmark_input_for_distributions bs_statements.txt $OUTPUT_FILE 2
 echo "Benchmark Merge Statements..."
-benchmark_input_for_distributions mm_statements.txt OUTPUT_FILE 3
+benchmark_input_for_distributions mm_statements.txt $OUTPUT_FILE 3
 echo "Benchmark Merge Statements with branching..."
-benchmark_input_for_distributions bm_statements.txt OUTPUT_FILE 4
+benchmark_input_for_distributions bm_statements.txt $OUTPUT_FILE 4
 echo "Benchmark Update Statements..."
-benchmark_input_for_distributions mu_statements.txt OUTPUT_FILE 5
+benchmark_input_for_distributions mu_statements.txt $OUTPUT_FILE 5
 echo "Benchmark Update Statements with branching..."
-benchmark_input_for_distributions bu_statements.txt OUTPUT_FILE 6
+benchmark_input_for_distributions bu_statements.txt $OUTPUT_FILE 6
 echo "Benchmark Insert Statements..."
-benchmark_input mi_statements.txt OUTPUT_FILE 7 "0.5,0.5"
+benchmark_input mi_statements.txt $OUTPUT_FILE 7 "0.5,0.5"
 echo "Benchmark Insert Statements with branching..."
-benchmark_input bi_statements.txt OUTPUT_FILE 8 "0.5,0.5"
+benchmark_input bi_statements.txt $OUTPUT_FILE 8 "0.5,0.5"
 echo "Benchmark Delete Statements..."
-benchmark_input_for_distributions md_statements.txt OUTPUT_FILE 9
+benchmark_input_for_distributions md_statements.txt $OUTPUT_FILE 9
 echo "Benchmark Delete Statements with branching..."
-benchmark_input_for_distributions bd_statements.txt OUTPUT_FILE 10
+benchmark_input_for_distributions bd_statements.txt $OUTPUT_FILE 10
