@@ -753,7 +753,7 @@ void prompt(Database &database)
                 break;
             }
 
-            benchmarkQuery(input,database,5);
+            benchmarkQuery(input,database,3);
         } catch (const std::exception & e) {
             fprintf(stderr, "Exception: %s\n", e.what());
         }
