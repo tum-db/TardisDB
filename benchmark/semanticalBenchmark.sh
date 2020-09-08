@@ -1,8 +1,21 @@
 #!/bin/bash
 
+if [[ $platform == 'linux' ]]; then
+    Color_Off='\033[0m'
+    Green='\033[0;32m'
+    Yellow='\033[0;33m'
+    Red='\033[0;31m'
+else
+    Color_Off=''
+    Green=''
+    Yellow=''
+    Red=''
+fi
+
+
 benchmark_input() {
     # Execute benchmark program and write output to file
-    (./semanticalBench "-d=$3" < $1) | cat > output.txt
+    (./semanticalBench "-d=$4" < $1) | cat > output.txt
 
     # Declare metric arrays
     declare -a parsing_times
@@ -62,7 +75,7 @@ benchmark_input() {
     sum=$(bc -l <<<"${sum}/${counter}")
 
     # Append metrics to csv file
-    echo "$2;\"$3\";${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> output.csv
+    echo "$3;\"$4\";${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> $2
 }
 
 <<STATEMENTS
@@ -169,54 +182,55 @@ generate_BD() {
 }
 
 benchmark_input_for_distributions() {
-    benchmark_input $1 $2 0.9999,0.0001
-    benchmark_input $1 $2 0.999,0.001
-    benchmark_input $1 $2 0.99,0.01
-    benchmark_input $1 $2 0.9,0.1
-    benchmark_input $1 $2 0.5,0.5
-    benchmark_input $1 $2 0.1,0.9
-    benchmark_input $1 $2 0.01,0.99
-    benchmark_input $1 $2 0.001,0.999
-    benchmark_input $1 $2 0.0001,0.9999
+#    benchmark_input $1 $2 $3 0.9999,0.0001
+#    benchmark_input $1 $2 $3 0.999,0.001
+    benchmark_input $1 $2 $3 0.99,0.01
+    benchmark_input $1 $2 $3 0.9,0.1
+    benchmark_input $1 $2 $3 0.5,0.5
+    benchmark_input $1 $2 $3 0.1,0.9
+    benchmark_input $1 $2 $3 0.01,0.99
+#    benchmark_input $1 $2 $3 0.001,0.999
+#    benchmark_input $1 $2 $3 0.0001,0.9999
 }
 
-rm output.csv
-echo "ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time" | cat > output.csv
+OUTPUT_FILE='../output.csv'
+rm OUTPUT_FILE
+echo "ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time" | cat > OUTPUT_FILE
 
 generate_MS
 generate_BS
-echo "Generated Select Statements!"
+echo "${Green}Generated Select Statements!${Color_Off}"
 generate_MM
 generate_BM
-echo "Generated Merge Statements!"
+echo "${Green}Generated Merge Statements!${Color_Off}"
 generate_MU
 generate_BU
-echo "Generated Update Statements!"
+echo "${Green}Generated Update Statements!${Color_Off}"
 generate_MI
 generate_BI
-echo "Generated Insert Statements!"
+echo "${Green}Generated Insert Statements!${Color_Off}"
 generate_MD
 generate_BD
-echo "Generated Delete Statements!"
+echo "${Green}Generated Delete Statements!${Color_Off}"
 
 echo ""
 echo "Benchmark Select Statements..."
-benchmark_input_for_distributions ms_statements.txt 1
+benchmark_input_for_distributions ms_statements.txt OUTPUT_FILE 1
 echo "Benchmark Select Statements with branching..."
-benchmark_input_for_distributions bs_statements.txt 2
+benchmark_input_for_distributions bs_statements.txt OUTPUT_FILE 2
 echo "Benchmark Merge Statements..."
-benchmark_input_for_distributions mm_statements.txt 3
+benchmark_input_for_distributions mm_statements.txt OUTPUT_FILE 3
 echo "Benchmark Merge Statements with branching..."
-benchmark_input_for_distributions bm_statements.txt 4
+benchmark_input_for_distributions bm_statements.txt OUTPUT_FILE 4
 echo "Benchmark Update Statements..."
-benchmark_input_for_distributions mu_statements.txt 5
+benchmark_input_for_distributions mu_statements.txt OUTPUT_FILE 5
 echo "Benchmark Update Statements with branching..."
-benchmark_input_for_distributions bu_statements.txt 6
+benchmark_input_for_distributions bu_statements.txt OUTPUT_FILE 6
 echo "Benchmark Insert Statements..."
-benchmark_input mi_statements.txt 7 "0.5,0.5"
+benchmark_input mi_statements.txt OUTPUT_FILE 7 "0.5,0.5"
 echo "Benchmark Insert Statements with branching..."
-benchmark_input bi_statements.txt 8 "0.5,0.5"
+benchmark_input bi_statements.txt OUTPUT_FILE 8 "0.5,0.5"
 echo "Benchmark Delete Statements..."
-benchmark_input_for_distributions md_statements.txt 9
+benchmark_input_for_distributions md_statements.txt OUTPUT_FILE 9
 echo "Benchmark Delete Statements with branching..."
-benchmark_input_for_distributions bd_statements.txt 10
+benchmark_input_for_distributions bd_statements.txt OUTPUT_FILE 10
