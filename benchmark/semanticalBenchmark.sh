@@ -118,7 +118,7 @@ generate_MU() {
     rm mu_statements.txt
     for i in {1..50}
     do
-        echo "UPDATE revision SET parentid = 1 WHERE r.pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mu_statements.txt
+        echo "UPDATE revision SET parentid = 1 WHERE pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mu_statements.txt
     done
     echo "quit" | cat >> mu_statements.txt
 }
@@ -127,7 +127,7 @@ generate_BU() {
     rm bu_statements.txt
     for i in {1..50}
     do
-        echo "UPDATE revision VERSION branch1 SET parentid = 1 WHERE r.pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bu_statements.txt
+        echo "UPDATE revision VERSION branch1 SET parentid = 1 WHERE pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bu_statements.txt
     done
     echo "quit" | cat >> bu_statements.txt
 }
@@ -167,6 +167,8 @@ generate_BD() {
     done
     echo "quit" | cat >> bd_statements.txt
 }
+
+rm output.csv
 
 generate_MS
 generate_BS

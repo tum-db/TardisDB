@@ -31,6 +31,24 @@
 #include "perfevent/PerfEvent.hpp"
 #endif
 
+#include "gflags/gflags.h"
+
+DEFINE_bool(b, false, "isBenchmarking");
+DEFINE_string(l, "wikidb", "database");
+DEFINE_string(d, "1,1", "distribution");
+
+static bool ValidateDatabase(const char *flagname, const std::string &value) {
+    return value.compare("wikidb") == 0;
+}
+
+static bool ValidateDistribution(const char *flagname, const std::string &value) {
+    std::vector<std::string> distributions = split(value,',');
+    return distributions.size() == 2;
+}
+
+DEFINE_validator(l, &ValidateDatabase);
+DEFINE_validator(d, &ValidateDistribution);
+
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -639,14 +657,13 @@ std::unique_ptr<Database> generateWikiTBL() {
 }
 #endif
 
-std::unique_ptr<Database> loadWiki() {
+std::unique_ptr<Database> loadWiki(std::discrete_distribution<int> &distribution) {
     auto wikidb = std::make_unique<Database>();
 
     QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL);",*wikidb);
     QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL);",*wikidb);
     QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*wikidb);
 
-    std::discrete_distribution<int> distribution = { 1 , 1 };
     branch_id_t highestBranchID = 0;
     for (int i=1; i<distribution.probabilities().size(); i++) {
         std::string branchName = "branch";
@@ -658,7 +675,7 @@ std::unique_ptr<Database> loadWiki() {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("page");
         std::ifstream fs("page.tbl");
-        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        if (!fs) { throw std::runtime_error("file not found: tables/page.tbl"); }
         loadWikiTable(fs, false, item, distribution,0);
     }
 
@@ -666,14 +683,14 @@ std::unique_ptr<Database> loadWiki() {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("content");
         std::ifstream fs("content.tbl");
-        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        if (!fs) { throw std::runtime_error("file not found: tables/content.tbl"); }
         loadWikiTable(fs, true, item, distribution,0);
     }
     {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("revision");
         std::ifstream fs("revision.tbl");
-        if (!fs) { throw std::runtime_error("file not found: tables/item.tbl"); }
+        if (!fs) { throw std::runtime_error("file not found: tables/revision.tbl"); }
         loadWikiTable(fs, true, item, distribution,2);
     }
 
@@ -722,7 +739,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     }
     double sum = parsingTime + analsingTime + translationTime + compileTime + executionTime;
     //std::cout << "Parsing time , Analysing time , Translation time , Compile time , Execution time , Sum" << std::endl;
-    std::cout << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << sum << std::endl;
+    std::cout << std::fixed << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << sum << std::endl;
 }
 
 void prompt(Database &database)
@@ -743,45 +760,23 @@ void prompt(Database &database)
     }
 }
 
-void run_benchmark() {
-    std::unique_ptr<Database> db = loadWiki();
-
-    /*QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse w;",*db, (void*) example);
-    QueryCompiler::compileAndExecute("SELECT w_id FROM warehouse VERSION branch1 w;",*db, (void*) example);
-
-    QueryCompiler::compileAndExecute("SELECT d_id FROM district d;",*db, (void*) example);
-    QueryCompiler::compileAndExecute("SELECT d_id FROM district VERSION branch1 d;",*db, (void*) example);*/
-
-    //benchmarkQuery("SELECT id FROM revision r WHERE r.pageId = 10;",*db,5);
-    //benchmarkQuery("SELECT id FROM revision VERSION branch1 r WHERE r.pageId = 30302;",*db,5);
-
-    //benchmarkQuery("SELECT title , text FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = 10;",*db,5);
-    //benchmarkQuery("SELECT title , text FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND r.pageId = 30302 AND p.id = r.pageId;",*db,5);
-
-    /*benchmarkQuery("SELECT o_id FROM order o;",*db,5);
-    benchmarkQuery("SELECT o_id FROM order VERSION branch1 o;",*db,5);
-
-    benchmarkQuery("SELECT o_w_id FROM order o WHERE o_id = 10;",*db,5);
-    benchmarkQuery("SELECT o_w_id FROM order VERSION branch1 o WHERE o_id = 10;",*db,5);
-
-    benchmarkQuery("INSERT INTO neworder (no_o_id,no_d_id,no_w_id) VALUES (1,2,3);",*db,5);
-    benchmarkQuery("INSERT INTO neworder VERSION branch1 (no_o_id,no_d_id,no_w_id) VALUES (1,2,3);",*db,5);
-
-    benchmarkQuery("UPDATE order SET o_w_id = 2 WHERE o_id = 10;",*db,1);
-    benchmarkQuery("UPDATE order VERSION branch1 SET o_w_id = 2 WHERE o_id = 10;",*db,1);
-
-    benchmarkQuery("DELETE FROM neworder WHERE no_o_id = 1;",*db,1);
-    benchmarkQuery("DELETE FROM neworder VERSION branch1 WHERE no_o_id = 1;",*db,1);*/
-
-    prompt(*db);
-}
-
 int main(int argc, char * argv[]) {
+    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name> [-d <Master Distribution,Branch Distribution>]]");
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
     llvm::InitializeNativeTargetAsmParser();
 
-    run_benchmark();
+    std::vector<std::string> __distribution = split(FLAGS_d,',');
+    std::array<int,2> _distribution;
+    _distribution[0] = std::stoi(__distribution[0]);
+    _distribution[1] = std::stoi(__distribution[1]);
+    std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
+
+    std::unique_ptr<Database> db = loadWiki(distribution);
+
+    prompt(*db);
 
     llvm::llvm_shutdown();
 }
