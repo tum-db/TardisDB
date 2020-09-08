@@ -769,9 +769,9 @@ int main(int argc, char * argv[]) {
     llvm::InitializeNativeTargetAsmParser();
 
     std::vector<std::string> __distribution = split(FLAGS_d,',');
-    std::array<int,2> _distribution;
-    _distribution[0] = std::stoi(__distribution[0]);
-    _distribution[1] = std::stoi(__distribution[1]);
+    std::array<double,2> _distribution;
+    _distribution[0] = std::stod(__distribution[0]);
+    _distribution[1] = std::stod(__distribution[1]);
     std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
 
     std::unique_ptr<Database> db = loadWiki(distribution);
