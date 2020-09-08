@@ -2,7 +2,7 @@
 
 benchmark_input() {
     # Execute benchmark program and write output to file
-    (./semanticalBench < $1) | cat > output.txt
+    (./semanticalBench "-d=$3" < $1) | cat > output.txt
 
     # Declare metric arrays
     declare -a parsing_times
@@ -62,20 +62,20 @@ benchmark_input() {
     sum=$(bc -l <<<"${sum}/${counter}")
 
     # Append metrics to csv file
-    echo "${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> output.csv
+    echo "$2;\"$3\";${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> output.csv
 }
 
 <<STATEMENTS
-MS = SELECT id FROM revision r WHERE r.pageId = <pageid>;
-BS = SELECT id FROM revision VERSION branch1 r WHERE r.pageId = <pageid>;
-MM = SELECT title , text FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = <pageid>;
-BM = SELECT title , text FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = <pageid>;
-MU = UPDATE revision SET parentid = 1 WHERE r.pageId = <pageid>;
-BU = UPDATE revision VERSION branch1 SET parentid = 1 WHERE r.pageId = <pageid>;
-MI = INSERT INTO content ( id , text ) VALUES ( <textid> , 'Hello_world!' );
-BI = INSERT INTO content VERSION branch1 ( id , text ) VALUES (<textid> , 'Hello_World!');
-MD = DELETE FROM revision WHERE pageId = <pageId>;
-BD = DELETE FROM revision VERSION branch1 WHERE pageId = <pageId>;
+1: MS = SELECT id FROM revision r WHERE r.pageId = <pageid>;
+2: BS = SELECT id FROM revision VERSION branch1 r WHERE r.pageId = <pageid>;
+3: MM = SELECT title , text FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = <pageid>;
+4: BM = SELECT title , text FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = <pageid>;
+5: MU = UPDATE revision SET parentid = 1 WHERE r.pageId = <pageid>;
+6: BU = UPDATE revision VERSION branch1 SET parentid = 1 WHERE r.pageId = <pageid>;
+7: MI = INSERT INTO content ( id , text ) VALUES ( <textid> , 'Hello_world!' );
+8: BI = INSERT INTO content VERSION branch1 ( id , text ) VALUES (<textid> , 'Hello_World!');
+9: MD = DELETE FROM revision WHERE pageId = <pageId>;
+10: BD = DELETE FROM revision VERSION branch1 WHERE pageId = <pageId>;
 STATEMENTS
 
 generate_MS() {
@@ -168,7 +168,20 @@ generate_BD() {
     echo "quit" | cat >> bd_statements.txt
 }
 
+benchmark_input_for_distributions() {
+    benchmark_input $1 $2 0.9999,0.0001
+    benchmark_input $1 $2 0.999,0.001
+    benchmark_input $1 $2 0.99,0.01
+    benchmark_input $1 $2 0.9,0.1
+    benchmark_input $1 $2 0.5,0.5
+    benchmark_input $1 $2 0.1,0.9
+    benchmark_input $1 $2 0.01,0.99
+    benchmark_input $1 $2 0.001,0.999
+    benchmark_input $1 $2 0.0001,0.9999
+}
+
 rm output.csv
+echo "ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time" | cat > output.csv
 
 generate_MS
 generate_BS
@@ -188,22 +201,22 @@ echo "Generated Delete Statements!"
 
 echo ""
 echo "Benchmark Select Statements..."
-benchmark_input ms_statements.txt
+benchmark_input_for_distributions ms_statements.txt 1
 echo "Benchmark Select Statements with branching..."
-benchmark_input bs_statements.txt
+benchmark_input_for_distributions bs_statements.txt 2
 echo "Benchmark Merge Statements..."
-benchmark_input mm_statements.txt
+benchmark_input_for_distributions mm_statements.txt 3
 echo "Benchmark Merge Statements with branching..."
-benchmark_input bm_statements.txt
+benchmark_input_for_distributions bm_statements.txt 4
 echo "Benchmark Update Statements..."
-benchmark_input mu_statements.txt
+benchmark_input_for_distributions mu_statements.txt 5
 echo "Benchmark Update Statements with branching..."
-benchmark_input bu_statements.txt
+benchmark_input_for_distributions bu_statements.txt 6
 echo "Benchmark Insert Statements..."
-benchmark_input mi_statements.txt
+benchmark_input mi_statements.txt 7 "0.5,0.5"
 echo "Benchmark Insert Statements with branching..."
-benchmark_input bi_statements.txt
+benchmark_input bi_statements.txt 8 "0.5,0.5"
 echo "Benchmark Delete Statements..."
-benchmark_input md_statements.txt
+benchmark_input_for_distributions md_statements.txt 9
 echo "Benchmark Delete Statements with branching..."
-benchmark_input bd_statements.txt
+benchmark_input_for_distributions bd_statements.txt 10
