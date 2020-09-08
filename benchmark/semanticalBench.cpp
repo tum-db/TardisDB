@@ -36,6 +36,7 @@
 DEFINE_bool(b, false, "isBenchmarking");
 DEFINE_string(l, "wikidb", "database");
 DEFINE_double(d, 0.5, "distribution");
+DEFINE_uint64(r, 1, "runs");
 
 static bool ValidateDatabase(const char *flagname, const std::string &value) {
     return value.compare("wikidb") == 0;
@@ -741,7 +742,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::cout << std::fixed << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << sum << std::endl;
 }
 
-void prompt(Database &database)
+void prompt(Database &database, unsigned runs)
 {
     while (true) {
         try {
@@ -752,7 +753,7 @@ void prompt(Database &database)
                 break;
             }
 
-            benchmarkQuery(input,database,3);
+            benchmarkQuery(input,database,runs);
         } catch (const std::exception & e) {
             fprintf(stderr, "Exception: %s\n", e.what());
         }
@@ -760,7 +761,7 @@ void prompt(Database &database)
 }
 
 int main(int argc, char * argv[]) {
-    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name> [-d <Master Share>]]");
+    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name>] [-d <Master Share>] [-r <Runs per Statement>]");
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     llvm::InitializeNativeTarget();
@@ -774,7 +775,7 @@ int main(int argc, char * argv[]) {
 
     std::unique_ptr<Database> db = loadWiki(distribution);
 
-    prompt(*db);
+    prompt(*db,FLAGS_r);
 
     llvm::llvm_shutdown();
 }

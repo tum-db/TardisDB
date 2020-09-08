@@ -16,7 +16,7 @@ COMMIT_ID=$(git rev-parse --verify HEAD)
 
 benchmark_input() {
     # Execute benchmark program and write output to file
-    (./semanticalBench "-d=$4" < $1) | cat > output.txt
+    (./semanticalBench "-d=$5 -r=$4" < $1) | cat > output.txt
 
     # Declare metric arrays
     declare -a parsing_times
@@ -76,7 +76,7 @@ benchmark_input() {
     sum=$(bc -l <<<"${sum}/${counter}")
 
     # Append metrics to csv file
-    echo "$3;$4;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> $2
+    echo "$3;$5;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> $2
 }
 
 <<STATEMENTS
@@ -183,15 +183,15 @@ generate_BD() {
 }
 
 benchmark_input_for_distributions() {
-#    benchmark_input $1 $2 $3 "0.9999"
-#    benchmark_input $1 $2 $3 "0.999"
-    benchmark_input $1 $2 $3 "0.99"
-    benchmark_input $1 $2 $3 "0.9"
-    benchmark_input $1 $2 $3 "0.5"
-    benchmark_input $1 $2 $3 "0.1"
-    benchmark_input $1 $2 $3 "0.01"
-#    benchmark_input $1 $2 $3 "0.001"
-#    benchmark_input $1 $2 $3 "0.0001"
+#    benchmark_input $1 $2 $3 $4 "0.9999"
+#    benchmark_input $1 $2 $3 $4 "0.999"
+    benchmark_input $1 $2 $3 $4 "0.99"
+    benchmark_input $1 $2 $3 $4 "0.9"
+    benchmark_input $1 $2 $3 $4 "0.5"
+    benchmark_input $1 $2 $3 $4 "0.1"
+    benchmark_input $1 $2 $3 $4 "0.01"
+#    benchmark_input $1 $2 $3 $4 "0.001"
+#    benchmark_input $1 $2 $3 $4 "0.0001"
 }
 
 
@@ -217,22 +217,22 @@ echo "${Green}Generated Delete Statements!${Color_Off}"
 
 echo ""
 echo "Benchmark Select Statements..."
-benchmark_input_for_distributions ms_statements.txt $OUTPUT_FILE 1
+benchmark_input_for_distributions ms_statements.txt $OUTPUT_FILE 1 3
 echo "Benchmark Select Statements with branching..."
-benchmark_input_for_distributions bs_statements.txt $OUTPUT_FILE 2
+benchmark_input_for_distributions bs_statements.txt $OUTPUT_FILE 2 3
 echo "Benchmark Merge Statements..."
-benchmark_input_for_distributions mm_statements.txt $OUTPUT_FILE 3
+benchmark_input_for_distributions mm_statements.txt $OUTPUT_FILE 3 3
 echo "Benchmark Merge Statements with branching..."
-benchmark_input_for_distributions bm_statements.txt $OUTPUT_FILE 4
+benchmark_input_for_distributions bm_statements.txt $OUTPUT_FILE 4 3
 echo "Benchmark Update Statements..."
-benchmark_input_for_distributions mu_statements.txt $OUTPUT_FILE 5
+benchmark_input_for_distributions mu_statements.txt $OUTPUT_FILE 5 3
 echo "Benchmark Update Statements with branching..."
-benchmark_input_for_distributions bu_statements.txt $OUTPUT_FILE 6
+benchmark_input_for_distributions bu_statements.txt $OUTPUT_FILE 6 3
 echo "Benchmark Insert Statements..."
-benchmark_input mi_statements.txt $OUTPUT_FILE 7 "0.5"
+benchmark_input mi_statements.txt $OUTPUT_FILE 7 1 "0.5"
 echo "Benchmark Insert Statements with branching..."
-benchmark_input bi_statements.txt $OUTPUT_FILE 8 "0.5"
+benchmark_input bi_statements.txt $OUTPUT_FILE 8 1 "0.5"
 echo "Benchmark Delete Statements..."
-benchmark_input_for_distributions md_statements.txt $OUTPUT_FILE 9
+benchmark_input_for_distributions md_statements.txt $OUTPUT_FILE 9 1
 echo "Benchmark Delete Statements with branching..."
-benchmark_input_for_distributions bd_statements.txt $OUTPUT_FILE 10
+benchmark_input_for_distributions bd_statements.txt $OUTPUT_FILE 10 1
