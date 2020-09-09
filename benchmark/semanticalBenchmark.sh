@@ -26,6 +26,18 @@ benchmark_input() {
     declare -a execution_times
     declare -a sums
 
+    declare -a time_sec
+    declare -a cycles
+    declare -a instructions
+    declare -a l1_misses
+    declare -a llc_misses
+    declare -a branch_misses
+    declare -a task_clock
+    declare -a scale
+    declare -a ipc
+    declare -a cpus
+    declare -a ghz
+
     # Retrieve metrics from file
     input="output.txt"
     while IFS= read -r line
@@ -44,6 +56,23 @@ benchmark_input() {
                 esac
             done
         fi
+        if [ "${#METRICS[@]}" = "11" ]; then
+            for i in "${!METRICS[@]}"; do
+                case "$i" in
+                    0)   time_sec+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    1)   cycles+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    2)   instructions+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    3)   l1_misses+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    4)   llc_misses+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    5)   branch_misses+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    6)   task_clock+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    7)   scale+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    8)   ipc+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    9)   cpus+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                    10)   ghz+=("$(echo -e "${METRICS[i]}" | tr -d '[:space:]')") ;;
+                esac
+            done
+        fi
     done < "$input"
 
     #Cleanup
@@ -57,6 +86,18 @@ benchmark_input() {
     execution_time=0
     sum=0
     counter=0
+
+    TIME_SEC=0
+    CYCLES=0
+    INSTRUCTIONS=0
+    L1_MISSES=0
+    LLC_MISSES=0
+    BRANCH_MISSES=0
+    TASK_CLOCK=0
+    SCALE=0
+    IPC=0
+    CPUS=0
+    GHZ=0
 
     for i in "${!parsing_times[@]}"; do
         parsing_time=$(bc -l <<<"${parsing_time}+${parsing_times[i]}")
@@ -75,15 +116,43 @@ benchmark_input() {
     execution_time=$(bc -l <<<"${execution_time}/${counter}")
     sum=$(bc -l <<<"${sum}/${counter}")
 
+    counter=0
+    for i in "${!time_sec[@]}"; do
+        TIME_SEC=$(bc -l <<<"${TIME_SEC}+${time_sec[i]}")
+        CYCLES=$(bc -l <<<"${CYCLES}+${cycles[i]}")
+        INSTRUCTIONS=$(bc -l <<<"${INSTRUCTIONS}+${instructions[i]}")
+        L1_MISSES=$(bc -l <<<"${L1_MISSES}+${l1_misses[i]}")
+        LLC_MISSES=$(bc -l <<<"${LLC_MISSES}+${llc_misses[i]}")
+        BRANCH_MISSES=$(bc -l <<<"${BRANCH_MISSES}+${branch_misses[i]}")
+        TASK_CLOCK=$(bc -l <<<"${TASK_CLOCK}+${task_clock[i]}")
+        SCALE=$(bc -l <<<"${SCALE}+${scale[i]}")
+        IPC=$(bc -l <<<"${IPC}+${ipc[i]}")
+        CPUS=$(bc -l <<<"${CPUS}+${cpus[i]}")
+        GHZ=$(bc -l <<<"${GHZ}+${ghz[i]}")
+        counter=$(bc -l <<<"${counter}+1")
+    done
+
+    TIME_SEC=$(bc -l <<<"${TIME_SEC}/${counter}")
+    CYCLES=$(bc -l <<<"${CYCLES}/${counter}")
+    INSTRUCTIONS=$(bc -l <<<"${INSTRUCTIONS}/${counter}")
+    L1_MISSES=$(bc -l <<<"${L1_MISSES}/${counter}")
+    LLC_MISSES=$(bc -l <<<"${LLC_MISSES}/${counter}")
+    BRANCH_MISSES=$(bc -l <<<"${BRANCH_MISSES}/${counter}")
+    TASK_CLOCK=$(bc -l <<<"${TASK_CLOCK}/${counter}")
+    SCALE=$(bc -l <<<"${SCALE}/${counter}")
+    IPC=$(bc -l <<<"${IPC}/${counter}")
+    CPUS=$(bc -l <<<"${CPUS}/${counter}")
+    GHZ=$(bc -l <<<"${GHZ}/${counter}")
+
     # Append metrics to csv file
-    echo "$3;$5;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum}" | cat >> $2
+    echo "$3;$5;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum};${TIME_SEC};${CYCLES};${INSTRUCTIONS};${L1_MISSES};${LLC_MISSES};${BRANCH_MISSES};${TASK_CLOCK};${SCALE};${IPC};${CPUS};${GHZ}" | cat >> $2
 }
 
 <<STATEMENTS
 1: MS = SELECT id FROM revision r WHERE r.pageId = <pageid>;
 2: BS = SELECT id FROM revision VERSION branch1 r WHERE r.pageId = <pageid>;
-3: MM = SELECT title , text FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = <pageid>;
-4: BM = SELECT title , text FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = <pageid>;
+3: MM = SELECT title FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = <pageid>;
+4: BM = SELECT title FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = <pageid>;
 5: MU = UPDATE revision SET parentid = 1 WHERE r.pageId = <pageid>;
 6: BU = UPDATE revision VERSION branch1 SET parentid = 1 WHERE r.pageId = <pageid>;
 7: MI = INSERT INTO content ( id , text ) VALUES ( <textid> , 'Hello_world!' );
@@ -94,90 +163,90 @@ STATEMENTS
 
 generate_MS() {
     rm ms_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "SELECT id FROM revision r WHERE r.pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> ms_statements.txt
+        echo "SELECT id FROM revision r WHERE r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> ms_statements.txt
     done
     echo "quit" | cat >> ms_statements.txt
 }
 
 generate_BS() {
     rm bs_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "SELECT id FROM revision VERSION branch1 r WHERE r.pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bs_statements.txt
+        echo "SELECT id FROM revision VERSION branch1 r WHERE r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bs_statements.txt
     done
     echo "quit" | cat >> bs_statements.txt
 }
 
 generate_MM() {
     rm mm_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "SELECT title , text FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mm_statements.txt
+        echo "SELECT title FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mm_statements.txt
     done
     echo "quit" | cat >> mm_statements.txt
 }
 
 generate_BM() {
     rm bm_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "SELECT title , text FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bm_statements.txt
+        echo "SELECT title FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bm_statements.txt
     done
     echo "quit" | cat >> bm_statements.txt
 }
 
 generate_MU() {
     rm mu_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "UPDATE revision SET parentid = 1 WHERE pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mu_statements.txt
+        echo "UPDATE revision SET parentid = 1 WHERE pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mu_statements.txt
     done
     echo "quit" | cat >> mu_statements.txt
 }
 
 generate_BU() {
     rm bu_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "UPDATE revision VERSION branch1 SET parentid = 1 WHERE pageId = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bu_statements.txt
+        echo "UPDATE revision VERSION branch1 SET parentid = 1 WHERE pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bu_statements.txt
     done
     echo "quit" | cat >> bu_statements.txt
 }
 
 generate_MI() {
     rm mi_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "INSERT INTO content ( id , text ) VALUES ( $(( ( RANDOM % 30303 )  + 1 )) , 'Hello_world!' );" | cat >> mi_statements.txt
+        echo "INSERT INTO content ( id , text ) VALUES ( $(( ( RANDOM % 824 )  + 1 )) , 'Hello_world!' );" | cat >> mi_statements.txt
     done
     echo "quit" | cat >> mi_statements.txt
 }
 
 generate_BI() {
     rm bi_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "INSERT INTO content VERSION branch1 ( id , text ) VALUES ( $(( ( RANDOM % 30303 )  + 1 )) , 'Hello_World!');" | cat >> bi_statements.txt
+        echo "INSERT INTO content VERSION branch1 ( id , text ) VALUES ( $(( ( RANDOM % 824 )  + 1 )) , 'Hello_World!');" | cat >> bi_statements.txt
     done
     echo "quit" | cat >> bi_statements.txt
 }
 
 generate_MD() {
     rm md_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "DELETE FROM revision WHERE pageId = $(( ( RANDOM % 30303 )  + 1 )) ;" | cat >> md_statements.txt
+        echo "DELETE FROM revision WHERE pageId = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> md_statements.txt
     done
     echo "quit" | cat >> md_statements.txt
 }
 
 generate_BD() {
     rm bd_statements.txt
-    for i in {1..50}
+    for i in {1..5}
     do
-        echo "DELETE FROM revision VERSION branch1 WHERE pageId = $(( ( RANDOM % 30303 )  + 1 )) ;" | cat >> bd_statements.txt
+        echo "DELETE FROM revision VERSION branch1 WHERE pageId = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> bd_statements.txt
     done
     echo "quit" | cat >> bd_statements.txt
 }
@@ -197,7 +266,7 @@ benchmark_input_for_distributions() {
 
 OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
 rm $OUTPUT_FILE
-echo "Type;Dist;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time" | cat > $OUTPUT_FILE
+echo "Type;Dist;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
 
 generate_MS
 generate_BS

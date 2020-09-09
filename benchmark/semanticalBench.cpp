@@ -674,7 +674,7 @@ std::unique_ptr<Database> loadWiki(std::discrete_distribution<int> &distribution
     {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("page");
-        std::ifstream fs("page.tbl");
+        std::ifstream fs("page_trunc.tbl");
         if (!fs) { throw std::runtime_error("file not found: tables/page.tbl"); }
         loadWikiTable(fs, false, item, distribution,0);
     }
@@ -682,14 +682,14 @@ std::unique_ptr<Database> loadWiki(std::discrete_distribution<int> &distribution
     {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("content");
-        std::ifstream fs("content.tbl");
+        std::ifstream fs("content_trunc.tbl");
         if (!fs) { throw std::runtime_error("file not found: tables/content.tbl"); }
         loadWikiTable(fs, true, item, distribution,0);
     }
     {
         ModuleGen moduleGen("LoadTableModule");
         Table *item = wikidb->getTable("revision");
-        std::ifstream fs("revision.tbl");
+        std::ifstream fs("revision_trunc.tbl");
         if (!fs) { throw std::runtime_error("file not found: tables/revision.tbl"); }
         loadWikiTable(fs, true, item, distribution,2);
     }
@@ -711,7 +711,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     BenchmarkParameters params;
 
     {
-        PerfEventBlock e(runs, params, true);
+        PerfEventBlock e(runs, params, false);
 #endif
 
         for (int i = 0; i < runs; i++) {
@@ -720,9 +720,6 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
 
 #ifdef __linux__
     }
-
-    std::cout << header << std::endl;
-    std::cout << data << std::endl;
 #endif
 
     double parsingTime = 0;
