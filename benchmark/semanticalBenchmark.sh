@@ -14,6 +14,51 @@ fi
 
 COMMIT_ID=$(git rev-parse --verify HEAD)
 
+computeInputStatement() {
+    pageInsertFile="page_inserts.txt"
+    contentInsertFile="content_inserts.txt"
+    pageUpdateFile="page_updates.txt"
+    contentUpdateFile="content_updates.txt"
+
+    rm $pageInsertFile
+    rm $contentInsertFile
+    rm $pageUpdateFile
+    rm $contentUpdateFile
+
+    revisionFile="revision.tbl"
+    pageFile="page.tbl"
+    contentFile="content.tbl"
+
+    input=$revisionFile
+    currentPageId=""
+    lineCounter=1
+    while IFS= read -r line
+    do
+        IFS='|'
+        read -ra VALUES <<< "$line"
+        if [ "${currentPageId}" = "" ] | [ "${currentPageId}" != "${VALUES[2]}" ]; then
+            pageline="$(grep "${VALUES[2]}|" "${pageFile}" | head -1 )"
+            read -ra PAGEVALUES <<< "$pageline"
+            echo "INSERT INTO page ( id , title , textId ) VALUES ( ${PAGEVALUES[0]} , '$(echo "${PAGEVALUES[1]}" | tr ' ' '_' | tr ',' '_' | tr '(' '_' | tr ')' '_' | tr '*' '_' )' , ${VALUES[3]} );" | cat >> $pageInsertFile
+
+            contentline="$(sed "${lineCounter}!d" "${contentFile}" )"
+            read -ra CONTENTVALUES <<< "$contentline"
+            echo "INSERT INTO content ( id , text ) VALUES ( ${CONTENTVALUES[0]} , '$(echo "${CONTENTVALUES[1]}"  | tr ' ' '_' | tr ',' '_' | tr '(' '_' | tr ')' '_' | tr '*' '_' )' );" | cat >> $contentInsertFile
+
+            currentPageId="${VALUES[2]}"
+            ((lineCounter=lineCounter+1))
+            continue
+        fi
+
+        contentline="$(sed "${lineCounter}!d" "${contentFile}" )"
+        read -ra CONTENTVALUES <<< "$contentline"
+        echo "INSERT INTO content ( id , text ) VALUES ( ${CONTENTVALUES[0]} , '$(echo "${CONTENTVALUES[1]}"  | tr ' ' '_' | tr ',' '_' | tr '(' '_' | tr ')' '_' | tr '*' '_' )' );" | cat >> contentUpdateFile
+        echo "UPDATE page SET textId = ${VALUES[3]} WHERE id = ${VALUES[2]};" | cat >> pageUpdateFile
+
+        ((lineCounter=lineCounter+1))
+    done < "$input"
+}
+
 benchmark_input() {
     # Execute benchmark program and write output to file
     (./semanticalBench "-d=$5" "-r=$4" < $1) | cat > output.txt
@@ -263,10 +308,11 @@ benchmark_input_for_distributions() {
 #    benchmark_input $1 $2 $3 $4 "0.0001"
 }
 
-
 OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
 rm $OUTPUT_FILE
 echo "Type;Dist;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
+
+computeInputStatement
 
 generate_MS
 generate_BS

@@ -770,7 +770,10 @@ int main(int argc, char * argv[]) {
     _distribution[1] = 1 - _distribution[0];
     std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
 
-    std::unique_ptr<Database> db = loadWiki(distribution);
+    std::unique_ptr<Database> db = std::make_unique<Database>();
+
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL , textId INTEGER NOT NULL );",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
 
     prompt(*db,FLAGS_r);
 
