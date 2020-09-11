@@ -330,11 +330,11 @@ void loadWikiDb(Database *db)
     QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
     QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
 
-    std::ifstream streamRevision("revision.tbl");
+    std::ifstream streamRevision("revision2.tbl");
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    std::ifstream streamPage("page.tbl");
+    std::ifstream streamPage("page2.tbl");
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    std::ifstream streamContent("content.tbl");
+    std::ifstream streamContent("content2.tbl");
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     Table *pageTable = db->getTable("page");
@@ -365,7 +365,6 @@ void loadWikiDb(Database *db)
             assert(std::getline(streamContent,contentRowStr));
             std::vector<std::string> contentValues = split(contentRowStr,'|');
             assert(contentValues.size() == 2);
-            assert(contentValues[0].compare(revisionValues[3]) == 0);
 
             std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
             int counter = 0;
@@ -393,11 +392,11 @@ void loadWikiDb(Database *db)
     streamRevision.close();
     streamPage.close();
     streamContent.close();
-    streamRevision = std::ifstream("revision.tbl");
+    streamRevision = std::ifstream("revision2.tbl");
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    streamPage = std::ifstream("page.tbl");
+    streamPage = std::ifstream("page2.tbl");
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    streamContent = std::ifstream("content.tbl");
+    streamContent = std::ifstream("content2.tbl");
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     currentPageId = "";

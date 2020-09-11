@@ -40,15 +40,15 @@ benchmark_input() {
 
     # Retrieve metrics from file
     input="output.txt"
-    lineCounter=0
-    insertLimit=$6
+    #lineCounter=0
+    #insertLimit=$6
     while IFS= read -r line
     do
         # Skip all insert and update statements which are responsible for loading the data into storage
-        ((lineCounter=lineCounter+1))
-        if [ $lineCounter -le $(($insertLimit)) ]; then
-              continue
-        fi
+        #((lineCounter=lineCounter+1))
+        #if [ $lineCounter -le $(($insertLimit)) ]; then
+        #      continue
+        #fi
 
         IFS=','
         read -ra METRICS <<< "$line"
@@ -260,26 +260,26 @@ generate_BD() {
 }
 
 benchmark_input_for_distributions() {
-    cat insert_statements.txt | cat > buffer_file.txt
-    cat $1 | cat >> buffer_file.txt
+#    cat insert_statements.txt | cat > buffer_file.txt
+#    cat $1 | cat >> buffer_file.txt
 
-    IFS=' '
-    read -ra LineCountInfo <<< "$(wc -l insert_statements.txt)"
-    insertLimit=${LineCountInfo[0]}
-    insertLimit=$(bc -l <<<"${insertLimit}*2")
-    insertLimit=$(bc -l <<<"${insertLimit}+1")
+#    IFS=' '
+#    read -ra LineCountInfo <<< "$(wc -l insert_statements.txt)"
+#    insertLimit=${LineCountInfo[0]}
+#    insertLimit=$(bc -l <<<"${insertLimit}*2")
+#    insertLimit=$(bc -l <<<"${insertLimit}+1")
 
 #    benchmark_input $1 $2 $3 $4 "0.9999"
 #    benchmark_input $1 $2 $3 $4 "0.999"
 #    benchmark_input $1 $2 $3 $4 "0.99"
 #    benchmark_input $1 $2 $3 $4 "0.9"
-    benchmark_input buffer_file.txt $2 $3 1 "0.5" $insertLimit
+    benchmark_input $1 $2 $3 $4 "0.5" #$insertLimit
 #    benchmark_input $1 $2 $3 $4 "0.1"
 #    benchmark_input $1 $2 $3 $4 "0.01"
 #    benchmark_input $1 $2 $3 $4 "0.001"
 #    benchmark_input $1 $2 $3 $4 "0.0001"
 
-    rm buffer_file.txt
+#    rm buffer_file.txt
 }
 
 OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
