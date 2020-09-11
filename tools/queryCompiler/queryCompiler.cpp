@@ -87,7 +87,7 @@ namespace QueryCompiler {
         analyser->verify();
         auto queryTree = analyser->constructTree();
         const auto analysingDuration = std::chrono::high_resolution_clock::now() - analysingStart;
-        if (queryTree == nullptr) unreachable();
+        if (queryTree == nullptr) return BenchmarkResult();
 
         const auto translationStart = std::chrono::high_resolution_clock::now();
         auto queryFunc = compileQuery(query, queryTree);

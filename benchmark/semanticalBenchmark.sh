@@ -14,51 +14,6 @@ fi
 
 COMMIT_ID=$(git rev-parse --verify HEAD)
 
-computeInputStatement() {
-    pageInsertFile="page_inserts.txt"
-    contentInsertFile="content_inserts.txt"
-    pageUpdateFile="page_updates.txt"
-    contentUpdateFile="content_updates.txt"
-
-    rm $pageInsertFile
-    rm $contentInsertFile
-    rm $pageUpdateFile
-    rm $contentUpdateFile
-
-    revisionFile="revision.tbl"
-    pageFile="page.tbl"
-    contentFile="content.tbl"
-
-    input=$revisionFile
-    currentPageId=""
-    lineCounter=1
-    while IFS= read -r line
-    do
-        IFS='|'
-        read -ra VALUES <<< "$line"
-        if [ "${currentPageId}" = "" ] | [ "${currentPageId}" != "${VALUES[2]}" ]; then
-            pageline="$(grep "${VALUES[2]}|" "${pageFile}" | head -1 )"
-            read -ra PAGEVALUES <<< "$pageline"
-            echo "INSERT INTO page ( id , title , textId ) VALUES ( ${PAGEVALUES[0]} , '$(echo "${PAGEVALUES[1]}" | tr ' ' '_' | tr ',' '_' | tr '(' '_' | tr ')' '_' | tr '*' '_' )' , ${VALUES[3]} );" | cat >> $pageInsertFile
-
-            contentline="$(sed "${lineCounter}!d" "${contentFile}" )"
-            read -ra CONTENTVALUES <<< "$contentline"
-            echo "INSERT INTO content ( id , text ) VALUES ( ${CONTENTVALUES[0]} , '$(echo "${CONTENTVALUES[1]}"  | tr ' ' '_' | tr ',' '_' | tr '(' '_' | tr ')' '_' | tr '*' '_' )' );" | cat >> $contentInsertFile
-
-            currentPageId="${VALUES[2]}"
-            ((lineCounter=lineCounter+1))
-            continue
-        fi
-
-        contentline="$(sed "${lineCounter}!d" "${contentFile}" )"
-        read -ra CONTENTVALUES <<< "$contentline"
-        echo "INSERT INTO content ( id , text ) VALUES ( ${CONTENTVALUES[0]} , '$(echo "${CONTENTVALUES[1]}"  | tr ' ' '_' | tr ',' '_' | tr '(' '_' | tr ')' '_' | tr '*' '_' )' );" | cat >> contentUpdateFile
-        echo "UPDATE page SET textId = ${VALUES[3]} WHERE id = ${VALUES[2]};" | cat >> pageUpdateFile
-
-        ((lineCounter=lineCounter+1))
-    done < "$input"
-}
-
 benchmark_input() {
     # Execute benchmark program and write output to file
     (./semanticalBench "-d=$5" "-r=$4" < $1) | cat > output.txt
@@ -85,8 +40,16 @@ benchmark_input() {
 
     # Retrieve metrics from file
     input="output.txt"
+    lineCounter=0
+    insertLimit=$6
     while IFS= read -r line
     do
+        # Skip all insert and update statements which are responsible for loading the data into storage
+        ((lineCounter=lineCounter+1))
+        if [ $lineCounter -le $(($insertLimit)) ]; then
+              continue
+        fi
+
         IFS=','
         read -ra METRICS <<< "$line"
         if [ "${#METRICS[@]}" = "6" ]; then
@@ -210,7 +173,7 @@ generate_MS() {
     rm ms_statements.txt
     for i in {1..5}
     do
-        echo "SELECT id FROM revision r WHERE r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> ms_statements.txt
+        echo "SELECT textId FROM page p WHERE p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> ms_statements.txt
     done
     echo "quit" | cat >> ms_statements.txt
 }
@@ -219,7 +182,7 @@ generate_BS() {
     rm bs_statements.txt
     for i in {1..5}
     do
-        echo "SELECT id FROM revision VERSION branch1 r WHERE r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bs_statements.txt
+        echo "SELECT textId FROM page VERSION branch1 p WHERE p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bs_statements.txt
     done
     echo "quit" | cat >> bs_statements.txt
 }
@@ -228,7 +191,7 @@ generate_MM() {
     rm mm_statements.txt
     for i in {1..5}
     do
-        echo "SELECT title FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mm_statements.txt
+        echo "SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mm_statements.txt
     done
     echo "quit" | cat >> mm_statements.txt
 }
@@ -237,7 +200,7 @@ generate_BM() {
     rm bm_statements.txt
     for i in {1..5}
     do
-        echo "SELECT title FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bm_statements.txt
+        echo "SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bm_statements.txt
     done
     echo "quit" | cat >> bm_statements.txt
 }
@@ -246,7 +209,7 @@ generate_MU() {
     rm mu_statements.txt
     for i in {1..5}
     do
-        echo "UPDATE revision SET parentid = 1 WHERE pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mu_statements.txt
+        echo "UPDATE page SET textId = 1 WHERE id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mu_statements.txt
     done
     echo "quit" | cat >> mu_statements.txt
 }
@@ -255,7 +218,7 @@ generate_BU() {
     rm bu_statements.txt
     for i in {1..5}
     do
-        echo "UPDATE revision VERSION branch1 SET parentid = 1 WHERE pageId = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bu_statements.txt
+        echo "UPDATE page VERSION branch1 SET textId = 1 WHERE id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bu_statements.txt
     done
     echo "quit" | cat >> bu_statements.txt
 }
@@ -282,7 +245,7 @@ generate_MD() {
     rm md_statements.txt
     for i in {1..5}
     do
-        echo "DELETE FROM revision WHERE pageId = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> md_statements.txt
+        echo "DELETE FROM page WHERE id = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> md_statements.txt
     done
     echo "quit" | cat >> md_statements.txt
 }
@@ -291,28 +254,37 @@ generate_BD() {
     rm bd_statements.txt
     for i in {1..5}
     do
-        echo "DELETE FROM revision VERSION branch1 WHERE pageId = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> bd_statements.txt
+        echo "DELETE FROM page VERSION branch1 WHERE id = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> bd_statements.txt
     done
     echo "quit" | cat >> bd_statements.txt
 }
 
 benchmark_input_for_distributions() {
+    cat insert_statements.txt | cat > buffer_file.txt
+    cat $1 | cat >> buffer_file.txt
+
+    IFS=' '
+    read -ra LineCountInfo <<< "$(wc -l insert_statements.txt)"
+    insertLimit=${LineCountInfo[0]}
+    insertLimit=$(bc -l <<<"${insertLimit}*2")
+    insertLimit=$(bc -l <<<"${insertLimit}+1")
+
 #    benchmark_input $1 $2 $3 $4 "0.9999"
 #    benchmark_input $1 $2 $3 $4 "0.999"
-    benchmark_input $1 $2 $3 $4 "0.99"
-    benchmark_input $1 $2 $3 $4 "0.9"
-    benchmark_input $1 $2 $3 $4 "0.5"
-    benchmark_input $1 $2 $3 $4 "0.1"
-    benchmark_input $1 $2 $3 $4 "0.01"
+#    benchmark_input $1 $2 $3 $4 "0.99"
+#    benchmark_input $1 $2 $3 $4 "0.9"
+    benchmark_input buffer_file.txt $2 $3 1 "0.5" $insertLimit
+#    benchmark_input $1 $2 $3 $4 "0.1"
+#    benchmark_input $1 $2 $3 $4 "0.01"
 #    benchmark_input $1 $2 $3 $4 "0.001"
 #    benchmark_input $1 $2 $3 $4 "0.0001"
+
+    rm buffer_file.txt
 }
 
 OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
 rm $OUTPUT_FILE
 echo "Type;Dist;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
-
-computeInputStatement
 
 generate_MS
 generate_BS

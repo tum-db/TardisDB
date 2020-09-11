@@ -772,7 +772,7 @@ int main(int argc, char * argv[]) {
 
     std::unique_ptr<Database> db = std::make_unique<Database>();
 
-    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 30 ) NOT NULL , textId INTEGER NOT NULL );",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
     QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
 
     prompt(*db,FLAGS_r);
