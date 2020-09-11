@@ -171,90 +171,90 @@ STATEMENTS
 
 generate_MS() {
     rm ms_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "SELECT textId FROM page p WHERE p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> ms_statements.txt
+        echo "SELECT textId FROM page p WHERE p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> ms_statements.txt
     done
     echo "quit" | cat >> ms_statements.txt
 }
 
 generate_BS() {
     rm bs_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "SELECT textId FROM page VERSION branch1 p WHERE p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bs_statements.txt
+        echo "SELECT textId FROM page VERSION branch1 p WHERE p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bs_statements.txt
     done
     echo "quit" | cat >> bs_statements.txt
 }
 
 generate_MM() {
     rm mm_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mm_statements.txt
+        echo "SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mm_statements.txt
     done
     echo "quit" | cat >> mm_statements.txt
 }
 
 generate_BM() {
     rm bm_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bm_statements.txt
+        echo "SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bm_statements.txt
     done
     echo "quit" | cat >> bm_statements.txt
 }
 
 generate_MU() {
     rm mu_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "UPDATE page SET textId = 1 WHERE id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> mu_statements.txt
+        echo "UPDATE page SET textId = 1 WHERE id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mu_statements.txt
     done
     echo "quit" | cat >> mu_statements.txt
 }
 
 generate_BU() {
     rm bu_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "UPDATE page VERSION branch1 SET textId = 1 WHERE id = $(( ( RANDOM % 824 )  + 1 ));" | cat >> bu_statements.txt
+        echo "UPDATE page VERSION branch1 SET textId = 1 WHERE id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bu_statements.txt
     done
     echo "quit" | cat >> bu_statements.txt
 }
 
 generate_MI() {
     rm mi_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "INSERT INTO content ( id , text ) VALUES ( $(( ( RANDOM % 824 )  + 1 )) , 'Hello_world!' );" | cat >> mi_statements.txt
+        echo "INSERT INTO content ( id , text ) VALUES ( $(( ( RANDOM % 30303 )  + 1 )) , 'Hello_world!' );" | cat >> mi_statements.txt
     done
     echo "quit" | cat >> mi_statements.txt
 }
 
 generate_BI() {
     rm bi_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "INSERT INTO content VERSION branch1 ( id , text ) VALUES ( $(( ( RANDOM % 824 )  + 1 )) , 'Hello_World!');" | cat >> bi_statements.txt
+        echo "INSERT INTO content VERSION branch1 ( id , text ) VALUES ( $(( ( RANDOM % 30303 )  + 1 )) , 'Hello_World!');" | cat >> bi_statements.txt
     done
     echo "quit" | cat >> bi_statements.txt
 }
 
 generate_MD() {
     rm md_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "DELETE FROM page WHERE id = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> md_statements.txt
+        echo "DELETE FROM page WHERE id = $(( ( RANDOM % 30303 )  + 1 )) ;" | cat >> md_statements.txt
     done
     echo "quit" | cat >> md_statements.txt
 }
 
 generate_BD() {
     rm bd_statements.txt
-    for i in {1..5}
+    for i in {1..25}
     do
-        echo "DELETE FROM page VERSION branch1 WHERE id = $(( ( RANDOM % 824 )  + 1 )) ;" | cat >> bd_statements.txt
+        echo "DELETE FROM page VERSION branch1 WHERE id = $(( ( RANDOM % 30303 )  + 1 )) ;" | cat >> bd_statements.txt
     done
     echo "quit" | cat >> bd_statements.txt
 }
