@@ -11,7 +11,7 @@ build_debug:
     script: 
         - mkdir -p build
         - cd build
-        - cmake -GNinja -DCMAKE_BUILD_TYPE=Debug ..
+        - cmake -GNinja -DCMAKE_BUILD_TYPE=Debug -DTUPLE_STREAM_REQUIRED=true ..
         - ninja
     cache:
         key: "$CI_COMMIT_REF_NAME-debug"
