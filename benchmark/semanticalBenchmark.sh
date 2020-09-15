@@ -157,16 +157,16 @@ benchmark_input() {
 }
 
 <<STATEMENTS
-1: MS = SELECT id FROM revision r WHERE r.pageId = <pageid>;
-2: BS = SELECT id FROM revision VERSION branch1 r WHERE r.pageId = <pageid>;
-3: MM = SELECT title FROM page p , revision r , content c WHERE p.id = r.pageId AND r.textId = c.id AND r.pageId = <pageid>;
-4: BM = SELECT title FROM page p , revision VERSION branch1 r , content VERSION branch1 c WHERE r.textId = c.id AND p.id = r.pageId AND r.pageId = <pageid>;
-5: MU = UPDATE revision SET parentid = 1 WHERE r.pageId = <pageid>;
-6: BU = UPDATE revision VERSION branch1 SET parentid = 1 WHERE r.pageId = <pageid>;
+1: MS = SELECT textId FROM page p WHERE p.id = <pageid>;
+2: BS = SELECT textId FROM page VERSION branch1 p WHERE p.id = <pageid>;
+3: MM = SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = <pageid>;
+4: BM = SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = <pageid>;
+5: MU = UPDATE page SET textId = 1 WHERE id = <pageid>;
+6: BU = UPDATE page VERSION branch1 SET textId = 1 WHERE id = <pageid>;
 7: MI = INSERT INTO content ( id , text ) VALUES ( <textid> , 'Hello_world!' );
 8: BI = INSERT INTO content VERSION branch1 ( id , text ) VALUES (<textid> , 'Hello_World!');
-9: MD = DELETE FROM revision WHERE pageId = <pageId>;
-10: BD = DELETE FROM revision VERSION branch1 WHERE pageId = <pageId>;
+9: MD = DELETE FROM page WHERE id = <pageId>;
+10: BD = DELETE FROM page VERSION branch1 WHERE id = <pageId>;
 STATEMENTS
 
 generate_MS() {
