@@ -330,11 +330,11 @@ void loadWikiDb(Database *db)
     QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
     QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
 
-    std::ifstream streamRevision("revision2.tbl");
+    std::ifstream streamRevision("revision.tbl");
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    std::ifstream streamPage("page2.tbl");
+    std::ifstream streamPage("page.tbl");
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    std::ifstream streamContent("content2.tbl");
+    std::ifstream streamContent("content.tbl");
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     Table *pageTable = db->getTable("page");
@@ -384,7 +384,6 @@ void loadWikiDb(Database *db)
             Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
             insert_tuple(contentTuple, *contentTable, firstctx);
         }
-
     }
 
     QueryCompiler::compileAndExecute("CREATE BRANCH branch1 FROM master;",*db);
@@ -392,20 +391,95 @@ void loadWikiDb(Database *db)
     streamRevision.close();
     streamPage.close();
     streamContent.close();
-    streamRevision = std::ifstream("revision2.tbl");
+    streamRevision = std::ifstream("revision.tbl");
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    streamPage = std::ifstream("page2.tbl");
+    streamPage = std::ifstream("page.tbl");
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    streamContent = std::ifstream("content2.tbl");
+    streamContent = std::ifstream("content.tbl");
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     currentPageId = "";
+    std::vector<std::string> currentPageValues;
+    std::vector<std::string> lastContentValues;
     tid_t pageTID = 0;
+    bool wasFirstRevision = true;
+
+    while(std::getline(streamRevision, revisionRowStr)) {
+        std::vector<std::string> revisionValues = split(revisionRowStr,'|');
+
+        if (currentPageId.compare("") == 0) {
+            currentPageId = revisionValues[2];
+
+            assert(std::getline(streamPage,pageRowStr));
+            currentPageValues = split(pageRowStr,'|');
+            assert(currentPageValues.size() == 2);
+            assert(currentPageValues[0].compare(currentPageId) == 0);
+
+            assert(std::getline(streamContent,contentRowStr));
+            wasFirstRevision = true;
+            continue;
+        }
+
+        if (currentPageId.compare(revisionValues[2]) != 0) {
+            currentPageId = revisionValues[2];
+
+            assert(std::getline(streamPage,pageRowStr));
+            currentPageValues = split(pageRowStr,'|');
+            assert(currentPageValues.size() == 2);
+            assert(currentPageValues[0].compare(currentPageId) == 0);
+
+            assert(std::getline(streamContent,contentRowStr));
+
+            pageTID++;
+            wasFirstRevision = true;
+            continue;
+        }
+
+        if (!wasFirstRevision && currentPageId.compare(revisionValues[2]) == 0) {
+            std::vector<std::string> lastPageValues = currentPageValues;
+            lastPageValues.push_back(lastContentValues[0]);
+
+            std::vector<std::unique_ptr<Native::Sql::Value>> sqlValues;
+            int counter = 0;
+            for (auto &columnName : pageTable->getColumnNames()) {
+                sqlValues.push_back(Native::Sql::Value::castString(lastPageValues[counter],pageTable->getCI(columnName)->type));
+                counter++;
+            }
+            Native::Sql::SqlTuple pageTuple(std::move(sqlValues));
+            update_tuple(pageTID,pageTuple,*pageTable,firstctx);
+
+            sqlValues.clear();
+            counter = 0;
+            for (auto &columnName : contentTable->getColumnNames()) {
+                sqlValues.push_back(Native::Sql::Value::castString(lastContentValues[counter],contentTable->getCI(columnName)->type));
+                counter++;
+            }
+            Native::Sql::SqlTuple contentTuple(std::move(sqlValues));
+            insert_tuple(contentTuple, *contentTable, firstctx);
+        }
+
+        assert(std::getline(streamContent,contentRowStr));
+        lastContentValues = split(contentRowStr,'|');
+        assert(lastContentValues.size() == 2);
+        wasFirstRevision = false;
+    }
+
+    QueryCompiler::compileAndExecute("CREATE BRANCH branch2 FROM master;",*db);
+
+    streamRevision.close();
+    streamPage.close();
+    streamContent.close();
+    streamRevision = std::ifstream("revision.tbl");
+    if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
+    streamPage = std::ifstream("page.tbl");
+    if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
+    streamContent = std::ifstream("content.tbl");
+    if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
+
+    currentPageId = "";
+    pageTID = 0;
     bool isFirstRevisionOfPage = true;
 
-    QueryContext secondctx(*db);
-    secondctx.executionContext.branchId = 1;
-    db->constructBranchLineage(1, secondctx.executionContext);
     while(std::getline(streamRevision, revisionRowStr)) {
         std::vector<std::string> revisionValues = split(revisionRowStr,'|');
 
@@ -433,7 +507,7 @@ void loadWikiDb(Database *db)
                 counter++;
             }
             Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
-            update_tuple(pageTID,pageTuple,*pageTable,secondctx);
+            update_tuple(pageTID,pageTuple,*pageTable,firstctx);
 
             sqlvalues.clear();
             counter = 0;
@@ -442,7 +516,7 @@ void loadWikiDb(Database *db)
                 counter++;
             }
             Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-            insert_tuple(contentTuple, *contentTable, secondctx);
+            insert_tuple(contentTuple, *contentTable, firstctx);
 
             pageTID++;
             isFirstRevisionOfPage = true;
@@ -480,7 +554,7 @@ void loadWikiDb(Database *db)
             counter++;
         }
         Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
-        update_tuple(pageTID,pageTuple,*pageTable,secondctx);
+        update_tuple(pageTID,pageTuple,*pageTable,firstctx);
 
         sqlvalues.clear();
         counter = 0;
@@ -489,7 +563,7 @@ void loadWikiDb(Database *db)
             counter++;
         }
         Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-        insert_tuple(contentTuple, *contentTable, secondctx);
+        insert_tuple(contentTuple, *contentTable, firstctx);
 
         pageTID++;
         isFirstRevisionOfPage = true;
