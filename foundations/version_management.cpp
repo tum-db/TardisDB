@@ -111,16 +111,15 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         // branch visibility
         storage->branch_id = version_entry->branch_id;
         storage->creation_ts = version_entry->creation_ts;
+        storage->next = (version_entry->first == version_entry) ? version_entry->next : version_entry->first;
+        storage->next_in_branch = version_entry->next_in_branch;
 
         old_tuple->store(get_tuple_ptr(storage));
 //std::cout << toString(*old_tuple) << " to store" << std::endl;
 //auto t = Native::Sql::SqlTuple::load(get_tuple_ptr(storage), table.getTupleType());
 //std::cout << toString(*t) << " stored" << std::endl;
         // version entry update
-        if (version_entry->first != version_entry) {
-            // chain head != current master
-           version_entry->first = version_entry; 
-        }
+        version_entry->first = version_entry;
         version_entry->next = storage;
         version_entry->next_in_branch = storage;
         version_entry->branch_id = branch;
