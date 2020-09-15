@@ -37,6 +37,8 @@ DEFINE_bool(b, false, "isBenchmarking");
 DEFINE_string(l, "wikidb", "database");
 DEFINE_double(d, 0.5, "distribution");
 DEFINE_uint64(r, 1, "runs");
+DEFINE_uint64(lowerBound, 1, "lowerBound");
+DEFINE_uint64(upperBound, 30303, "upperBound");
 
 static bool ValidateDatabase(const char *flagname, const std::string &value) {
     return value.compare("wikidb") == 0;
@@ -325,7 +327,7 @@ void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std
     }
 }
 
-void loadWikiDb(Database *db)
+void loadWikiDb(Database *db, int lowerBound, int upperBound)
 {
     QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
     QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
@@ -352,6 +354,8 @@ void loadWikiDb(Database *db)
     db->constructBranchLineage(0, firstctx.executionContext);
     while(std::getline(streamRevision, revisionRowStr)) {
         std::vector<std::string> revisionValues = split(revisionRowStr,'|');
+
+        if (std::stoi(revisionValues[2]) < lowerBound || std::stoi(revisionValues[2]) > upperBound) continue;
 
         if (currentPageId.compare("") == 0 || currentPageId.compare(revisionValues[2]) != 0) {
             currentPageId = revisionValues[2];
@@ -411,6 +415,8 @@ void loadWikiDb(Database *db)
     db->constructBranchLineage(0, secondctx.executionContext);
     while(std::getline(streamRevision, revisionRowStr)) {
         std::vector<std::string> revisionValues = split(revisionRowStr,'|');
+
+        if (std::stoi(revisionValues[2]) < lowerBound || std::stoi(revisionValues[2]) > upperBound) continue;
 
         if (currentPageId.compare("") == 0) {
             currentPageId = revisionValues[2];
@@ -490,6 +496,8 @@ void loadWikiDb(Database *db)
     db->constructBranchLineage(0, thirdctx.executionContext);
     while(std::getline(streamRevision, revisionRowStr)) {
         std::vector<std::string> revisionValues = split(revisionRowStr,'|');
+
+        if (std::stoi(revisionValues[2]) < lowerBound || std::stoi(revisionValues[2]) > upperBound) continue;
 
         if (currentPageId.compare("") == 0) {
             currentPageId = revisionValues[2];
@@ -1032,7 +1040,7 @@ int main(int argc, char * argv[]) {
     std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
 
     std::unique_ptr<Database> db = std::make_unique<Database>();
-    loadWikiDb(db.get());
+    loadWikiDb(db.get(),FLAGS_lowerBound,FLAGS_upperBound);
 
     //QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
     //QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
