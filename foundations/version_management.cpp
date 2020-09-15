@@ -111,6 +111,10 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         // branch visibility
         storage->branch_id = version_entry->branch_id;
         storage->creation_ts = version_entry->creation_ts;
+
+        // If the first element in the chain is the current master version -> set the next reference of the storage element
+        // to the latest version of the storage chain
+        // Else -> version_entry->first points to head and so to the latest version of the storage chain
         storage->next = (version_entry->first == version_entry) ? version_entry->next : version_entry->first;
         storage->next_in_branch = version_entry->next_in_branch;
 
