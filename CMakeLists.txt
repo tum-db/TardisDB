@@ -135,6 +135,9 @@ set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
+if(TUPLE_STREAM_REQUIRED)
+	target_compile_definitions(dblib PUBLIC -D TUPLE_STREAM_REQUIRED=true)
+endif(TUPLE_STREAM_REQUIRED)
 target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
 
 ### main application
