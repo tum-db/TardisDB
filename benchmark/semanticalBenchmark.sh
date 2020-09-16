@@ -140,17 +140,19 @@ benchmark_input() {
         counter=$(bc -l <<<"${counter}+1")
     done
 
-    TIME_SEC=$(bc -l <<<"${TIME_SEC}/${counter}")
-    CYCLES=$(bc -l <<<"${CYCLES}/${counter}")
-    INSTRUCTIONS=$(bc -l <<<"${INSTRUCTIONS}/${counter}")
-    L1_MISSES=$(bc -l <<<"${L1_MISSES}/${counter}")
-    LLC_MISSES=$(bc -l <<<"${LLC_MISSES}/${counter}")
-    BRANCH_MISSES=$(bc -l <<<"${BRANCH_MISSES}/${counter}")
-    TASK_CLOCK=$(bc -l <<<"${TASK_CLOCK}/${counter}")
-    SCALE=$(bc -l <<<"${SCALE}/${counter}")
-    IPC=$(bc -l <<<"${IPC}/${counter}")
-    CPUS=$(bc -l <<<"${CPUS}/${counter}")
-    GHZ=$(bc -l <<<"${GHZ}/${counter}")
+    if [ $counter -gt 0 ]; then
+        TIME_SEC=$(bc -l <<<"${TIME_SEC}/${counter}")
+        CYCLES=$(bc -l <<<"${CYCLES}/${counter}")
+        INSTRUCTIONS=$(bc -l <<<"${INSTRUCTIONS}/${counter}")
+        L1_MISSES=$(bc -l <<<"${L1_MISSES}/${counter}")
+        LLC_MISSES=$(bc -l <<<"${LLC_MISSES}/${counter}")
+        BRANCH_MISSES=$(bc -l <<<"${BRANCH_MISSES}/${counter}")
+        TASK_CLOCK=$(bc -l <<<"${TASK_CLOCK}/${counter}")
+        SCALE=$(bc -l <<<"${SCALE}/${counter}")
+        IPC=$(bc -l <<<"${IPC}/${counter}")
+        CPUS=$(bc -l <<<"${CPUS}/${counter}")
+        GHZ=$(bc -l <<<"${GHZ}/${counter}")
+    fi
 
     # Append metrics to csv file
     echo "$3;$5;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum};${TIME_SEC};${CYCLES};${INSTRUCTIONS};${L1_MISSES};${LLC_MISSES};${BRANCH_MISSES};${TASK_CLOCK};${SCALE};${IPC};${CPUS};${GHZ}" | cat >> $2
@@ -158,105 +160,205 @@ benchmark_input() {
 
 <<STATEMENTS
 1: MS = SELECT textId FROM page p WHERE p.id = <pageid>;
-2: BS = SELECT textId FROM page VERSION branch1 p WHERE p.id = <pageid>;
-3: MM = SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = <pageid>;
-4: BM = SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = <pageid>;
-5: MU = UPDATE page SET textId = 1 WHERE id = <pageid>;
-6: BU = UPDATE page VERSION branch1 SET textId = 1 WHERE id = <pageid>;
-7: MI = INSERT INTO content ( id , text ) VALUES ( <textid> , 'Hello_world!' );
-8: BI = INSERT INTO content VERSION branch1 ( id , text ) VALUES (<textid> , 'Hello_World!');
-9: MD = DELETE FROM page WHERE id = <pageId>;
-10: BD = DELETE FROM page VERSION branch1 WHERE id = <pageId>;
+2: B1S = SELECT textId FROM page VERSION branch1 p WHERE p.id = <pageid>;
+3: B2S = SELECT textId FROM page VERSION branch2 p WHERE p.id = <pageid>;
+4: MM = SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = <pageid>;
+5: B1JM = SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = <pageid>;
+6: B2JM = SELECT text FROM page VERSION branch2 p , content c WHERE p.textId = c.id AND p.id = <pageid>;
+7: B1M = SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = <pageid>;
+8: B2M = SELECT text FROM page VERSION branch2 p , content VERSION branch2 c WHERE p.textId = c.id AND p.id = <pageid>;
+9: MU = UPDATE page SET textId = 1 WHERE id = <pageid>;
+10: B1U = UPDATE page VERSION branch1 SET textId = 1 WHERE id = <pageid>;
+11: B2U = UPDATE page VERSION branch2 SET textId = 1 WHERE id = <pageid>;
+12: MI = INSERT INTO content ( id , text ) VALUES ( <textid> , 'Hello_world!' );
+13: BI = INSERT INTO content VERSION branch1 ( id , text ) VALUES (<textid> , 'Hello_World!');
+14: MD = DELETE FROM page WHERE id = <pageId>;
+15: B1D = DELETE FROM page VERSION branch1 WHERE id = <pageId>;
+16: B2D = DELETE FROM page VERSION branch2 WHERE id = <pageId>;
 STATEMENTS
 
 generate_MS() {
-    rm ms_statements.txt
+    statementFile=$(echo "./benchmarkStatements/ms_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "SELECT textId FROM page p WHERE p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> ms_statements.txt
+        echo "SELECT textId FROM page p WHERE p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
     done
-    echo "quit" | cat >> ms_statements.txt
+    echo "quit" | cat >> $statementFile
 }
 
-generate_BS() {
-    rm bs_statements.txt
+generate_B1S() {
+    statementFile=$(echo "./benchmarkStatements/b1s_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "SELECT textId FROM page VERSION branch1 p WHERE p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bs_statements.txt
+        echo "SELECT textId FROM page VERSION branch1 p WHERE p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
     done
-    echo "quit" | cat >> bs_statements.txt
+    echo "quit" | cat >> $statementFile
+}
+
+generate_B2S() {
+    statementFile=$(echo "./benchmarkStatements/b2s_statements_$1_$2.txt")
+    rm $statementFile
+    for i in {1..25}
+    do
+        echo "SELECT textId FROM page VERSION branch2 p WHERE p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+    done
+    echo "quit" | cat >> $statementFile
 }
 
 generate_MM() {
-    rm mm_statements.txt
+    statementFile=$(echo "./benchmarkStatements/mm_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mm_statements.txt
+        echo "SELECT text FROM page p , content c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
     done
-    echo "quit" | cat >> mm_statements.txt
+    echo "quit" | cat >> $statementFile
 }
 
-generate_BM() {
-    rm bm_statements.txt
+generate_B1JM() {
+    statementFile=$(echo "./benchmarkStatements/b1jm_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bm_statements.txt
+        echo "SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
     done
-    echo "quit" | cat >> bm_statements.txt
+    echo "quit" | cat >> $statementFile
+}
+
+generate_B2JM() {
+    statementFile=$(echo "./benchmarkStatements/b2jm_statements_$1_$2.txt")
+    rm $statementFile
+    for i in {1..25}
+    do
+        echo "SELECT text FROM page VERSION branch2 p , content c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+    done
+    echo "quit" | cat >> $statementFile
+}
+
+generate_B1M() {
+    statementFile=$(echo "./benchmarkStatements/b1m_statements_$1_$2.txt")
+    rm $statementFile
+    for i in {1..25}
+    do
+        echo "SELECT text FROM page VERSION branch1 p , content VERSION branch1 c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+    done
+    echo "quit" | cat >> $statementFile
+}
+
+generate_B2M() {
+    statementFile=$(echo "./benchmarkStatements/b2m_statements_$1_$2.txt")
+    rm $statementFile
+    for i in {1..25}
+    do
+        echo "SELECT text FROM page VERSION branch2 p , content VERSION branch2 c WHERE p.textId = c.id AND p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+    done
+    echo "quit" | cat >> $statementFile
 }
 
 generate_MU() {
-    rm mu_statements.txt
+    statementFile=$(echo "./benchmarkStatements/mu_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "UPDATE page SET textId = 1 WHERE id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> mu_statements.txt
+        echo "UPDATE page SET textId = 1 WHERE id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
     done
-    echo "quit" | cat >> mu_statements.txt
+    echo "quit" | cat >> $statementFile
 }
 
-generate_BU() {
-    rm bu_statements.txt
+generate_B1U() {
+    statementFile=$(echo "./benchmarkStatements/b1u_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "UPDATE page VERSION branch1 SET textId = 1 WHERE id = $(( ( RANDOM % 30303 )  + 1 ));" | cat >> bu_statements.txt
+        echo "UPDATE page VERSION branch1 SET textId = 1 WHERE id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
     done
-    echo "quit" | cat >> bu_statements.txt
+    echo "quit" | cat >> $statementFile
+}
+
+generate_B2U() {
+    statementFile=$(echo "./benchmarkStatements/b2u_statements_$1_$2.txt")
+    rm $statementFile
+    for i in {1..25}
+    do
+        echo "UPDATE page VERSION branch2 SET textId = 1 WHERE id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+    done
+    echo "quit" | cat >> $statementFile
 }
 
 generate_MI() {
-    rm mi_statements.txt
+    statementFile=$(echo "./benchmarkStatements/mi_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "INSERT INTO content ( id , text ) VALUES ( $(( ( RANDOM % 30303 )  + 1 )) , 'Hello_world!' );" | cat >> mi_statements.txt
+        echo "INSERT INTO content ( id , text ) VALUES ( $(( ( RANDOM % ($2 - $1) ) + $1 + 1 )) , 'Hello_world!' );" | cat >> $statementFile
     done
-    echo "quit" | cat >> mi_statements.txt
+    echo "quit" | cat >> $statementFile
 }
 
 generate_BI() {
-    rm bi_statements.txt
+    statementFile=$(echo "./benchmarkStatements/bi_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "INSERT INTO content VERSION branch1 ( id , text ) VALUES ( $(( ( RANDOM % 30303 )  + 1 )) , 'Hello_World!');" | cat >> bi_statements.txt
+        echo "INSERT INTO content VERSION branch1 ( id , text ) VALUES ( $(( ( RANDOM % ($2 - $1) ) + $1 + 1 )) , 'Hello_World!');" | cat >> $statementFile
     done
-    echo "quit" | cat >> bi_statements.txt
+    echo "quit" | cat >> $statementFile
 }
 
 generate_MD() {
-    rm md_statements.txt
+    statementFile=$(echo "./benchmarkStatements/md_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "DELETE FROM page WHERE id = $(( ( RANDOM % 30303 )  + 1 )) ;" | cat >> md_statements.txt
+        echo "DELETE FROM page WHERE id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 )) ;" | cat >> $statementFile
     done
-    echo "quit" | cat >> md_statements.txt
+    echo "quit" | cat >> $statementFile
 }
 
-generate_BD() {
-    rm bd_statements.txt
+generate_B1D() {
+    statementFile=$(echo "./benchmarkStatements/b1d_statements_$1_$2.txt")
+    rm $statementFile
     for i in {1..25}
     do
-        echo "DELETE FROM page VERSION branch1 WHERE id = $(( ( RANDOM % 30303 )  + 1 )) ;" | cat >> bd_statements.txt
+        echo "DELETE FROM page VERSION branch1 WHERE id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 )) ;" | cat >> $statementFile
     done
-    echo "quit" | cat >> bd_statements.txt
+    echo "quit" | cat >> $statementFile
+}
+
+generate_B2D() {
+    statementFile=$(echo "./benchmarkStatements/b2d_statements_$1_$2.txt")
+    rm $statementFile
+    for i in {1..25}
+    do
+        echo "DELETE FROM page VERSION branch2 WHERE id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 )) ;" | cat >> $statementFile
+    done
+    echo "quit" | cat >> $statementFile
+}
+
+generate_statements() {
+    generate_MS $1 $2
+    generate_B1S $1 $2
+    generate_B2S $1 $2
+    echo "${Green}Generated Select Statements for PageIDs $1 to $2!${Color_Off}"
+    generate_MM $1 $2
+    generate_B1JM $1 $2
+    generate_B2JM $1 $2
+    generate_B1M $1 $2
+    generate_B2M $1 $2
+    echo "${Green}Generated Merge Statements for PageIDs $1 to $2!${Color_Off}"
+    generate_MU $1 $2
+    generate_B1U $1 $2
+    generate_B2U $1 $2
+    echo "${Green}Generated Update Statements for PageIDs $1 to $2!${Color_Off}"
+    generate_MI $1 $2
+    generate_BI $1 $2
+    echo "${Green}Generated Insert Statements for PageIDs $1 to $2!${Color_Off}"
+    generate_MD $1 $2
+    generate_B1D $1 $2
+    generate_B2D $1 $2
+    echo "${Green}Generated Delete Statements for PageIDs $1 to $2!${Color_Off}"
 }
 
 benchmark_input_for_distributions() {
@@ -273,8 +375,8 @@ benchmark_input_for_distributions() {
 #    benchmark_input $1 $2 $3 $4 "0.999"
 #    benchmark_input $1 $2 $3 $4 "0.99"
 #    benchmark_input $1 $2 $3 $4 "0.9"
-    benchmark_input $1 $2 $3 $4 "0.5" 30227 30303 #$insertLimit
-    benchmark_input $1 $2 $3 $4 "1.0" 10 2087
+    benchmark_input $(echo "./benchmarkStatements/$1_30227_30303.txt") $2 $3 $4 "0.5" 30227 30303 #$insertLimit
+    benchmark_input $(echo "./benchmarkStatements/$1_10_2087.txt") $2 $3 $4 "1.0" 10 2087
 #    benchmark_input $1 $2 $3 $4 "0.1"
 #    benchmark_input $1 $2 $3 $4 "0.01"
 #    benchmark_input $1 $2 $3 $4 "0.001"
@@ -287,40 +389,34 @@ OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
 rm $OUTPUT_FILE
 echo "Type;Dist;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
 
-generate_MS
-generate_BS
-echo "${Green}Generated Select Statements!${Color_Off}"
-generate_MM
-generate_BM
-echo "${Green}Generated Merge Statements!${Color_Off}"
-generate_MU
-generate_BU
-echo "${Green}Generated Update Statements!${Color_Off}"
-generate_MI
-generate_BI
-echo "${Green}Generated Insert Statements!${Color_Off}"
-generate_MD
-generate_BD
-echo "${Green}Generated Delete Statements!${Color_Off}"
+mkdir "benchmarkStatements"
+generate_statements 10 2087
+generate_statements 30227 30303
 
 echo ""
 echo "Benchmark Select Statements..."
-benchmark_input_for_distributions ms_statements.txt $OUTPUT_FILE 1 3
+benchmark_input_for_distributions ms_statements $OUTPUT_FILE 1 3
 echo "Benchmark Select Statements with branching..."
-benchmark_input_for_distributions bs_statements.txt $OUTPUT_FILE 2 3
+benchmark_input_for_distributions b1s_statements $OUTPUT_FILE 2 3
+benchmark_input_for_distributions b2s_statements $OUTPUT_FILE 3 3
 echo "Benchmark Merge Statements..."
-benchmark_input_for_distributions mm_statements.txt $OUTPUT_FILE 3 3
+benchmark_input_for_distributions mm_statements $OUTPUT_FILE 4 3
 echo "Benchmark Merge Statements with branching..."
-benchmark_input_for_distributions bm_statements.txt $OUTPUT_FILE 4 3
+benchmark_input_for_distributions b1jm_statements $OUTPUT_FILE 5 3
+benchmark_input_for_distributions b2jm_statements $OUTPUT_FILE 6 3
+benchmark_input_for_distributions b1m_statements $OUTPUT_FILE 7 3
+benchmark_input_for_distributions b2m_statements $OUTPUT_FILE 8 3
 echo "Benchmark Update Statements..."
-benchmark_input_for_distributions mu_statements.txt $OUTPUT_FILE 5 3
+benchmark_input_for_distributions mu_statements $OUTPUT_FILE 9 3
 echo "Benchmark Update Statements with branching..."
-benchmark_input_for_distributions bu_statements.txt $OUTPUT_FILE 6 3
+benchmark_input_for_distributions b1u_statements $OUTPUT_FILE 10 3
+benchmark_input_for_distributions b2u_statements $OUTPUT_FILE 11 3
 echo "Benchmark Insert Statements..."
-benchmark_input mi_statements.txt $OUTPUT_FILE 7 1 "0.5"
+benchmark_input mi_statements $OUTPUT_FILE 12 1 "0.5" 30227 30303
 echo "Benchmark Insert Statements with branching..."
-benchmark_input bi_statements.txt $OUTPUT_FILE 8 1 "0.5"
+benchmark_input bi_statements $OUTPUT_FILE 13 1 "0.5" 30227 30303
 echo "Benchmark Delete Statements..."
-benchmark_input_for_distributions md_statements.txt $OUTPUT_FILE 9 1
+benchmark_input_for_distributions md_statements $OUTPUT_FILE 14 1
 echo "Benchmark Delete Statements with branching..."
-benchmark_input_for_distributions bd_statements.txt $OUTPUT_FILE 10 1
+benchmark_input_for_distributions b1d_statements $OUTPUT_FILE 15 1
+benchmark_input_for_distributions b2d_statements $OUTPUT_FILE 16 1
