@@ -342,6 +342,8 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     Table *pageTable = db->getTable("page");
     Table *contentTable = db->getTable("content");
 
+    std::string skippingPageId = "";
+
     std::string currentPageId = "";
     std::string currentPageTitle = "";
 
@@ -355,7 +357,17 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     while(std::getline(streamRevision, revisionRowStr)) {
         std::vector<std::string> revisionValues = split(revisionRowStr,'|');
 
-        if (std::stoi(revisionValues[2]) < lowerBound || std::stoi(revisionValues[2]) > upperBound) continue;
+        if (std::stoi(revisionValues[2]) < lowerBound) {
+            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
+                skippingPageId = revisionValues[2];
+                assert(std::getline(streamPage,pageRowStr));
+            }
+            assert(std::getline(streamContent,contentRowStr));
+            continue;
+        }
+        if (std::stoi(revisionValues[2]) > upperBound) {
+            break;
+        }
 
         if (currentPageId.compare("") == 0 || currentPageId.compare(revisionValues[2]) != 0) {
             currentPageId = revisionValues[2];
@@ -405,6 +417,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     currentPageId = "";
+    skippingPageId = "";
     std::vector<std::string> currentPageValues;
     std::vector<std::string> lastContentValues;
     tid_t pageTID = 0;
@@ -416,7 +429,17 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     while(std::getline(streamRevision, revisionRowStr)) {
         std::vector<std::string> revisionValues = split(revisionRowStr,'|');
 
-        if (std::stoi(revisionValues[2]) < lowerBound || std::stoi(revisionValues[2]) > upperBound) continue;
+        if (std::stoi(revisionValues[2]) < lowerBound) {
+            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
+                skippingPageId = revisionValues[2];
+                assert(std::getline(streamPage,pageRowStr));
+            }
+            assert(std::getline(streamContent,contentRowStr));
+            continue;
+        }
+        if (std::stoi(revisionValues[2]) > upperBound) {
+            break;
+        }
 
         if (currentPageId.compare("") == 0) {
             currentPageId = revisionValues[2];
@@ -488,6 +511,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     currentPageId = "";
+    skippingPageId = "";
     pageTID = 0;
     bool isFirstRevisionOfPage = true;
 
@@ -497,7 +521,18 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     while(std::getline(streamRevision, revisionRowStr)) {
         std::vector<std::string> revisionValues = split(revisionRowStr,'|');
 
-        if (std::stoi(revisionValues[2]) < lowerBound || std::stoi(revisionValues[2]) > upperBound) continue;
+        if (std::stoi(revisionValues[2]) < lowerBound) {
+            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
+                skippingPageId = revisionValues[2];
+                assert(std::getline(streamPage,pageRowStr));
+            }
+            assert(std::getline(streamContent,contentRowStr));
+            continue;
+        }
+        if (std::stoi(revisionValues[2]) > upperBound) {
+            break;
+        }
+
 
         if (currentPageId.compare("") == 0) {
             currentPageId = revisionValues[2];
