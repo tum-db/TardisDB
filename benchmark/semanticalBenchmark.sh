@@ -16,7 +16,7 @@ COMMIT_ID=$(git rev-parse --verify HEAD)
 
 benchmark_input() {
     # Execute benchmark program and write output to file
-    (./semanticalBench "-d=$5" "-r=$4" < $1) | cat > output.txt
+    (./semanticalBench "-d=$5" "-r=$4" "--lowerBound=$6" "--upperBound=$7" < $1) | cat > output.txt
 
     # Declare metric arrays
     declare -a parsing_times
@@ -273,7 +273,8 @@ benchmark_input_for_distributions() {
 #    benchmark_input $1 $2 $3 $4 "0.999"
 #    benchmark_input $1 $2 $3 $4 "0.99"
 #    benchmark_input $1 $2 $3 $4 "0.9"
-    benchmark_input $1 $2 $3 $4 "0.5" #$insertLimit
+    benchmark_input $1 $2 $3 $4 "0.5" 30227 30303 #$insertLimit
+    benchmark_input $1 $2 $3 $4 "1.0" 10 2087
 #    benchmark_input $1 $2 $3 $4 "0.1"
 #    benchmark_input $1 $2 $3 $4 "0.01"
 #    benchmark_input $1 $2 $3 $4 "0.001"
