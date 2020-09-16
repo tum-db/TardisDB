@@ -124,7 +124,11 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         old_tuple->store(get_tuple_ptr(storage));
 
         // version entry update
-        version_entry->next = version_entry->first;             // next should point to the old head of the chain
+        if (version_entry->first != version_entry) {            // next should point to the old head of the chain
+            version_entry->next = version_entry->first;
+        } else {
+            version_entry->next = storage;
+        }
         version_entry->next_in_branch = storage;                // next_in_branch points to the inserted storage entry
         version_entry->first = version_entry;                   // the head now points again to the version_entry
         version_entry->branch_id = branch;
