@@ -329,14 +329,26 @@ void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std
 
 void loadWikiDb(Database *db, int lowerBound, int upperBound)
 {
+    std::stringstream ssRange;
+    ssRange << "_";
+    ssRange << lowerBound;
+    ssRange << "_";
+    ssRange << upperBound;
+    std::string pageRangeStr = ssRange.str();
+
+
+    std::string pageFileName = "page" + pageRangeStr + ".tbl";
+    std::string revisionFileName = "revision" + pageRangeStr + ".tbl";
+    std::string contentFileName = "content" + pageRangeStr + ".tbl";
+
     QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
     QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
 
-    std::ifstream streamRevision("revision.tbl");
+    std::ifstream streamRevision(revisionFileName);
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    std::ifstream streamPage("page.tbl");
+    std::ifstream streamPage(pageFileName);
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    std::ifstream streamContent("content.tbl");
+    std::ifstream streamContent(contentFileName);
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     Table *pageTable = db->getTable("page");
@@ -409,11 +421,11 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     streamRevision.close();
     streamPage.close();
     streamContent.close();
-    streamRevision = std::ifstream("revision.tbl");
+    streamRevision = std::ifstream(revisionFileName);
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    streamPage = std::ifstream("page.tbl");
+    streamPage = std::ifstream(pageFileName);
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    streamContent = std::ifstream("content.tbl");
+    streamContent = std::ifstream(contentFileName);
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     currentPageId = "";
@@ -503,11 +515,11 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     streamRevision.close();
     streamPage.close();
     streamContent.close();
-    streamRevision = std::ifstream("revision.tbl");
+    streamRevision = std::ifstream(revisionFileName);
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    streamPage = std::ifstream("page.tbl");
+    streamPage = std::ifstream(pageFileName);
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    streamContent = std::ifstream("content.tbl");
+    streamContent = std::ifstream(contentFileName);
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
 
     currentPageId = "";
@@ -1075,7 +1087,12 @@ int main(int argc, char * argv[]) {
     std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
 
     std::unique_ptr<Database> db = std::make_unique<Database>();
+
+    const auto loadStart = std::chrono::high_resolution_clock::now();
     loadWikiDb(db.get(),FLAGS_lowerBound,FLAGS_upperBound);
+    const auto loadDuration = std::chrono::high_resolution_clock::now() - loadStart;
+    std::cout << "Load Time: " << std::fixed << std::chrono::duration_cast<std::chrono::milliseconds>(loadDuration).count() << std::endl;
+
 
     //QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
     //QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
