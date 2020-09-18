@@ -7,7 +7,7 @@ ExternalProject_Add(
         perfevent
         PREFIX "vendor/perfevent"
         GIT_REPOSITORY "https://github.com/viktorleis/perfevent.git"
-        GIT_TAG master
+        GIT_TAG f34b43af69e45521b973b4065e25504c3ec43d93
         TIMEOUT 10
         CONFIGURE_COMMAND ""
         BUILD_COMMAND ""
