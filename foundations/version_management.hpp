@@ -24,6 +24,7 @@ struct VersionedTupleStorage {
 // similar to VersionedTupleStorage; used by the current 'master' branch entry
 struct VersionEntry {
     void * first = nullptr;
+    void * prev = nullptr;
     void * next = nullptr;
     VersionedTupleStorage * next_in_branch = nullptr;
     branch_id_t branch_id;

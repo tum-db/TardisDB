@@ -11,7 +11,17 @@
 
 namespace QueryCompiler {
 
+    struct BenchmarkResult {
+        double parsingTime;
+        double analysingTime;
+        double translationTime;
+        double llvmCompilationTime;
+        double executionTime;
+    };
+
     void compileAndExecute(const std::string & query, Database &db, void *callbackFunction = nullptr);
+
+    BenchmarkResult compileAndBenchmark(const std::string & query, Database &db);
 
 }
 

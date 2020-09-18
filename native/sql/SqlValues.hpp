@@ -288,6 +288,51 @@ private:
 };
 
 //-----------------------------------------------------------------------------
+// Varchar
+
+        class Varchar : public Value {
+        public:
+            using value_type = const char *;
+            value_type value;
+
+            explicit Varchar(SqlType type) : Value(type) {
+                value = nullptr;
+            }
+
+            explicit Varchar(const char * src,uint8_t length) : Value(::Sql::getVarcharTy(length,false)) {
+                value = (char*)src;
+                len = length;
+            }
+
+            static value_op_t castString(const std::string & str, SqlType type);
+
+            static value_op_t load(const void * ptr, SqlType type);
+
+            value_op_t clone() const override;
+
+            void load(const void * ptr);
+
+            void store(void * ptr) const override;
+
+            hash_t hash() const override;
+
+            bool equals(const Value & other) const override;
+
+            bool compare(const Value & other, ComparisonMode mode) const override;
+
+            const uint8_t * begin() const {
+                return (const uint8_t *)value;
+            }
+
+            size_t length() const {
+                return len;
+            }
+
+            uint8_t len;
+
+        };
+
+//-----------------------------------------------------------------------------
 // Date
 
 class Date : public Value {

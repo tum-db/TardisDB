@@ -38,7 +38,7 @@ value_op_t Value::castString(const std::string & str, SqlType type)
         case SqlType::TypeID::IntegerID:
             return Integer::castString(str);
         case SqlType::TypeID::VarcharID:
-            return Text::castString(str);
+            return Varchar::castString(str,type);
 //        case SqlType::TypeID::CharID:
 //            return Char::castString(str, type);
         case SqlType::TypeID::NumericID:
@@ -69,7 +69,7 @@ value_op_t Value::load(const void * ptr, SqlType type)
         case SqlType::TypeID::IntegerID:
             return Integer::load(ptr);
         case SqlType::TypeID::VarcharID:
-            return Text::load(ptr);
+            return Varchar::load(ptr,type);
             // TODO: Implement Varchar and Char
         case SqlType::TypeID::CharID:
             return Text::load(ptr);
@@ -994,6 +994,77 @@ size_t Text::length() const {
     return size1
 */
 }
+
+value_op_t Varchar::castString(const std::string &str, Sql::SqlType type) {
+    Varchar* result = new Varchar(type);
+    result->value = str.c_str();
+    result->len = str.size();
+
+    return value_op_t(result);
+}
+
+value_op_t Varchar::load(const void *ptr, Sql::SqlType type) {
+    Varchar* result = new Varchar(type);
+    result->value = reinterpret_cast<const char*>(ptr) + 1;
+    result->len = reinterpret_cast<const char*>(ptr)[0];
+
+    return value_op_t(result);
+}
+
+void Varchar::store(void *ptr) const {
+    reinterpret_cast<char*>(ptr)[0] = (char) len;
+    memcpy((void*)(reinterpret_cast<char*>(ptr) + 1),value,len);
+}
+
+void Varchar::load(const void * ptr) {
+    value = reinterpret_cast<const char*>(ptr) + 1;
+    len = reinterpret_cast<const char*>(ptr)[0];
+}
+
+        value_op_t Varchar::clone() const
+        {
+            Varchar * cloned = new Varchar(type);
+            cloned->value = value;
+            cloned->len = len;
+            return value_op_t(cloned);
+        }
+
+
+        hash_t Varchar::hash() const
+        {
+            return hashByteArray(begin(), len);
+        }
+/*
+void Varchar::accept(ValueVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+*/
+        bool Varchar::equals(const Value & other) const
+        {
+            if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+                return false;
+            }
+
+            if (isNullable(other)) {
+                return other.equals(*this);
+            }
+
+            size_t len = length();
+            auto & otherText = dynamic_cast<const Varchar &>(other);
+            if (len != otherText.length()) {
+                return false;
+            }
+
+            const void * buf1 = begin();
+            const void * buf2 = otherText.begin();
+            return (0 == std::memcmp(buf1, buf2, len));
+        }
+
+        bool Varchar::compare(const Value & other, ComparisonMode mode) const
+        {
+            throw NotImplementedException();
+        }
 
 //-----------------------------------------------------------------------------
 // UnknownValue

@@ -112,17 +112,25 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         storage->branch_id = version_entry->branch_id;
         storage->creation_ts = version_entry->creation_ts;
 
-        old_tuple->store(get_tuple_ptr(storage));
-//std::cout << toString(*old_tuple) << " to store" << std::endl;
-//auto t = Native::Sql::SqlTuple::load(get_tuple_ptr(storage), table.getTupleType());
-//std::cout << toString(*t) << " stored" << std::endl;
-        // version entry update
+        // Hand over next and next_in_branch values from version_entry to storage
+        storage->next = version_entry->next;
+        storage->next_in_branch = version_entry->next_in_branch;
+        // If the head of the chain does not equal the version_entry,
+        // adjust the next pointer of the previous storage element to the created one
         if (version_entry->first != version_entry) {
-            // chain head != current master
-           version_entry->first = version_entry; 
+            ((VersionedTupleStorage*)version_entry->prev)->next = storage;
         }
-        version_entry->next = storage;
-        version_entry->next_in_branch = storage;
+
+        old_tuple->store(get_tuple_ptr(storage));
+
+        // version entry update
+        if (version_entry->first != version_entry) {            // next should point to the old head of the chain
+            version_entry->next = version_entry->first;
+        } else {
+            version_entry->next = storage;
+        }
+        version_entry->next_in_branch = storage;                // next_in_branch points to the inserted storage entry
+        version_entry->first = version_entry;                   // the head now points again to the version_entry
         version_entry->branch_id = branch;
         version_entry->creation_ts = db.getLargestBranchId();
 
@@ -150,6 +158,9 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         storage->next = version_entry->first;
         storage->next_in_branch = predecessor;
 
+        // If the head equals the version_entry set the prev pointer of the version_entry to the address of the
+        // created storage entry
+        if (version_entry->first == version_entry) version_entry->prev = storage;
         version_entry->first = storage;
     }
 }

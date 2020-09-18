@@ -12,7 +12,7 @@ class ValueTranslator {
 public:
     static std::unique_ptr<Native::Sql::Value> sqlValueToNativeSqlValue(Sql::Value *original);
 private:
-    static void storeStringInTextFormat(char* destination, char* source, char length);
+    static void storeStringInTextFormat(Native::Sql::Varchar* destination, char* source, size_t length);
 };
 
 

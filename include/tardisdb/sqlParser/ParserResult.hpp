@@ -30,7 +30,6 @@ namespace tardisParser {
 
         //Modification
         std::string relation;
-        std::vector<std::pair<std::string, std::string>> selectionsWithoutBinding;
 
         //INSERT
         std::vector<std::string> columnNames;

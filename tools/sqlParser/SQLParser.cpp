@@ -289,7 +289,7 @@ namespace tardisParser {
                 if (token.type == TokenType::literal) {
                     std::string lhs = token_src.prev(2).value;
                     Constant rhs = token.value;
-                    query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                    query.selections.push_back(std::make_pair(BindingAttribute("", lhs), rhs));
                     new_state = State::DeleteWhereExprRhs;
                 } else {
                     throw incorrect_sql_error("Expected right expression, found '" + token.value + "'");
@@ -392,7 +392,7 @@ namespace tardisParser {
                 if (token.type == TokenType::literal) {
                     std::string lhs = token_src.prev(2).value;
                     Constant rhs = token.value;
-                    query.selectionsWithoutBinding.push_back(std::make_pair(lhs, rhs));
+                    query.selections.push_back(std::make_pair(BindingAttribute("", lhs), rhs));
                     new_state = State::UpdateWhereExprRhs;
                 } else {
                     throw incorrect_sql_error("Expected right expression, found '" + token.value + "'");
