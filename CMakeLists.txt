@@ -31,6 +31,7 @@ endif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
+		${PERFEVENT_INCLUDE_DIR}
 		${GFLAGS_INCLUDE_DIR}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
 		)
