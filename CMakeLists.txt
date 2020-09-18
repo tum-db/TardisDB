@@ -71,6 +71,8 @@ target_link_libraries(semanticalBench dblib queryCompiler queryExecutor gflags p
 if(LIBXML_AVAILABLE)
 	target_compile_definitions(semanticalBench PUBLIC -D LIBXML_AVAILABLE=true)
 	target_link_libraries(semanticalBench wikiparser)
+else(LIBXML_AVAILABLE)
+	target_compile_definitions(semanticalBench PUBLIC -D LIBXML_AVAILABLE=false)
 endif(LIBXML_AVAILABLE)
 
 ### locate source files
