@@ -25,9 +25,9 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 ### tools
 include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
 include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+#if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	include("${CMAKE_SOURCE_DIR}/vendor/perfevent.cmake")
-endif(CMAKE_SYSTEM_NAME MATCHES "Linux")
+#endif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
