@@ -27,7 +27,7 @@
     #include "wikiParser/WikiParser.hpp"
 #endif
 
-#ifdef __linux__
+#if PERF_AVAILABLE
 #include "perfevent/PerfEvent.hpp"
 #endif
 
@@ -1021,7 +1021,7 @@ std::unique_ptr<Database> loadWiki(std::discrete_distribution<int> &distribution
 void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::vector<QueryCompiler::BenchmarkResult> results;
 
-#ifdef __linux__
+#ifdef PERF_AVAILABLE
     std::string header;
     std::string data;
     BenchmarkParameters params;
@@ -1034,7 +1034,7 @@ void benchmarkQuery(std::string query, Database &db, unsigned runs) {
             results.push_back(QueryCompiler::compileAndBenchmark(query, db));
         }
 
-#ifdef __linux__
+#ifdef PERF_AVAILABLE
     }
 #endif
 

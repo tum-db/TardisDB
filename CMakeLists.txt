@@ -4,6 +4,7 @@ project(protodb)
 set(CMAKE_CXX_STANDARD 17)
 
 set(LIBXML_AVAILABLE false)
+set(ENABLE_PERFBENCHMARKING false)
 
 ### set up boost
 if(APPLE)
@@ -25,13 +26,12 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 ### tools
 include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
 include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
-#if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+if(ENABLE_PERFBENCHMARKING)
 	include("${CMAKE_SOURCE_DIR}/vendor/perfevent.cmake")
-#endif(CMAKE_SYSTEM_NAME MATCHES "Linux")
+endif(ENABLE_PERFBENCHMARKING)
 
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
-		${PERFEVENT_INCLUDE_DIR}
 		${GFLAGS_INCLUDE_DIR}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
 		)
@@ -73,6 +73,9 @@ if(LIBXML_AVAILABLE)
 	target_compile_definitions(semanticalBench PUBLIC -D LIBXML_AVAILABLE=true)
 	target_link_libraries(semanticalBench wikiparser)
 endif(LIBXML_AVAILABLE)
+if(ENABLE_PERFBENCHMARKING)
+	target_compile_definitions(semanticalBench PUBLIC -D PERF_AVAILABLE=true)
+endif(ENABLE_PERFBENCHMARKING)
 
 ### locate source files
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
