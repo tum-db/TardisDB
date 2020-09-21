@@ -892,6 +892,16 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         }
     }
 
+    void* textBegin(char *stringPtr) {
+        uint8_t len = stringPtr[0];
+        if (len > 15) {
+            uintptr_t *uintptr = reinterpret_cast<uintptr_t *>(stringPtr);
+            return (void*) uintptr[0];
+        }
+
+        return (void*) &stringPtr[1];
+    }
+
     uint64_t getLengthText(char *stringPtr) {
         uint8_t len = stringPtr[0];
         if (len > 15) {
@@ -953,6 +963,10 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
     {
         auto & codeGen = getThreadLocalCodeGen();
 
+        //llvm::Type * llvmType = toLLVMTy(type);
+        //cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+
+        //llvm::Value * begin = codeGen->CreateStructGEP(llvmType, ptr, 0);
         llvm::Value * strPtr = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
         codeGen->CreateMemCpy(strPtr, 0, ptr, 0, 16);
 
@@ -995,7 +1009,21 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 
     cg_hash_t Text::hash() const
     {
-        throw NotImplementedException("Text::hash");
+        auto & codeGen = getThreadLocalCodeGen();
+
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
+        llvm::CallInst * result = codeGen->CreateCall(func, { _llvmValue });
+        cg_u64_t length = cg_u64_t( llvm::cast<llvm::Value>(result) );
+
+        llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * funcBegin = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("textBegin", funcTyBegin) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
+        llvm::CallInst * resultBegin = codeGen->CreateCall(funcBegin, { _llvmValue });
+        cg_voidptr_t begin = cg_voidptr_t( llvm::cast<llvm::Value>(resultBegin) );
+
+        return genStringHash(codeGen, begin, length);
     }
 
     void Text::accept(ValueVisitor & visitor)
