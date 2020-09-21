@@ -1033,7 +1033,46 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 
     cg_bool_t Text::equals(const Value & other) const
     {
-        throw NotImplementedException("Text::equals");
+        auto & codeGen = getThreadLocalCodeGen();
+
+        if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+            return cg_bool_t(false);
+        }
+
+        if (isNullable(other)) {
+            return other.equals(*this);
+        }
+
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
+
+        llvm::CallInst * _otherLength = codeGen->CreateCall(func, { static_cast<const Text &>(other).getLLVMValue() });
+        cg_u64_t otherlength = cg_u64_t( llvm::cast<llvm::Value>(_otherLength) );
+        llvm::CallInst * _thisLength = codeGen->CreateCall(func, { _llvmValue });
+        cg_u64_t thisLength = cg_u64_t( llvm::cast<llvm::Value>(_thisLength) );
+
+        cg_bool_t isLengthEqual = otherlength == thisLength;
+
+        llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * funcBegin = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("textBegin", funcTyBegin) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
+
+        IfGen check( codeGen.getCurrentFunctionGen(), isLengthEqual, {{"isEqual", cg_bool_t(true)}} );
+        {
+            llvm::CallInst * _otherBegin = codeGen->CreateCall(funcBegin, { static_cast<const Text &>(other).getLLVMValue() });
+            cg_voidptr_t otherBegin = cg_voidptr_t( llvm::cast<llvm::Value>(_otherBegin) );
+            llvm::CallInst * _thisBegin = codeGen->CreateCall(funcBegin, { _llvmValue });
+            cg_voidptr_t thisBegin = cg_voidptr_t( llvm::cast<llvm::Value>(_thisBegin) );
+            cg_int_t compareResult = Functions::genMemcmpCall(otherBegin,thisBegin,thisLength);
+
+            check.setVar(0, cg_bool_t(compareResult == cg_int_t(0)));
+        }
+        check.EndIf();
+        cg_bool_t result(check.getResult(0));
+        cg_bool_t _result = isLengthEqual && result;
+
+        return _result;
     }
 
     cg_bool_t Text::compare(const Value & other, ComparisonMode mode) const
