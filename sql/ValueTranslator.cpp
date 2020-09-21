@@ -55,7 +55,7 @@ std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sq
             break;
         case Sql::SqlType::TypeID::TextID:
             returnValue = std::make_unique<Native::Sql::Text>(original->type);
-            original->store(cg_ptr8_t::fromRawPointer(&((Native::Sql::Text*) returnValue.get())->value));
+            original->store(cg_ptr8_t::fromRawPointer((void*)((Native::Sql::Text*) returnValue.get())->value.data()));
             break;
         default:
             return nullptr;

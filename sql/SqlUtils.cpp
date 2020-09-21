@@ -100,6 +100,16 @@ static void genPrintTimestampCall(Value & sqlValue)
     codeGen.CreateCall(&printTimestamp, type, sqlValue.getLLVMValue());
 }
 
+    static void genPrintTextCall(Value & sqlValue)
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+        auto & context = codeGen.getLLVMContext();
+
+        // void printText(uintptr_t *raw);
+        llvm::FunctionType * type = llvm::TypeBuilder<void(void*), false>::get(context);
+        codeGen.CreateCall(&printText, type, sqlValue.getLLVMValue());
+    }
+
 static void genPrintAvailableValue(Value & sqlValue)
 {
     using namespace Functions;
@@ -139,6 +149,9 @@ static void genPrintAvailableValue(Value & sqlValue)
             break;
         case SqlType::TypeID::LongIntegerID:
             genPrintfCall("%lu", sqlValue.getLLVMValue());
+            break;
+        case SqlType::TypeID::TextID:
+            genPrintTextCall(sqlValue);
             break;
         default:
             unreachable();
