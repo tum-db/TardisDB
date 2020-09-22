@@ -341,8 +341,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     std::string revisionFileName = "revision" + pageRangeStr + ".tbl";
     std::string contentFileName = "content" + pageRangeStr + ".tbl";
 
-    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
-    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , content TEXT NOT NULL );",*db);
 
     std::ifstream streamRevision(revisionFileName);
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
@@ -388,11 +387,11 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             std::vector<std::string> pageValues = split(pageRowStr,'|');
             assert(pageValues.size() == 2);
             assert(pageValues[0].compare(currentPageId) == 0);
-            pageValues.push_back(revisionValues[3]);
 
             assert(std::getline(streamContent,contentRowStr));
             std::vector<std::string> contentValues = split(contentRowStr,'|');
             assert(contentValues.size() == 2);
+            pageValues.push_back(contentValues[1]);
 
             std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
             int counter = 0;
@@ -402,15 +401,6 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             }
             Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
             insert_tuple(pageTuple, *pageTable, firstctx);
-
-            sqlvalues.clear();
-            counter = 0;
-            for (auto &columnName : contentTable->getColumnNames()) {
-                sqlvalues.push_back(Native::Sql::Value::castString(contentValues[counter],contentTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-            insert_tuple(contentTuple, *contentTable, firstctx);
         } else {
             assert(std::getline(streamContent,contentRowStr));
         }
@@ -483,7 +473,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
 
         if (!wasFirstRevision && currentPageId.compare(revisionValues[2]) == 0) {
             std::vector<std::string> lastPageValues = currentPageValues;
-            lastPageValues.push_back(lastContentValues[0]);
+            lastPageValues.push_back(lastContentValues[1]);
 
             std::vector<std::unique_ptr<Native::Sql::Value>> sqlValues;
             int counter = 0;
@@ -493,15 +483,6 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             }
             Native::Sql::SqlTuple pageTuple(std::move(sqlValues));
             update_tuple(pageTID,pageTuple,*pageTable,secondctx);
-
-            sqlValues.clear();
-            counter = 0;
-            for (auto &columnName : contentTable->getColumnNames()) {
-                sqlValues.push_back(Native::Sql::Value::castString(lastContentValues[counter],contentTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple contentTuple(std::move(sqlValues));
-            insert_tuple(contentTuple, *contentTable, secondctx);
         }
 
         assert(std::getline(streamContent,contentRowStr));
@@ -561,7 +542,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             assert(std::getline(streamContent,contentRowStr));
             std::vector<std::string> contentValues = split(contentRowStr,'|');
             assert(contentValues.size() == 2);
-            pageValues.push_back(contentValues[0]);
+            pageValues.push_back(contentValues[1]);
 
             std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
             int counter = 0;
@@ -571,15 +552,6 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             }
             Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
             update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
-
-            sqlvalues.clear();
-            counter = 0;
-            for (auto &columnName : contentTable->getColumnNames()) {
-                sqlvalues.push_back(Native::Sql::Value::castString(contentValues[counter],contentTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-            insert_tuple(contentTuple, *contentTable, thirdctx);
 
             pageTID++;
             isFirstRevisionOfPage = true;
@@ -608,7 +580,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
         assert(std::getline(streamContent,contentRowStr));
         std::vector<std::string> contentValues = split(contentRowStr,'|');
         assert(contentValues.size() == 2);
-        pageValues.push_back(contentValues[0]);
+        pageValues.push_back(contentValues[1]);
 
         std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
         int counter = 0;
@@ -618,18 +590,6 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
         }
         Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
         update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
-
-        sqlvalues.clear();
-        counter = 0;
-        for (auto &columnName : contentTable->getColumnNames()) {
-            sqlvalues.push_back(Native::Sql::Value::castString(contentValues[counter],contentTable->getCI(columnName)->type));
-            counter++;
-        }
-        Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-        insert_tuple(contentTuple, *contentTable, thirdctx);
-
-        pageTID++;
-        isFirstRevisionOfPage = true;
     }
 
     streamRevision.close();
@@ -638,7 +598,6 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
 
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << db->getTable("page")->size() << "\n";
-    std::cout << "Content:\t" << db->getTable("content")->size() << "\n";
 }
 
 std::unique_ptr<Database> loadTPCC() {
