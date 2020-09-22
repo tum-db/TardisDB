@@ -367,16 +367,7 @@ benchmark_input_for_distributions() {
 #    insertLimit=$(bc -l <<<"${insertLimit}*2")
 #    insertLimit=$(bc -l <<<"${insertLimit}+1")
 
-#    benchmark_input $1 $2 $3 $4 "0.9999"
-#    benchmark_input $1 $2 $3 $4 "0.999"
-#    benchmark_input $1 $2 $3 $4 "0.99"
-#    benchmark_input $1 $2 $3 $4 "0.9"
-    benchmark_input $(echo "./benchmarkStatements/$1_23910821_23927983.txt") $2 $3 $4 "0.5" 23910821 23927983 #$insertLimit
-#    benchmark_input $(echo "./benchmarkStatements/$1_10_2087.txt") $2 $3 $4 "1.0" 10 2087
-#    benchmark_input $1 $2 $3 $4 "0.1"
-#    benchmark_input $1 $2 $3 $4 "0.01"
-#    benchmark_input $1 $2 $3 $4 "0.001"
-#    benchmark_input $1 $2 $3 $4 "0.0001"
+    benchmark_input $(echo "./benchmarkStatements/$1_23910821_23927983.txt") $2 $3 $4 "0.5" 23910821 23927983
 
 #    rm buffer_file.txt
 }
@@ -386,7 +377,6 @@ rm $OUTPUT_FILE
 echo "Type;Dist;LoadDuration;PageSize;UserSize;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
 
 mkdir "benchmarkStatements"
-generate_statements 10 2087
 generate_statements 23910821 23927983
 
 echo ""
