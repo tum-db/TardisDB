@@ -340,8 +340,10 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     std::string pageFileName = "page" + pageRangeStr + ".tbl";
     std::string revisionFileName = "revision" + pageRangeStr + ".tbl";
     std::string contentFileName = "content" + pageRangeStr + ".tbl";
+    std::string userFileName = "user" + pageRangeStr + ".tbl";
 
-    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , content TEXT NOT NULL );",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title TEXT NOT NULL , userId INTEGER NOT NULL , content TEXT NOT NULL );",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE user ( id INTEGER NOT NULL, name TEXT NOT NULL );",*db);
 
     std::ifstream streamRevision(revisionFileName);
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
@@ -349,9 +351,37 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
     std::ifstream streamContent(contentFileName);
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
+    std::ifstream streamUser(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
 
     Table *pageTable = db->getTable("page");
-    Table *contentTable = db->getTable("content");
+    Table *userTable = db->getTable("user");
+
+    std::set<std::string> userIDS = {};
+    std::string userRowStr;
+
+    QueryContext userCtx(*db);
+    userCtx.executionContext.branchId = 0;
+    db->constructBranchLineage(0, userCtx.executionContext);
+    while(std::getline(streamUser,userRowStr)) {
+        std::vector<std::string> userValues = split(userRowStr,'|');
+
+        if (userIDS.find(userValues[0]) == userIDS.end()) {
+            userIDS.insert(userValues[0]);
+            std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
+            int counter = 0;
+            for (auto &columnName : userTable->getColumnNames()) {
+                sqlvalues.push_back(Native::Sql::Value::castString(userValues[counter],userTable->getCI(columnName)->type));
+                counter++;
+            }
+            Native::Sql::SqlTuple userTuple(std::move(sqlvalues));
+            insert_tuple(userTuple, *userTable, userCtx);
+        }
+    }
+
+    streamUser.close();
+    streamUser = std::ifstream(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
 
     std::string skippingPageId = "";
 
@@ -374,6 +404,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
                 assert(std::getline(streamPage,pageRowStr));
             }
             assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
             continue;
         }
         if (std::stoi(revisionValues[2]) > upperBound) {
@@ -388,6 +419,10 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             assert(pageValues.size() == 2);
             assert(pageValues[0].compare(currentPageId) == 0);
 
+            assert(std::getline(streamUser,userRowStr));
+            std::vector<std::string> userValues = split(userRowStr,'|');
+            assert(userValues.size() == 2);
+            pageValues.push_back(userValues[0]);
             assert(std::getline(streamContent,contentRowStr));
             std::vector<std::string> contentValues = split(contentRowStr,'|');
             assert(contentValues.size() == 2);
@@ -403,6 +438,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             insert_tuple(pageTuple, *pageTable, firstctx);
         } else {
             assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
         }
     }
 
@@ -411,17 +447,21 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     streamRevision.close();
     streamPage.close();
     streamContent.close();
+    streamUser.close();
     streamRevision = std::ifstream(revisionFileName);
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
     streamPage = std::ifstream(pageFileName);
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
     streamContent = std::ifstream(contentFileName);
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
+    streamUser = std::ifstream(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
 
     currentPageId = "";
     skippingPageId = "";
     std::vector<std::string> currentPageValues;
     std::vector<std::string> lastContentValues;
+    std::vector<std::string> lastUserValues;
     tid_t pageTID = 0;
     bool wasFirstRevision = true;
 
@@ -437,6 +477,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
                 assert(std::getline(streamPage,pageRowStr));
             }
             assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
             continue;
         }
         if (std::stoi(revisionValues[2]) > upperBound) {
@@ -452,6 +493,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             assert(currentPageValues[0].compare(currentPageId) == 0);
 
             assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
             wasFirstRevision = true;
             continue;
         }
@@ -465,6 +507,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             assert(currentPageValues[0].compare(currentPageId) == 0);
 
             assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
 
             pageTID++;
             wasFirstRevision = true;
@@ -473,6 +516,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
 
         if (!wasFirstRevision && currentPageId.compare(revisionValues[2]) == 0) {
             std::vector<std::string> lastPageValues = currentPageValues;
+            lastPageValues.push_back(lastUserValues[0]);
             lastPageValues.push_back(lastContentValues[1]);
 
             std::vector<std::unique_ptr<Native::Sql::Value>> sqlValues;
@@ -485,6 +529,9 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             update_tuple(pageTID,pageTuple,*pageTable,secondctx);
         }
 
+        assert(std::getline(streamUser,userRowStr));
+        lastUserValues = split(userRowStr,'|');
+        assert(lastUserValues.size() == 2);
         assert(std::getline(streamContent,contentRowStr));
         lastContentValues = split(contentRowStr,'|');
         assert(lastContentValues.size() == 2);
@@ -496,12 +543,15 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     streamRevision.close();
     streamPage.close();
     streamContent.close();
+    streamUser.close();
     streamRevision = std::ifstream(revisionFileName);
     if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
     streamPage = std::ifstream(pageFileName);
     if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
     streamContent = std::ifstream(contentFileName);
     if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
+    streamUser = std::ifstream(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
 
     currentPageId = "";
     skippingPageId = "";
@@ -520,6 +570,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
                 assert(std::getline(streamPage,pageRowStr));
             }
             assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
             continue;
         }
         if (std::stoi(revisionValues[2]) > upperBound) {
@@ -539,6 +590,10 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             assert(pageValues.size() == 2);
             assert(pageValues[0].compare(currentPageId) == 0);
 
+            assert(std::getline(streamUser,userRowStr));
+            std::vector<std::string> userValues = split(userRowStr,'|');
+            assert(userValues.size() == 2);
+            pageValues.push_back(userValues[0]);
             assert(std::getline(streamContent,contentRowStr));
             std::vector<std::string> contentValues = split(contentRowStr,'|');
             assert(contentValues.size() == 2);
@@ -568,6 +623,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             isFirstRevisionOfPage = false;
         }
 
+        assert(std::getline(streamUser,userRowStr));
         assert(std::getline(streamContent,contentRowStr));
     }
 
@@ -577,6 +633,10 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
         assert(pageValues.size() == 2);
         assert(pageValues[0].compare(currentPageId) == 0);
 
+        assert(std::getline(streamUser,userRowStr));
+        std::vector<std::string> userValues = split(userRowStr,'|');
+        assert(userValues.size() == 2);
+        pageValues.push_back(userValues[0]);
         assert(std::getline(streamContent,contentRowStr));
         std::vector<std::string> contentValues = split(contentRowStr,'|');
         assert(contentValues.size() == 2);
@@ -595,9 +655,11 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     streamRevision.close();
     streamPage.close();
     streamContent.close();
+    streamUser.close();
 
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << db->getTable("page")->size() << "\n";
+    std::cout << "User:\t" << db->getTable("user")->size() << "\n";
 }
 
 std::unique_ptr<Database> loadTPCC() {
@@ -841,8 +903,8 @@ std::unique_ptr<Database> generateWikiTBL() {
 
     DistributionEngine distributionEngine = DistributionEngine({ 2 , 1 });
 
-    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>)> insertCallback =
-            [db = tpccDb.get(),distributionEnginePtr = &distributionEngine](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents) {
+    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>,std::vector<wikiparser::User>)> insertCallback =
+            [db = tpccDb.get(),distributionEnginePtr = &distributionEngine](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents, std::vector<wikiparser::User> users) {
         if (revisions.size() != contents.size()) return;
 
         std::vector<int> branchMappings(0);
