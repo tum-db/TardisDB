@@ -918,7 +918,9 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
     value_op_t Text::castString(const std::string & str, SqlType type)
     {
         auto & codeGen = getThreadLocalCodeGen();
-        llvm::Value * strValue = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        //llvm::Value * strValue = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+
 
         size_t len = str.size();
         uint8_t* data = new uint8_t[len];
@@ -936,22 +938,23 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *), false>::get(codeGen.getLLVMContext());
         llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("storeText", funcTy) );
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeText);
-        codeGen->CreateCall(func, { strValue, cg_ptr8_t::fromRawPointer(beginPtr) , cg_u64_t(len) });
+        codeGen->CreateCall(func, { arrayPtr, cg_ptr8_t::fromRawPointer(beginPtr) , cg_u64_t(len) });
 
-        return value_op_t( new Text(type, strValue) );
+        return value_op_t( new Text(type, arrayPtr) );
     }
 
     value_op_t Text::castString(cg_ptr8_t str, cg_size_t length, SqlType type)
     {
         auto & codeGen = getThreadLocalCodeGen();
-        llvm::Value * strValue = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        //llvm::Value * strValue = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
 
         llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *), false>::get(codeGen.getLLVMContext());
         llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("storeTextGen", funcTy) );
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeTextGen);
-        codeGen->CreateCall(func, { strValue, str , length});
+        codeGen->CreateCall(func, { arrayPtr, str , length});
 
-        return value_op_t( new Text(type, strValue) );
+        return value_op_t( new Text(type, arrayPtr) );
     }
 
     value_op_t Text::fromRawValues(const std::vector<llvm::Value *> & values, SqlType type)

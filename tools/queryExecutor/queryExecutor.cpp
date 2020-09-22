@@ -49,7 +49,7 @@ namespace QueryExecutor {
         using namespace llvm;
         using namespace llvm::legacy;
 
-        pm.add(createInstructionCombiningPass());
+        //pm.add(createInstructionCombiningPass());
         pm.add(createReassociatePass());
         pm.add(createGVNPass(false)); // there should be no redundant loads
         //pm.add(createCFGSimplificationPass());
