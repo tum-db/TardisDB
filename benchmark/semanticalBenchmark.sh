@@ -396,9 +396,9 @@ echo "Benchmark Update Statements with branching..."
 benchmark_input_for_distributions b1u_statements $OUTPUT_FILE 10 3
 benchmark_input_for_distributions b2u_statements $OUTPUT_FILE 11 3
 echo "Benchmark Insert Statements..."
-benchmark_input "./benchmarkStatements/mi_statements_30227_30303.txt" $OUTPUT_FILE 12 1 "0.5" 23910821 23927983
+benchmark_input "./benchmarkStatements/mi_statements_23910821_23927983.txt" $OUTPUT_FILE 12 1 "0.5" 23910821 23927983
 echo "Benchmark Insert Statements with branching..."
-benchmark_input "./benchmarkStatements/bi_statements_30227_30303.txt" $OUTPUT_FILE 13 1 "0.5" 30227 30303
+benchmark_input "./benchmarkStatements/bi_statements_23910821_23927983.txt" $OUTPUT_FILE 13 1 "0.5" 23910821 23927983
 echo "Benchmark Delete Statements..."
 benchmark_input_for_distributions md_statements $OUTPUT_FILE 14 1
 echo "Benchmark Delete Statements with branching..."
