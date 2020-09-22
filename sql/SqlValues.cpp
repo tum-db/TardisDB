@@ -964,11 +964,11 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         auto & codeGen = getThreadLocalCodeGen();
 
         //llvm::Type * llvmType = toLLVMTy(type);
-        //cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
 
         //llvm::Value * begin = codeGen->CreateStructGEP(llvmType, ptr, 0);
-        llvm::Value * strPtr = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
-        codeGen->CreateMemCpy(strPtr, 0, ptr, 0, 16);
+        //llvm::Value * strPtr = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        codeGen->CreateMemCpy(arrayPtr, 0, ptr, 0, 16);
 
         /*llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
         llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
@@ -976,7 +976,7 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         llvm::CallInst * result = codeGen->CreateCall(func, { strPtr });
         cg_u64_t length = cg_u64_t( llvm::cast<llvm::Value>(result) );*/
 
-        return value_op_t( new Text(type, strPtr) );
+        return value_op_t( new Text(type, arrayPtr) );
     }
 
     void Text::store(llvm::Value * ptr) const
