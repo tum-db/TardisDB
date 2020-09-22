@@ -40,6 +40,7 @@ int main(int argc, char * argv[])
                 pagefile << "|";
                 std::replace( page.title.begin(), page.title.end(), '|', '~' );
                 std::replace( page.title.begin(), page.title.end(), '"', '\'' );
+                std::replace( page.title.begin(), page.title.end(), '\n', ' ' );
                 pagefile << page.title;
                 pagefile << "\n";
 
@@ -48,6 +49,7 @@ int main(int argc, char * argv[])
                     contentfile << "|";
                     std::replace( contents[i].text.begin(), contents[i].text.end(), '|', '~' );
                     std::replace( contents[i].text.begin(), contents[i].text.end(), '"', '\'' );
+                    std::replace( contents[i].text.begin(), contents[i].text.end(), '\n', ' ' );
                     contentfile << contents[i].text;
                     contentfile << "\n";
 

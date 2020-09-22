@@ -67,6 +67,7 @@ namespace wikiparser {
                             break;
                         }
                     }
+                    contenttext = "";
                     state = State::TextID;
                 } else if (name.compare("sha1") == 0) {
                     state = State::Text;
@@ -169,10 +170,10 @@ namespace wikiparser {
                 revisionParentId = std::stoi(text.raw());
                 break;
             case State::TextID:
-                textID = std::stoi(text.raw());
+                contenttext += text.raw();
                 break;
             case State::Text:
-                contenttext = text.raw();
+                //contenttext = text.raw();
                 break;
             case State::RevisionEnd:
                 break;
