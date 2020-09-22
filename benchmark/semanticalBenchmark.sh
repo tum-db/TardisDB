@@ -37,6 +37,9 @@ benchmark_input() {
     declare -a ipc
     declare -a cpus
     declare -a ghz
+    declare -a loadDuration
+    declare -a pageSize
+    declare -a userSize
 
     # Retrieve metrics from file
     input="output.txt"
@@ -52,6 +55,23 @@ benchmark_input() {
 
         IFS=','
         read -ra METRICS <<< "$line"
+        if [ "${#METRICS[@]}" = "1" ]; then
+            loadDurationCandidate=$(echo ${METRICS[0]} | grep 'LoadDuration' | cut -f2 -d ":")
+            loadDurationCandidate=$(echo -e "$loadDurationCandidate" | tr -d '[:space:]')
+            if [[ $loadDurationCandidate != "" ]]; then
+                loadDuration=$(echo $loadDurationCandidate)
+            fi
+            pageSizeCandidate=$(echo ${METRICS[0]} | grep 'Page' | cut -f2 -d ":")
+            pageSizeCandidate=$(echo -e "$pageSizeCandidate" | tr -d '[:space:]')
+            if [[ $pageSizeCandidate != "" ]]; then
+                pageSize=$(echo $pageSizeCandidate)
+            fi
+            userSizeCandidate=$(echo ${METRICS[0]} | grep 'User' | cut -f2 -d ":")
+            userSizeCandidate=$(echo -e "$userSizeCandidate" | tr -d '[:space:]')
+            if [[ $userSizeCandidate != "" ]]; then
+                userSize=$(echo $userSizeCandidate)
+            fi
+        fi
         if [ "${#METRICS[@]}" = "6" ]; then
             for i in "${!METRICS[@]}"; do
                 case "$i" in
@@ -155,7 +175,7 @@ benchmark_input() {
     fi
 
     # Append metrics to csv file
-    echo "$3;$5;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum};${TIME_SEC};${CYCLES};${INSTRUCTIONS};${L1_MISSES};${LLC_MISSES};${BRANCH_MISSES};${TASK_CLOCK};${SCALE};${IPC};${CPUS};${GHZ}" | cat >> $2
+    echo "$3;$5;$loadDuration;$pageSize;$userSize;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum};${TIME_SEC};${CYCLES};${INSTRUCTIONS};${L1_MISSES};${LLC_MISSES};${BRANCH_MISSES};${TASK_CLOCK};${SCALE};${IPC};${CPUS};${GHZ}" | cat >> $2
 }
 
 <<STATEMENTS
@@ -363,7 +383,7 @@ benchmark_input_for_distributions() {
 
 OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
 rm $OUTPUT_FILE
-echo "Type;Dist;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
+echo "Type;Dist;LoadDuration;PageSize;UserSize;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
 
 mkdir "benchmarkStatements"
 generate_statements 10 2087

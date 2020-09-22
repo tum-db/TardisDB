@@ -329,6 +329,8 @@ void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std
 
 void loadWikiDb(Database *db, int lowerBound, int upperBound)
 {
+    uint64_t loadDuration = 0;
+
     std::stringstream ssRange;
     ssRange << "_";
     ssRange << lowerBound;
@@ -435,7 +437,9 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
                 counter++;
             }
             Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
+            auto loadStart = std::chrono::high_resolution_clock::now();
             insert_tuple(pageTuple, *pageTable, firstctx);
+            loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
         } else {
             assert(std::getline(streamContent,contentRowStr));
             assert(std::getline(streamUser,userRowStr));
@@ -526,7 +530,9 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
                 counter++;
             }
             Native::Sql::SqlTuple pageTuple(std::move(sqlValues));
+            auto loadStart = std::chrono::high_resolution_clock::now();
             update_tuple(pageTID,pageTuple,*pageTable,secondctx);
+            loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
         }
 
         assert(std::getline(streamUser,userRowStr));
@@ -606,7 +612,9 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
                 counter++;
             }
             Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
+            auto loadStart = std::chrono::high_resolution_clock::now();
             update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
+            loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
 
             pageTID++;
             isFirstRevisionOfPage = true;
@@ -649,7 +657,9 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
             counter++;
         }
         Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
+        auto loadStart = std::chrono::high_resolution_clock::now();
         update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
+        loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
     }
 
     streamRevision.close();
@@ -660,6 +670,7 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << db->getTable("page")->size() << "\n";
     std::cout << "User:\t" << db->getTable("user")->size() << "\n";
+    std::cout << "LoadDuration:\t" << std::fixed << loadDuration / 1000 << std::endl;
 }
 
 std::unique_ptr<Database> loadTPCC() {
@@ -1109,10 +1120,7 @@ int main(int argc, char * argv[]) {
 
     std::unique_ptr<Database> db = std::make_unique<Database>();
 
-    const auto loadStart = std::chrono::high_resolution_clock::now();
     loadWikiDb(db.get(),FLAGS_lowerBound,FLAGS_upperBound);
-    const auto loadDuration = std::chrono::high_resolution_clock::now() - loadStart;
-    std::cout << "Load Time: " << std::fixed << std::chrono::duration_cast<std::chrono::milliseconds>(loadDuration).count() << std::endl;
 
 
     //QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
