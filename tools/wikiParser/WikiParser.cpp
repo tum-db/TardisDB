@@ -8,7 +8,7 @@
 
 namespace wikiparser {
 
-    WikiParser::WikiParser(std::function<void(Page,std::vector<Revision>,std::vector<Content>)> &insertCallback)
+    WikiParser::WikiParser(std::function<void(Page,std::vector<Revision>,std::vector<Content>,std::vector<User>)> &insertCallback)
             : xmlpp::SaxParser(),
             insertCallback(insertCallback)
     {
@@ -60,6 +60,8 @@ namespace wikiparser {
                     state = State::RevisionID;
                 } else if (name.compare("parentid") == 0) {
                     state = State::RevisionParent;
+                } else if (name.compare("contributor") == 0) {
+                    state = State::ContibutorStart;
                 } else if (name.compare("text") == 0) {
                     for (auto &attribute : attributes) {
                         if (attribute.name.compare("id") == 0) {
@@ -72,6 +74,19 @@ namespace wikiparser {
                 } else if (name.compare("sha1") == 0) {
                     state = State::Text;
                 }
+                break;
+            case State::ContibutorStart:
+                if (name.compare("username") == 0) {
+                    state = State::UserName;
+                } else if (name.compare("id") == 0) {
+                    state = State::UserId;
+                }
+                break;
+            case State::UserId:
+                break;
+            case State::UserName:
+                break;
+            case State::ContributorEnd:
                 break;
             case State::RevisionID:
                 break;
@@ -99,9 +114,10 @@ namespace wikiparser {
             case State::PageStart:
                 if (name.compare("page") == 0) {
                     state = State::PageEnd;
-                    insertCallback(Page(pageId,pageTitle),revisions,contents);
+                    insertCallback(Page(pageId,pageTitle),revisions,contents,users);
                     revisions.clear();
                     contents.clear();
+                    users.clear();
                 }
             case State::PageID:
                 if (name.compare("id") == 0) {
@@ -123,7 +139,25 @@ namespace wikiparser {
                     state = State::PageStart;
                     revisions.push_back(Revision(revisionId,revisionParentId));
                     contents.push_back(Content(textID,contenttext));
+                    users.push_back(User(userID,userName));
                 }
+            case State::ContibutorStart:
+                if (name.compare("contributor") == 0) {
+                    state = State::RevisionStart;
+                }
+                break;
+            case State::UserId:
+                if (name.compare("id") == 0) {
+                    state = State::ContibutorStart;
+                }
+                break;
+            case State::UserName:
+                if (name.compare("username") == 0) {
+                    state = State::ContibutorStart;
+                }
+                break;
+            case State::ContributorEnd:
+                break;
             case State::RevisionID:
                 if (name.compare("id") == 0) {
                     state = State::RevisionStart;
@@ -162,6 +196,16 @@ namespace wikiparser {
             case State::PageEnd:
                 break;
             case State::RevisionStart:
+                break;
+            case State::ContibutorStart:
+                break;
+            case State::UserId:
+                userID = std::stoi(text.raw());
+                break;
+            case State::UserName:
+                userName = text.raw();
+                break;
+            case State::ContributorEnd:
                 break;
             case State::RevisionID:
                 revisionId = std::stoi(text.raw());
