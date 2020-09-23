@@ -49,7 +49,7 @@ TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, 
             }
         }
 
-        columns.emplace_back(ci, columnTy, columnPtr, columnIndex);
+        columns.emplace_back(ci, columnTy, columnPtr, columnIndex, nullptr);
     }
 }
 
@@ -125,7 +125,7 @@ Native::Sql::SqlTuple *get_latest_tuple_wrapper(tid_t tid, Table & table, std::s
 
 
 void TableScan::produce(cg_tid_t tid) {
-    std::unordered_map<const InformationUnit*, std::unique_ptr<Sql::Value>> values;
+    iu_value_mapping_t values;
 
     // get null indicator column data
     auto & nullIndicatorTable = table.getNullIndicatorTable();
@@ -152,9 +152,8 @@ void TableScan::produce(cg_tid_t tid) {
 
             //Add tid to the produced values
             llvm::Value *tidValue = tid.getValue();
-            sqlValue = std::make_unique<LongInteger>(tidValue);
-            values[iu] = std::move(sqlValue);
-
+            tidSqlValue = std::make_unique<LongInteger>(tidValue);
+            values[iu] = tidSqlValue.get();
         } else {
             column_t & column = columns[i];
 
@@ -189,25 +188,20 @@ void TableScan::produce(cg_tid_t tid) {
                 cg_bool_t isNull = genNullIndicatorLoad(nullIndicatorTable, tid, cg_unsigned_t(ci->nullColumnIndex));
                 SqlType notNullableType = toNotNullableTy(ci->type);
                 auto loadedValue = Value::load(elemPtr, notNullableType);
-                sqlValue = NullableValue::create(std::move(loadedValue), isNull);
+                std::get<4>(column) = NullableValue::create(std::move(loadedValue), isNull);
             } else {
                 // load the SQL value
-                sqlValue = Value::load(elemPtr, ci->type);
+                std::get<4>(column) = Value::load(elemPtr, ci->type);
             }
 
             // map the value to the according iu
-            values[iu] = std::move(sqlValue);
+            values[iu] = std::get<4>(column).get();
 
             i += 1;
         }
     }
 
-    iu_value_mapping_t returnValues;
-    for (auto& mapping : values) {
-        returnValues.emplace(mapping.first,mapping.second.get());
-    }
-
-    _parent->consume(returnValues, *this);
+    _parent->consume(values, *this);
 }
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)

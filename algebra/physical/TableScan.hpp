@@ -3,6 +3,7 @@
 
 #include "algebra/physical/Operator.hpp"
 #include "foundations/Database.hpp"
+#include "sql/SqlValues.hpp"
 
 namespace Algebra {
 namespace Physical {
@@ -24,8 +25,9 @@ private:
     Table & table;
     std::string *alias;
 
-    using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t>;
+    using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, Sql::value_op_t>;
     std::vector<column_t> columns;
+    Sql::value_op_t tidSqlValue;
 };
 
 } // end namespace Physical
