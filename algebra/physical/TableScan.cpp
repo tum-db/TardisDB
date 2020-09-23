@@ -136,7 +136,12 @@ void TableScan::produce(cg_tid_t tid) {
     getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
     llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_ptr8_t::fromRawPointer(alias), _codeGen.getCurrentFunctionGen().getArg(1)});
     cg_voidptr_t resultPtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+#ifdef __APPLE__
     cg_bool_t ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));
+#else
+    cg_bool_t ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ul));
+#endif
+
 
     size_t i = 0;
     for (auto iu : required) {
