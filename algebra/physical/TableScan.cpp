@@ -10,6 +10,7 @@
 
 #include "codegen/PhiNode.hpp"
 #include "sql/SqlUtils.hpp"
+#include "sql/SqlTuple.hpp"
 
 using namespace Sql;
 
@@ -131,11 +132,11 @@ void TableScan::produce(cg_tid_t tid) {
     iu_set_t required = getRequired();
 
     llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
-    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_tuple_wrapper", funcTy) );
-    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_tuple_wrapper);
+    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_entry", funcTy) );
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
     llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_ptr8_t::fromRawPointer(alias), _codeGen.getCurrentFunctionGen().getArg(1)});
-
-    cg_voidptr_t tuplePtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+    cg_voidptr_t resultPtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+    cg_bool_t ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));
 
     size_t i = 0;
     for (auto iu : required) {
@@ -154,22 +155,28 @@ void TableScan::produce(cg_tid_t tid) {
 
             ci_p_t ci = std::get<0>(column);
 
-            // calculate the SQL value pointer
-/*#ifdef __APPLE__
-            llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ull), tid });
+            IfGen check( _codeGen.getCurrentFunctionGen(), ptrIsNotNull, {{"elemPtr", cg_int_t(0)}} );
+            {
+                llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
+                llvm::Type * tuplePtrTy = llvm::PointerType::getUnqual(tupleTy);
+                llvm::Value * tuplePtr = _codeGen->CreatePointerCast(resultPtr, tuplePtrTy);
+
+                cg_size_t index_gen = cg_size_t(std::get<3>(column));
+                llvm::Value * valuePtr = _codeGen->CreateStructGEP(tupleTy, tuplePtr, std::get<3>(column));
+                check.setVar(0, valuePtr);
+            }
+            check.Else();
+            {
+#ifdef __APPLE__
+                llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ull), tid });
 #else
-            llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
-#endif*/
-
-            llvm::FunctionType * funcGetValuePtrTy = llvm::TypeBuilder<void* (size_t, void *), false>::get(_codeGen.getLLVMContext());
-            cg_size_t index_gen = cg_size_t(std::get<3>(column));
-            llvm::Function * funcGetValuePtr = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getValuePointer", funcGetValuePtrTy) );
-            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcGetValuePtr,(void *)&getValuePointer);
-            llvm::CallInst * resultGetValuePtr = _codeGen->CreateCall(funcGetValuePtr, {index_gen, tuplePtr});
-            cg_voidptr_t value_ptr = cg_voidptr_t( llvm::cast<llvm::Value>(resultGetValuePtr) );
-
-            llvm::Value * elemPtr = _codeGen->CreatePointerCast(value_ptr,llvm::PointerType::getUnqual(toLLVMTy(ci->type)));
-
+                llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
+#endif
+                check.setVar(0, elemPtr);
+            }
+            check.EndIf();
+            llvm::Value *elemPtr(check.getResult(0));
+            // calculate the SQL value pointer
 
             if (ci->type.nullable) {
                 assert(ci->nullIndicatorType == ColumnInformation::NullIndicatorType::Column);
@@ -189,12 +196,6 @@ void TableScan::produce(cg_tid_t tid) {
             i += 1;
         }
     }
-
-    // Free memory of Tuple Pointer
-    llvm::FunctionType * funcFreeTy = llvm::TypeBuilder<void (void *), false>::get(_codeGen.getLLVMContext());
-    llvm::Function * funcFree = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("delete", funcFreeTy) );
-    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcFree,(void *)&freeTupleCall);
-    _codeGen->CreateCall(funcFree, {tuplePtr});
 
     iu_value_mapping_t returnValues;
     for (auto& mapping : values) {
