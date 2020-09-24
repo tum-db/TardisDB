@@ -33,10 +33,17 @@ namespace wikiparser {
         Content(size_t textid, std::string text) : textid(textid) , text(text) {}
     };
 
+    struct User {
+        size_t id;
+        std::string name;
+
+        User(size_t id, std::string name) : id(id) , name(name) {}
+    };
+
     class WikiParser : public xmlpp::SaxParser
     {
     public:
-        WikiParser(std::function<void(Page,std::vector<Revision>,std::vector<Content>)> &insertCallback);
+        WikiParser(std::function<void(Page,std::vector<Revision>,std::vector<Content>,std::vector<User>)> &insertCallback);
         ~WikiParser() override;
 
     protected:
@@ -61,6 +68,11 @@ namespace wikiparser {
             PageTitle,
             PageEnd,
 
+            ContibutorStart,
+            UserId,
+            UserName,
+            ContributorEnd,
+
             RevisionStart,
             RevisionID,
             RevisionParent,
@@ -73,7 +85,7 @@ namespace wikiparser {
 
         State state = State::Init;
 
-        std::function<void(Page,std::vector<Revision>,std::vector<Content>)> &insertCallback;
+        std::function<void(Page,std::vector<Revision>,std::vector<Content>,std::vector<User>)> &insertCallback;
 
         size_t pageId = 0;
         std::string pageTitle = "";
@@ -81,9 +93,12 @@ namespace wikiparser {
         size_t revisionParentId = 0;
         size_t textID = 0;
         std::string contenttext = "";
+        size_t userID;
+        std::string userName = "";
 
         std::vector<Revision> revisions;
         std::vector<Content> contents;
+        std::vector<User> users;
     };
 }
 

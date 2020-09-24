@@ -247,7 +247,7 @@ class Text : public Value {
 public:
     using value_type = std::array<uintptr_t, 2>;
     using string_ref_t = std::pair<size_t, const uint8_t *>;
-    value_type value;
+    value_type value = {0,0};
 
     explicit Text();
 

@@ -13,6 +13,7 @@
 #include "codegen/PhiNode.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
+#include "foundations/StringPool.hpp"
 #include "sql/SqlType.hpp"
 #include "utils/general.hpp"
 #include "utils/llvm.hpp"
@@ -101,6 +102,8 @@ value_op_t Value::castString(const std::string & str, SqlType type)
             return Date::castString(str);
         case SqlType::TypeID::TimestampID:
             return Timestamp::castString(str);
+        case SqlType::TypeID::TextID:
+            return Text::castString(str, type);
         default:
             unreachable();
     }
@@ -127,6 +130,8 @@ value_op_t Value::castString(cg_ptr8_t str, cg_size_t length, SqlType type)
             return Date::castString(str, length);
         case SqlType::TypeID::TimestampID:
             return Timestamp::castString(str, length);
+        case SqlType::TypeID::TextID:
+            return Text::castString(str, length, type);
         default:
             unreachable();
     }
@@ -162,6 +167,9 @@ value_op_t Value::fromRawValues(const std::vector<llvm::Value *> & values, SqlTy
             break;
         case SqlType::TypeID::TimestampID:
             sqlValue = Timestamp::fromRawValues(values);
+            break;
+        case SqlType::TypeID::TextID:
+            sqlValue = Text::fromRawValues(values, notNullType);
             break;
         default:
             unreachable();
@@ -203,6 +211,8 @@ value_op_t Value::load(llvm::Value * ptr, SqlType type)
             return Date::load(ptr);
         case SqlType::TypeID::TimestampID:
             return Timestamp::load(ptr);
+        case SqlType::TypeID::TextID:
+            return Text::load(ptr, type);
         default:
             unreachable();
     }
@@ -820,6 +830,258 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 {
     throw NotImplementedException("Char::compare");
 }
+
+//-----------------------------------------------------------------------------
+// Text
+
+    /*Text::Text(SqlType type, llvm::Value * value, llvm::Value * length) :
+            BasicString(type, value, length)
+    {
+
+    }*/
+
+    Text::Text(llvm::Value * value) :
+            BasicString(getTextTy(), value, getThreadLocalCodeGen()->getInt8(16))
+    {
+
+    }
+
+    Text::Text(SqlType type, llvm::Value * value) :
+            BasicString(type, value, getThreadLocalCodeGen()->getInt8(16))
+    {
+        assert(type.typeID == SqlType::TypeID::TextID && !type.nullable);
+    }
+
+    value_op_t Text::clone() const
+    {
+        return value_op_t( new Text(type, _llvmValue) );
+    }
+
+    void storeText(char *dest, uint8_t * beginPtr, size_t len) {
+        if (len > 15) {
+            uint8_t * endPtr = beginPtr+len;
+
+            uintptr_t first_value = reinterpret_cast<uintptr_t>(beginPtr);
+            first_value ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
+
+            memcpy(dest,(char*)&first_value,8);
+            memcpy(dest + 8, &endPtr, 8);
+        } else {
+            dest[0] = (char) len;
+            memcpy(&dest[1],beginPtr,len);
+            free(beginPtr);
+        }
+    }
+
+    void storeTextGen(char *dest, const uint8_t * bytes, size_t len) {
+        if (len > 15) {
+            std::unique_ptr<uint8_t[]> data(new uint8_t[len]);
+            std::memcpy(data.get(), bytes, len);
+            auto & storedStr = StringPool::instance().put(sql_string_t(len, std::move(data)));
+            uint8_t * beginPtr = storedStr.second.get();
+            uint8_t * endPtr = beginPtr+len;
+
+            uintptr_t first_value = reinterpret_cast<uintptr_t>(beginPtr);
+            first_value ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
+
+            memcpy(dest,(char*)&first_value,8);
+            memcpy(dest + 8, &endPtr, 8);
+        } else {
+            dest[0] = (char) len;
+            memcpy(&dest[1],bytes,len);
+        }
+    }
+
+    void* textBegin(char *stringPtr) {
+        uint8_t len = stringPtr[0];
+        if (len > 15) {
+            uintptr_t *uintptr = reinterpret_cast<uintptr_t *>(stringPtr);
+            return (void*) uintptr[0];
+        }
+
+        return (void*) &stringPtr[1];
+    }
+
+    uint64_t getLengthText(char *stringPtr) {
+        uint8_t len = stringPtr[0];
+        if (len > 15) {
+            uintptr_t *uintptr = reinterpret_cast<uintptr_t *>(stringPtr);
+            uintptr_t first_value = uintptr[0];
+            uintptr_t second_value = uintptr[1];
+
+            len = second_value - first_value;
+        }
+
+        return len;
+    }
+
+    value_op_t Text::castString(const std::string & str, SqlType type)
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+        //llvm::Value * strValue = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+
+
+        size_t len = str.size();
+        uint8_t* data = new uint8_t[len];
+        std::memcpy(data, str.c_str(), len);
+
+        uint8_t * beginPtr;
+        if (len > 15) {
+            std::unique_ptr<uint8_t[]> dataPtr(data);
+            auto & storedStr = StringPool::instance().put(sql_string_t(len, std::move(dataPtr)));
+            beginPtr = storedStr.second.get();
+        } else {
+            beginPtr = data;
+        }
+
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("storeText", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeText);
+        codeGen->CreateCall(func, { arrayPtr, cg_ptr8_t::fromRawPointer(beginPtr) , cg_u64_t(len) });
+
+        return value_op_t( new Text(type, arrayPtr) );
+    }
+
+    value_op_t Text::castString(cg_ptr8_t str, cg_size_t length, SqlType type)
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+        //llvm::Value * strValue = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("storeTextGen", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeTextGen);
+        codeGen->CreateCall(func, { arrayPtr, str , length});
+
+        return value_op_t( new Text(type, arrayPtr) );
+    }
+
+    value_op_t Text::fromRawValues(const std::vector<llvm::Value *> & values, SqlType type)
+    {
+        return value_op_t(new Text(values.front()));
+    }
+
+    value_op_t Text::load(llvm::Value * ptr, SqlType type)
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+
+        //llvm::Type * llvmType = toLLVMTy(type);
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+
+        //llvm::Value * begin = codeGen->CreateStructGEP(llvmType, ptr, 0);
+        //llvm::Value * strPtr = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
+        codeGen->CreateMemCpy(arrayPtr, 0, ptr, 0, 16);
+
+        /*llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
+        llvm::CallInst * result = codeGen->CreateCall(func, { strPtr });
+        cg_u64_t length = cg_u64_t( llvm::cast<llvm::Value>(result) );*/
+
+        return value_op_t( new Text(type, arrayPtr) );
+    }
+
+    void Text::store(llvm::Value * ptr) const
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+
+        llvm::Type * valueTy = getLLVMType();
+
+        // store the Char's data
+        //llvm::Value * strPtr = codeGen->CreateStructGEP(valueTy, ptr, 0);
+#if LLVM_VERSION_MAJOR < 7
+        codeGen->CreateMemCpy(strPtr, _llvmValue, _length, 0);
+#else
+        /* CallInst * CreateMemCpy (
+            Value *Dst, unsigned DstAlign,
+            Value *Src, unsigned SrcAlign,
+            Value *Size,
+            bool isVolatile=false,
+            MDNode *TBAATag=nullptr,
+            MDNode *TBAAStructTag=nullptr,
+            MDNode *ScopeTag=nullptr,
+            MDNode *NoAliasTag=nullptr)
+        */
+
+        //strValue = codeGen->CreateLoad(charTy, ptr);
+
+        codeGen->CreateMemCpy(ptr, 0, _llvmValue, 0, 16);
+#endif
+    }
+
+    cg_hash_t Text::hash() const
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
+        llvm::CallInst * result = codeGen->CreateCall(func, { _llvmValue });
+        cg_u64_t length = cg_u64_t( llvm::cast<llvm::Value>(result) );
+
+        llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * funcBegin = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("textBegin", funcTyBegin) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
+        llvm::CallInst * resultBegin = codeGen->CreateCall(funcBegin, { _llvmValue });
+        cg_voidptr_t begin = cg_voidptr_t( llvm::cast<llvm::Value>(resultBegin) );
+
+        return genStringHash(codeGen, begin, length);
+    }
+
+    void Text::accept(ValueVisitor & visitor)
+    {
+        visitor.visit(*this);
+    }
+
+    cg_bool_t Text::equals(const Value & other) const
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+
+        if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+            return cg_bool_t(false);
+        }
+
+        if (isNullable(other)) {
+            return other.equals(*this);
+        }
+
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
+
+        llvm::CallInst * _otherLength = codeGen->CreateCall(func, { static_cast<const Text &>(other).getLLVMValue() });
+        cg_u64_t otherlength = cg_u64_t( llvm::cast<llvm::Value>(_otherLength) );
+        llvm::CallInst * _thisLength = codeGen->CreateCall(func, { _llvmValue });
+        cg_u64_t thisLength = cg_u64_t( llvm::cast<llvm::Value>(_thisLength) );
+
+        cg_bool_t isLengthEqual = otherlength == thisLength;
+
+        llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * funcBegin = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("textBegin", funcTyBegin) );
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
+
+        IfGen check( codeGen.getCurrentFunctionGen(), isLengthEqual, {{"isEqual", cg_bool_t(true)}} );
+        {
+            llvm::CallInst * _otherBegin = codeGen->CreateCall(funcBegin, { static_cast<const Text &>(other).getLLVMValue() });
+            cg_voidptr_t otherBegin = cg_voidptr_t( llvm::cast<llvm::Value>(_otherBegin) );
+            llvm::CallInst * _thisBegin = codeGen->CreateCall(funcBegin, { _llvmValue });
+            cg_voidptr_t thisBegin = cg_voidptr_t( llvm::cast<llvm::Value>(_thisBegin) );
+            cg_int_t compareResult = Functions::genMemcmpCall(otherBegin,thisBegin,thisLength);
+
+            check.setVar(0, cg_bool_t(compareResult == cg_int_t(0)));
+        }
+        check.EndIf();
+        cg_bool_t result(check.getResult(0));
+        cg_bool_t _result = isLengthEqual && result;
+
+        return _result;
+    }
+
+    cg_bool_t Text::compare(const Value & other, ComparisonMode mode) const
+    {
+        throw NotImplementedException("Text::compare");
+    }
 
 //-----------------------------------------------------------------------------
 // Varchar

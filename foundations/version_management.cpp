@@ -259,6 +259,28 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
     }
 }
 
+const void *get_latest_entry(tid_t tid, Table & table, std::string *binding, QueryContext & ctx) {
+    if (binding != nullptr) {
+        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
+    }
+    ctx.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
+
+    if (ctx.executionContext.branchId == master_branch_id) {
+        return nullptr;
+    }
+
+    const auto version_entry = get_version_entry(tid, table);
+    const void * element = get_latest_chain_element(version_entry, table, ctx);
+    if (element == nullptr) {
+        throw std::runtime_error("no such tuple in the given branch");
+    } else if (element == version_entry) {
+        return nullptr;
+    } else {
+        const auto storage = static_cast<const VersionedTupleStorage *>(element);
+        return get_tuple_ptr(storage);
+    }
+}
+
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string *binding, tid_t tid, Table & table, QueryContext & ctx) {
     if (binding != nullptr) {
         ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];

@@ -444,3 +444,20 @@ void printTimestamp(uint64_t raw)
       printf("%04u-%02u-%02u %u:%02u:%02u.%03u",year,month,day,hour,minute,second,ms); else
       printf("%04u-%02u-%02u %u:%02u:%02u",year,month,day,hour,minute,second);
 }
+
+void printText(uintptr_t *raw)
+{
+    uintptr_t startPointer = raw[0];
+
+    if (0 == (startPointer >> (8*sizeof(uintptr_t)-1))) {
+        const uint8_t * data = reinterpret_cast<const uint8_t *>(raw);
+        size_t len = data[0];
+        printf("%.*s",len,&data[1]);
+    } else {
+        startPointer ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
+        uintptr_t endPointer = raw[1];
+        size_t len = endPointer - startPointer;
+        printf("%.*s",len,startPointer);
+    }
+
+}
