@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 set(LIBXML_AVAILABLE false)
 set(ENABLE_PERFBENCHMARKING false)
+set(USE_DATA_VERSIONING true)
 
 ### set up boost
 if(APPLE)
@@ -142,6 +143,9 @@ add_library(dblib ${DB_LIB_SOURCE_FILES})
 if(TUPLE_STREAM_REQUIRED)
 	target_compile_definitions(dblib PUBLIC -D TUPLE_STREAM_REQUIRED=true)
 endif(TUPLE_STREAM_REQUIRED)
+if(USE_DATA_VERSIONING)
+	target_compile_definitions(dblib PUBLIC -D USE_DATA_VERSIONING=true)
+endif(USE_DATA_VERSIONING)
 target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
 
 ### main application
