@@ -13,13 +13,13 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/TargetSelect.h>
+#include <foundations/StringPool.hpp>
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include "foundations/version_management.hpp"
-#include "foundations/loader.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
@@ -52,6 +52,7 @@ static bool ValidateDistribution(const char *flagname, const std::string &value)
 
 DEFINE_validator(l, &ValidateDatabase);
 
+#if USE_DATA_VERSIONING
 void loadWikiDb(Database *db, int lowerBound, int upperBound)
 {
     uint64_t loadDuration = 0;
@@ -398,7 +399,191 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     std::cout << "LoadDuration:\t" << std::fixed << loadDuration / 1000 << std::endl;
 }
 
-void loadWikiDbUnversionized(Database *db, int lowerBound, int upperBound)
+#else
+
+void storeTextGen(char *dest, const uint8_t * bytes, size_t len) {
+    if (len > 15) {
+        std::unique_ptr<uint8_t[]> data(new uint8_t[len]);
+        std::memcpy(data.get(), bytes, len);
+        auto & storedStr = StringPool::instance().put(sql_string_t(len, std::move(data)));
+        uint8_t * beginPtr = storedStr.second.get();
+        uint8_t * endPtr = beginPtr+len;
+
+        uintptr_t first_value = reinterpret_cast<uintptr_t>(beginPtr);
+        first_value ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
+
+        memcpy(dest,(char*)&first_value,8);
+        memcpy(dest + 8, &endPtr, 8);
+    } else {
+        dest[0] = (char) len;
+        memcpy(&dest[1],bytes,len);
+    }
+}
+
+void genLoadTextCall(cg_ptr8_t dest, cg_ptr8_t str, cg_size_t strLen)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (const char *, const char*, size_t), false>::get(context);
+    llvm::CallInst * result = codeGen.CreateCall(&storeTextGen, funcTy, {dest, str, strLen});
+}
+
+void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+
+    // this is fine for both types of null indicators
+    // - there is no space within the Vector in the case of an external null indicator (see NullIndicatorTable)
+    // - it wont matter for internal null indicators
+    Sql::SqlType notNullableType = toNotNullableTy(type);
+
+    // parse value
+    Sql::value_op_t value;
+    if (type.typeID == Sql::SqlType::TypeID::TextID) {
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+
+        genLoadTextCall(arrayPtr,str,length);
+
+        value = Sql::value_op_t( new Sql::Text(type, arrayPtr) );
+    } else {
+        value = Sql::Value::castString(str, length, notNullableType);
+    }
+
+    cg_voidptr_t destPtr = genVectoBackCall(cg_voidptr_t::fromRawPointer(&column));
+
+    // cast destination pointer
+    llvm::Type * sqlValuePtrTy = llvm::PointerType::getUnqual(toLLVMTy(notNullableType));
+    llvm::Value * sqlValuePtr = codeGen->CreatePointerCast(destPtr.getValue(), sqlValuePtrTy);
+
+    value->store(sqlValuePtr);
+}
+
+struct RowItem {
+    size_t length;
+    const char * str;
+};
+
+static llvm::Type * getRowItemTy()
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+
+    std::vector<llvm::Type *> members(2);
+
+    // RowItem struct members:
+    members[0] = cg_size_t::getType();
+    members[1] = cg_ptr8_t::getType();
+
+    llvm::StructType * rowItemTy = llvm::StructType::get(context, false);
+    rowItemTy->setBody(members);
+
+    return rowItemTy;
+}
+
+static inline llvm::Type * getRowTy(size_t columnCount, llvm::Type * rowItemTy)
+{
+    llvm::Type * rowTy = llvm::ArrayType::get(rowItemTy, columnCount);
+    return rowTy;
+}
+
+llvm::Function * genLoadRowFunction(Table *table)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    // prototype: loadRow(RowItem items[])
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *), false>::get(context);
+    FunctionGen funcGen(moduleGen, "loadRow", funcTy);
+
+    llvm::Type * rowItemTy = getRowItemTy();
+    // get types
+    llvm::Type * rowTy = getRowTy(table->getColumnCount(), rowItemTy);
+
+    // cast row pointer
+    llvm::Value * rawPtr = funcGen.getArg(0);
+    llvm::Value * rowPtr = codeGen->CreateBitCast(rawPtr, llvm::PointerType::getUnqual(rowTy));
+
+    // load each value within the row
+    size_t i = 0;
+    for (const std::string & column : table->getColumnNames()) {
+        ci_p_t ci = table->getCI(column);
+
+#ifdef __APPLE__
+        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ull), cg_size_t(i) });
+#else
+        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ul), cg_size_t(i) });
+#endif
+
+        llvm::Value * lengthPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 0);
+        llvm::Value * strPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 1);
+
+        llvm::Value * length = codeGen->CreateLoad(lengthPtr);
+        llvm::Value * str = codeGen->CreateLoad(strPtr);
+
+        genLoadValue(cg_ptr8_t(str), cg_size_t(length), ci->type, *ci->column);
+
+        i += 1;
+    }
+
+    return funcGen.getFunction();
+}
+
+typedef void (* FunPtr)(void *);
+
+void loadTable(std::istream & stream, Table* table, int tableType)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    llvm::Function * loadFun = genLoadRowFunction(table);
+
+    // compile
+    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
+    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
+    ee->finalizeObject();
+
+    // lookup compiled function
+    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
+
+    // Branch ID generator
+    std::default_random_engine generator;
+
+    size_t tid = 0;
+
+    // load each row
+    std::string rowStr;
+    std::vector<RowItem> row(table->getColumnCount());
+    while (std::getline(stream, rowStr)) {
+        table->addRow(0);
+
+        std::vector<std::string> items = split(rowStr, '|');
+        assert(row.size() == items.size());
+
+        if (tableType == 1) {
+            items[3] = std::to_string(tid);
+        }
+        if (tableType == 2) {
+            items[0] = std::to_string(tid);
+        }
+
+        size_t i = 0;
+        for (const std::string & itemStr : items) {
+            RowItem & item = row[i];
+            item.length = itemStr.size();
+            item.str = itemStr.c_str();
+            i += 1;
+        }
+
+        // load row
+        f(row.data());
+
+        tid++;
+    }
+}
+
+void loadWikiDb(Database *db, int lowerBound, int upperBound)
 {
     std::stringstream ssRange;
     ssRange << "_";
@@ -422,7 +607,7 @@ void loadWikiDbUnversionized(Database *db, int lowerBound, int upperBound)
         Table *item = db->getTable("user");
         std::ifstream fs(userFileName);
         if (!fs) { throw std::runtime_error("file not found: tables/user.tbl"); }
-        loadTable(fs, *item);
+        loadTable(fs, item,0);
         fs.close();
     }
     {
@@ -430,7 +615,7 @@ void loadWikiDbUnversionized(Database *db, int lowerBound, int upperBound)
         Table *item = db->getTable("page");
         std::ifstream fs(pageFileName);
         if (!fs) { throw std::runtime_error("file not found: tables/page.tbl"); }
-        loadTable(fs, *item);
+        loadTable(fs, item,0);
         fs.close();
     }
     {
@@ -438,7 +623,7 @@ void loadWikiDbUnversionized(Database *db, int lowerBound, int upperBound)
         Table *item = db->getTable("content");
         std::ifstream fs(contentFileName);
         if (!fs) { throw std::runtime_error("file not found: tables/content.tbl"); }
-        loadTable(fs, *item);
+        loadTable(fs, item,2);
         fs.close();
     }
     {
@@ -446,7 +631,7 @@ void loadWikiDbUnversionized(Database *db, int lowerBound, int upperBound)
         Table *item = db->getTable("revision");
         std::ifstream fs(revisionFileName);
         if (!fs) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-        loadTable(fs, *item);
+        loadTable(fs, item,1);
         fs.close();
     }
 
@@ -456,6 +641,8 @@ void loadWikiDbUnversionized(Database *db, int lowerBound, int upperBound)
     std::cout << "Revision:\t" << db->getTable("revision")->size() << "\n";
     std::cout << "Content:\t" << db->getTable("content")->size() << "\n";
 }
+
+#endif
 
 void benchmarkQuery(std::string query, Database &db, unsigned runs) {
     std::vector<QueryCompiler::BenchmarkResult> results;

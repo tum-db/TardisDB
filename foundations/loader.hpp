@@ -13,5 +13,3 @@ std::unique_ptr<Database> loadUniDb();
 
 /// \brief Load everything provided by stream into the given table
 void loadTable(std::istream & stream, Table & table);
-
-llvm::Function * genLoadRowFunction(Table & table);

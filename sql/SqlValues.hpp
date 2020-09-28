@@ -304,9 +304,10 @@ public:
 
     cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
 
+    Text(SqlType type, llvm::Value * value);
 protected:
     //Text(SqlType type, llvm::Value * value, llvm::Value * length);
-    Text(SqlType type, llvm::Value * value);
+    //Text(SqlType type, llvm::Value * value);
     Text(llvm::Value * value);
 };
 
