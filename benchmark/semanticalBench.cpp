@@ -19,6 +19,7 @@
 #include "queryExecutor/queryExecutor.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include "foundations/version_management.hpp"
+#include "foundations/loader.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "utils/general.hpp"
@@ -50,282 +51,6 @@ static bool ValidateDistribution(const char *flagname, const std::string &value)
 }
 
 DEFINE_validator(l, &ValidateDatabase);
-
-void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-
-    // this is fine for both types of null indicators
-    // - there is no space within the Vector in the case of an external null indicator (see NullIndicatorTable)
-    // - it wont matter for internal null indicators
-    Sql::SqlType notNullableType = toNotNullableTy(type);
-
-    // parse value
-    Sql::value_op_t value = Sql::Value::castString(str, length, notNullableType);
-    cg_voidptr_t destPtr = genVectoBackCall(cg_voidptr_t::fromRawPointer(&column));
-
-    // cast destination pointer
-    llvm::Type * sqlValuePtrTy = llvm::PointerType::getUnqual(toLLVMTy(notNullableType));
-    llvm::Value * sqlValuePtr = codeGen->CreatePointerCast(destPtr.getValue(), sqlValuePtrTy);
-
-    value->store(sqlValuePtr);
-}
-
-struct RowItem {
-    size_t length;
-    const char * str;
-};
-
-static llvm::Type * getRowItemTy()
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & context = codeGen.getLLVMContext();
-
-    std::vector<llvm::Type *> members(2);
-
-    // RowItem struct members:
-    members[0] = cg_size_t::getType();
-    members[1] = cg_ptr8_t::getType();
-
-    llvm::StructType * rowItemTy = llvm::StructType::get(context, false);
-    rowItemTy->setBody(members);
-
-    return rowItemTy;
-}
-
-static inline llvm::Type * getRowTy(size_t columnCount, llvm::Type * rowItemTy)
-{
-    llvm::Type * rowTy = llvm::ArrayType::get(rowItemTy, columnCount);
-    return rowTy;
-}
-
-llvm::Function * genLoadRowFunction(Table *table)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & context = codeGen.getLLVMContext();
-    auto & moduleGen = codeGen.getCurrentModuleGen();
-
-    std::set<uint32_t> timestamp_columns = {};
-    int j = 0;
-    for (auto &columnName : table->getColumnNames()) {
-        if (table->getCI(columnName)->type.typeID == Sql::SqlType::TypeID::TimestampID) {
-            timestamp_columns.insert(j);
-        }
-        j++;
-    }
-    const char * sampleTimestamp = "20-07-09 13:56:24.0600";
-
-    // prototype: loadRow(RowItem items[])
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *), false>::get(context);
-    FunctionGen funcGen(moduleGen, "loadRow", funcTy);
-
-    // get types
-    llvm::Type * rowItemTy = getRowItemTy();
-    llvm::Type * rowTy = getRowTy(table->getColumnCount(), rowItemTy);
-
-    // cast row pointer
-    llvm::Value * rawPtr = funcGen.getArg(0);
-    llvm::Value * rowPtr = codeGen->CreateBitCast(rawPtr, llvm::PointerType::getUnqual(rowTy));
-
-    // load each value within the row
-    size_t i = 0;
-    for (const std::string & column : table->getColumnNames()) {
-        ci_p_t ci = table->getCI(column);
-#ifdef __APPLE__
-        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ull), cg_size_t(i) });
-#else
-        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ul), cg_size_t(i) });
-#endif
-
-        llvm::Value * lengthPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 0);
-        llvm::Value * strPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 1);
-
-        llvm::Value * length = codeGen->CreateLoad(lengthPtr);
-        llvm::Value * str = codeGen->CreateLoad(strPtr);
-
-        if (timestamp_columns.count(i) > 0) {
-            genLoadValue(cg_ptr8_t::fromRawPointer(sampleTimestamp), cg_size_t(22), ci->type, *ci->column);
-        } else {
-            genLoadValue(cg_ptr8_t(str), cg_size_t(length), ci->type, *ci->column);
-        }
-
-
-        i += 1;
-    }
-
-    return funcGen.getFunction();
-}
-
-typedef void (* FunPtr)(void *);
-
-void loadTable(std::istream & stream, Table* table, std::discrete_distribution<int> distribution)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & moduleGen = codeGen.getCurrentModuleGen();
-
-    llvm::Function * loadFun = genLoadRowFunction(table);
-
-    // compile
-    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
-    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
-    ee->finalizeObject();
-
-    // lookup compiled function
-    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
-
-    // Branch ID generator
-    std::default_random_engine generator;
-
-    // load each row
-    std::string rowStr;
-    std::vector<RowItem> row(table->getColumnCount());
-    while (std::getline(stream, rowStr)) {
-        int branchId = distribution(generator);
-
-        table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-        VersionEntry * version_entry = table->_version_mgmt_column.back().get();
-        version_entry->first = version_entry;
-        version_entry->next = nullptr;
-        version_entry->next_in_branch = nullptr;
-
-        // branch visibility
-        version_entry->branch_id = branchId;
-        version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
-        version_entry->branch_visibility.set(branchId);
-        version_entry->creation_ts = distribution.probabilities().size();
-
-        table->addRow(branchId);
-
-        std::vector<std::string> items = split(rowStr, '|');
-        assert(row.size() == items.size());
-
-        size_t i = 0;
-        for (const std::string & itemStr : items) {
-            RowItem & item = row[i];
-            item.length = itemStr.size();
-            item.str = itemStr.c_str();
-            i += 1;
-        }
-
-        // load row
-        f(row.data());
-    }
-}
-
-void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std::discrete_distribution<int> distribution, int groupByColumn)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & moduleGen = codeGen.getCurrentModuleGen();
-
-    llvm::Function * loadFun = genLoadRowFunction(table);
-
-    // compile
-    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
-    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
-    ee->finalizeObject();
-
-    // lookup compiled function
-    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
-
-    // Branch ID generator
-    std::default_random_engine generator;
-
-    std::vector<RowItem> row(table->getColumnCount());
-
-    // load each row
-    std::string rowStr;
-    std::string currentGroupItem = "";
-
-    std::vector<std::vector<std::string>> pageRows;
-    std::vector<int> branchMappings;
-    while (std::getline(stream, rowStr)) {
-        std::vector<std::string> items = split(rowStr, '|');
-
-        if (currentGroupItem.compare("") == 0) {
-            currentGroupItem = items[groupByColumn];
-            if (isDistributing) {
-                branchMappings.push_back(distribution(generator));
-            } else {
-                branchMappings.push_back(0);
-            }
-            pageRows.push_back(items);
-            continue;
-        }
-
-        if (currentGroupItem.compare(items[groupByColumn]) != 0) {
-            assert(pageRows.size() == branchMappings.size());
-            std::sort(branchMappings.begin(),branchMappings.end());
-            for (int j=0; j<pageRows.size(); j++) {
-                table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-                VersionEntry * version_entry = table->_version_mgmt_column.back().get();
-                version_entry->first = version_entry;
-                version_entry->next = nullptr;
-                version_entry->next_in_branch = nullptr;
-
-                // branch visibility
-                version_entry->branch_id = branchMappings[j];
-                version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
-                version_entry->branch_visibility.set(branchMappings[j]);
-                version_entry->creation_ts = distribution.probabilities().size();
-
-                table->addRow(branchMappings[j]);
-
-
-                assert(row.size() == pageRows[j].size());
-
-                size_t i = 0;
-                for (const std::string & itemStr : pageRows[j]) {
-                    RowItem & item = row[i];
-                    item.length = itemStr.size();
-                    item.str = itemStr.c_str();
-                    i += 1;
-                }
-                // load row
-                f(row.data());
-            }
-
-            currentGroupItem = items[groupByColumn];
-            branchMappings.clear();
-            pageRows.clear();
-        }
-
-        if (isDistributing) {
-            branchMappings.push_back(distribution(generator));
-        } else {
-            branchMappings.push_back(0);
-        }
-        pageRows.push_back(items);
-    }
-
-    assert(pageRows.size() == branchMappings.size());
-    for (int j=0; j<pageRows.size(); j++) {
-        table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-        VersionEntry * version_entry = table->_version_mgmt_column.back().get();
-        version_entry->first = version_entry;
-        version_entry->next = nullptr;
-        version_entry->next_in_branch = nullptr;
-
-        // branch visibility
-        version_entry->branch_id = branchMappings[j];
-        version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
-        version_entry->branch_visibility.set(branchMappings[j]);
-        version_entry->creation_ts = distribution.probabilities().size();
-
-        table->addRow(branchMappings[j]);
-
-        assert(row.size() == pageRows[j].size());
-
-        size_t i = 0;
-        for (const std::string & itemStr : pageRows[j]) {
-            RowItem & item = row[i];
-            item.length = itemStr.size();
-            item.str = itemStr.c_str();
-            i += 1;
-        }
-        // load row
-        f(row.data());
-    }
-}
 
 void loadWikiDb(Database *db, int lowerBound, int upperBound)
 {
@@ -673,6 +398,412 @@ void loadWikiDb(Database *db, int lowerBound, int upperBound)
     std::cout << "LoadDuration:\t" << std::fixed << loadDuration / 1000 << std::endl;
 }
 
+void loadWikiDbUnversionized(Database *db, int lowerBound, int upperBound)
+{
+    std::stringstream ssRange;
+    ssRange << "_";
+    ssRange << lowerBound;
+    ssRange << "_";
+    ssRange << upperBound;
+    std::string pageRangeStr = ssRange.str();
+
+    std::string pageFileName = "page" + pageRangeStr + ".tbl";
+    std::string revisionFileName = "revision" + pageRangeStr + ".tbl";
+    std::string contentFileName = "content" + pageRangeStr + ".tbl";
+    std::string userFileName = "user" + pageRangeStr + ".tbl";
+
+    QueryCompiler::compileAndExecute("CREATE TABLE user ( id INTEGER NOT NULL, name TEXT NOT NULL );",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title TEXT NOT NULL);",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL, userId INTEGER NOT NULL);",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text TEXT NOT NULL);",*db);
+
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("user");
+        std::ifstream fs(userFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/user.tbl"); }
+        loadTable(fs, *item);
+        fs.close();
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("page");
+        std::ifstream fs(pageFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/page.tbl"); }
+        loadTable(fs, *item);
+        fs.close();
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("content");
+        std::ifstream fs(contentFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/content.tbl"); }
+        loadTable(fs, *item);
+        fs.close();
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("revision");
+        std::ifstream fs(revisionFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/revision.tbl"); }
+        loadTable(fs, *item);
+        fs.close();
+    }
+
+    std::cout << "Table Sizes:\n";
+    std::cout << "User:\t" << db->getTable("user")->size() << "\n";
+    std::cout << "Page:\t" << db->getTable("page")->size() << "\n";
+    std::cout << "Revision:\t" << db->getTable("revision")->size() << "\n";
+    std::cout << "Content:\t" << db->getTable("content")->size() << "\n";
+}
+
+void benchmarkQuery(std::string query, Database &db, unsigned runs) {
+    std::vector<QueryCompiler::BenchmarkResult> results;
+
+#ifdef PERF_AVAILABLE
+    std::string header;
+    std::string data;
+    BenchmarkParameters params;
+
+    {
+        PerfEventBlock e(runs, params, false);
+#endif
+
+        for (int i = 0; i < runs; i++) {
+            results.push_back(QueryCompiler::compileAndBenchmark(query, db));
+        }
+
+#ifdef PERF_AVAILABLE
+    }
+#endif
+
+    double parsingTime = 0;
+    double analsingTime = 0;
+    double translationTime = 0;
+    double compileTime = 0;
+    double executionTime = 0;
+    for (auto &result : results) {
+        parsingTime += result.parsingTime;
+        analsingTime += result.analysingTime;
+        translationTime += result.translationTime;
+        compileTime += result.llvmCompilationTime;
+        executionTime += result.executionTime;
+    }
+    double sum = parsingTime + analsingTime + translationTime + compileTime + executionTime;
+    std::cout << std::fixed << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << (sum / runs) << std::endl;
+}
+
+void prompt(Database &database, unsigned runs)
+{
+    while (true) {
+        try {
+            fflush(stdout);
+
+            std::string input = readline();
+            if (input == "quit\n") {
+                break;
+            }
+
+            benchmarkQuery(input,database,runs);
+        } catch (const std::exception & e) {
+            fprintf(stderr, "Exception: %s\n", e.what());
+        }
+    }
+}
+
+int main(int argc, char * argv[]) {
+    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name>] [-d <Master Share>] [-r <Runs per Statement>]");
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+    llvm::InitializeNativeTargetAsmParser();
+
+    std::unique_ptr<Database> db = std::make_unique<Database>();
+
+    loadWikiDb(db.get(),FLAGS_lowerBound,FLAGS_upperBound);
+
+    prompt(*db,FLAGS_r);
+
+    llvm::llvm_shutdown();
+}
+
+/*void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+
+    // this is fine for both types of null indicators
+    // - there is no space within the Vector in the case of an external null indicator (see NullIndicatorTable)
+    // - it wont matter for internal null indicators
+    Sql::SqlType notNullableType = toNotNullableTy(type);
+
+    // parse value
+    Sql::value_op_t value = Sql::Value::castString(str, length, notNullableType);
+    cg_voidptr_t destPtr = genVectoBackCall(cg_voidptr_t::fromRawPointer(&column));
+
+    // cast destination pointer
+    llvm::Type * sqlValuePtrTy = llvm::PointerType::getUnqual(toLLVMTy(notNullableType));
+    llvm::Value * sqlValuePtr = codeGen->CreatePointerCast(destPtr.getValue(), sqlValuePtrTy);
+
+    value->store(sqlValuePtr);
+}
+
+struct RowItem {
+    size_t length;
+    const char * str;
+};
+
+static llvm::Type * getRowItemTy()
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+
+    std::vector<llvm::Type *> members(2);
+
+    // RowItem struct members:
+    members[0] = cg_size_t::getType();
+    members[1] = cg_ptr8_t::getType();
+
+    llvm::StructType * rowItemTy = llvm::StructType::get(context, false);
+    rowItemTy->setBody(members);
+
+    return rowItemTy;
+}
+
+static inline llvm::Type * getRowTy(size_t columnCount, llvm::Type * rowItemTy)
+{
+    llvm::Type * rowTy = llvm::ArrayType::get(rowItemTy, columnCount);
+    return rowTy;
+}
+
+llvm::Function * genLoadRowFunction(Table *table)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    std::set<uint32_t> timestamp_columns = {};
+    int j = 0;
+    for (auto &columnName : table->getColumnNames()) {
+        if (table->getCI(columnName)->type.typeID == Sql::SqlType::TypeID::TimestampID) {
+            timestamp_columns.insert(j);
+        }
+        j++;
+    }
+    const char * sampleTimestamp = "20-07-09 13:56:24.0600";
+
+    // prototype: loadRow(RowItem items[])
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *), false>::get(context);
+    FunctionGen funcGen(moduleGen, "loadRow", funcTy);
+
+    // get types
+    llvm::Type * rowItemTy = getRowItemTy();
+    llvm::Type * rowTy = getRowTy(table->getColumnCount(), rowItemTy);
+
+    // cast row pointer
+    llvm::Value * rawPtr = funcGen.getArg(0);
+    llvm::Value * rowPtr = codeGen->CreateBitCast(rawPtr, llvm::PointerType::getUnqual(rowTy));
+
+    // load each value within the row
+    size_t i = 0;
+    for (const std::string & column : table->getColumnNames()) {
+        ci_p_t ci = table->getCI(column);
+#ifdef __APPLE__
+        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ull), cg_size_t(i) });
+#else
+        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ul), cg_size_t(i) });
+#endif
+
+        llvm::Value * lengthPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 0);
+        llvm::Value * strPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 1);
+
+        llvm::Value * length = codeGen->CreateLoad(lengthPtr);
+        llvm::Value * str = codeGen->CreateLoad(strPtr);
+
+        if (timestamp_columns.count(i) > 0) {
+            genLoadValue(cg_ptr8_t::fromRawPointer(sampleTimestamp), cg_size_t(22), ci->type, *ci->column);
+        } else {
+            genLoadValue(cg_ptr8_t(str), cg_size_t(length), ci->type, *ci->column);
+        }
+
+
+        i += 1;
+    }
+
+    return funcGen.getFunction();
+}
+
+typedef void (* FunPtr)(void *);
+
+void loadTable(std::istream & stream, Table* table, std::discrete_distribution<int> distribution)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    llvm::Function * loadFun = genLoadRowFunction(table);
+
+    // compile
+    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
+    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
+    ee->finalizeObject();
+
+    // lookup compiled function
+    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
+
+    // Branch ID generator
+    std::default_random_engine generator;
+
+    // load each row
+    std::string rowStr;
+    std::vector<RowItem> row(table->getColumnCount());
+    while (std::getline(stream, rowStr)) {
+        int branchId = distribution(generator);
+
+        table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+        VersionEntry * version_entry = table->_version_mgmt_column.back().get();
+        version_entry->first = version_entry;
+        version_entry->next = nullptr;
+        version_entry->next_in_branch = nullptr;
+
+        // branch visibility
+        version_entry->branch_id = branchId;
+        version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
+        version_entry->branch_visibility.set(branchId);
+        version_entry->creation_ts = distribution.probabilities().size();
+
+        table->addRow(branchId);
+
+        std::vector<std::string> items = split(rowStr, '|');
+        assert(row.size() == items.size());
+
+        size_t i = 0;
+        for (const std::string & itemStr : items) {
+            RowItem & item = row[i];
+            item.length = itemStr.size();
+            item.str = itemStr.c_str();
+            i += 1;
+        }
+
+        // load row
+        f(row.data());
+    }
+}
+
+void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std::discrete_distribution<int> distribution, int groupByColumn)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    llvm::Function * loadFun = genLoadRowFunction(table);
+
+    // compile
+    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
+    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
+    ee->finalizeObject();
+
+    // lookup compiled function
+    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
+
+    // Branch ID generator
+    std::default_random_engine generator;
+
+    std::vector<RowItem> row(table->getColumnCount());
+
+    // load each row
+    std::string rowStr;
+    std::string currentGroupItem = "";
+
+    std::vector<std::vector<std::string>> pageRows;
+    std::vector<int> branchMappings;
+    while (std::getline(stream, rowStr)) {
+        std::vector<std::string> items = split(rowStr, '|');
+
+        if (currentGroupItem.compare("") == 0) {
+            currentGroupItem = items[groupByColumn];
+            if (isDistributing) {
+                branchMappings.push_back(distribution(generator));
+            } else {
+                branchMappings.push_back(0);
+            }
+            pageRows.push_back(items);
+            continue;
+        }
+
+        if (currentGroupItem.compare(items[groupByColumn]) != 0) {
+            assert(pageRows.size() == branchMappings.size());
+            std::sort(branchMappings.begin(),branchMappings.end());
+            for (int j=0; j<pageRows.size(); j++) {
+                table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+                VersionEntry * version_entry = table->_version_mgmt_column.back().get();
+                version_entry->first = version_entry;
+                version_entry->next = nullptr;
+                version_entry->next_in_branch = nullptr;
+
+                // branch visibility
+                version_entry->branch_id = branchMappings[j];
+                version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
+                version_entry->branch_visibility.set(branchMappings[j]);
+                version_entry->creation_ts = distribution.probabilities().size();
+
+                table->addRow(branchMappings[j]);
+
+
+                assert(row.size() == pageRows[j].size());
+
+                size_t i = 0;
+                for (const std::string & itemStr : pageRows[j]) {
+                    RowItem & item = row[i];
+                    item.length = itemStr.size();
+                    item.str = itemStr.c_str();
+                    i += 1;
+                }
+                // load row
+                f(row.data());
+            }
+
+            currentGroupItem = items[groupByColumn];
+            branchMappings.clear();
+            pageRows.clear();
+        }
+
+        if (isDistributing) {
+            branchMappings.push_back(distribution(generator));
+        } else {
+            branchMappings.push_back(0);
+        }
+        pageRows.push_back(items);
+    }
+
+    assert(pageRows.size() == branchMappings.size());
+    for (int j=0; j<pageRows.size(); j++) {
+        table->_version_mgmt_column.push_back(std::make_unique<VersionEntry>());
+        VersionEntry * version_entry = table->_version_mgmt_column.back().get();
+        version_entry->first = version_entry;
+        version_entry->next = nullptr;
+        version_entry->next_in_branch = nullptr;
+
+        // branch visibility
+        version_entry->branch_id = branchMappings[j];
+        version_entry->branch_visibility.resize(distribution.probabilities().size(), false);
+        version_entry->branch_visibility.set(branchMappings[j]);
+        version_entry->creation_ts = distribution.probabilities().size();
+
+        table->addRow(branchMappings[j]);
+
+        assert(row.size() == pageRows[j].size());
+
+        size_t i = 0;
+        for (const std::string & itemStr : pageRows[j]) {
+            RowItem & item = row[i];
+            item.length = itemStr.size();
+            item.str = itemStr.c_str();
+            i += 1;
+        }
+        // load row
+        f(row.data());
+    }
+}
+
 std::unique_ptr<Database> loadTPCC() {
     auto tpccDb = std::make_unique<Database>();
 
@@ -986,15 +1117,6 @@ std::unique_ptr<Database> generateWikiTBL() {
     {
         std::cerr << "libxml++ exception: " << ex.what() << std::endl;
     }
-    /*try {
-        wikiparser::WikiParser parser(pageCallback, revisionCallback, contentCallback);
-        parser.set_substitute_entities(false);
-        std::ifstream ifs ("enwiki-20200801-stub-meta-history1.xml", std::ifstream::in);
-        ifs.re
-        parser.parse_stream(ifs);
-    } catch (const xmlpp::exception& ex) {
-        std::cerr << "libxml++ exception: " << ex.what() << std::endl;
-    }*/
 
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << tpccDb->getTable("page")->size() << "\n";
@@ -1048,85 +1170,4 @@ std::unique_ptr<Database> loadWiki(std::discrete_distribution<int> &distribution
     std::cout << "Content:\t" << wikidb->getTable("content")->size() << "\n";
 
     return wikidb;
-}
-
-void benchmarkQuery(std::string query, Database &db, unsigned runs) {
-    std::vector<QueryCompiler::BenchmarkResult> results;
-
-#ifdef PERF_AVAILABLE
-    std::string header;
-    std::string data;
-    BenchmarkParameters params;
-
-    {
-        PerfEventBlock e(runs, params, false);
-#endif
-
-        for (int i = 0; i < runs; i++) {
-            results.push_back(QueryCompiler::compileAndBenchmark(query, db));
-        }
-
-#ifdef PERF_AVAILABLE
-    }
-#endif
-
-    double parsingTime = 0;
-    double analsingTime = 0;
-    double translationTime = 0;
-    double compileTime = 0;
-    double executionTime = 0;
-    for (auto &result : results) {
-        parsingTime += result.parsingTime;
-        analsingTime += result.analysingTime;
-        translationTime += result.translationTime;
-        compileTime += result.llvmCompilationTime;
-        executionTime += result.executionTime;
-    }
-    double sum = parsingTime + analsingTime + translationTime + compileTime + executionTime;
-    //std::cout << "Parsing time , Analysing time , Translation time , Compile time , Execution time , Sum" << std::endl;
-    std::cout << std::fixed << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << (sum / runs) << std::endl;
-}
-
-void prompt(Database &database, unsigned runs)
-{
-    while (true) {
-        try {
-            fflush(stdout);
-
-            std::string input = readline();
-            if (input == "quit\n") {
-                break;
-            }
-
-            benchmarkQuery(input,database,runs);
-        } catch (const std::exception & e) {
-            fprintf(stderr, "Exception: %s\n", e.what());
-        }
-    }
-}
-
-int main(int argc, char * argv[]) {
-    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name>] [-d <Master Share>] [-r <Runs per Statement>]");
-    gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-    llvm::InitializeNativeTarget();
-    llvm::InitializeNativeTargetAsmPrinter();
-    llvm::InitializeNativeTargetAsmParser();
-
-    std::array<double,2> _distribution;
-    _distribution[0] = FLAGS_d;
-    _distribution[1] = 1 - _distribution[0];
-    std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
-
-    std::unique_ptr<Database> db = std::make_unique<Database>();
-
-    loadWikiDb(db.get(),FLAGS_lowerBound,FLAGS_upperBound);
-
-
-    //QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
-    //QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
-
-    prompt(*db,FLAGS_r);
-
-    llvm::llvm_shutdown();
-}
+}*/
