@@ -11,8 +11,6 @@
 #include "foundations/version_management.hpp"
 #include "sql/ValueTranslator.hpp"
 
-#define Versioning
-
 using namespace Sql;
 
 namespace Algebra {
@@ -90,7 +88,7 @@ namespace Algebra {
             }
 
 
-#ifdef Versioning
+#if USE_DATA_VERSIONING
             // Collect all values needed for the row tuple in correct order
             std::vector<Sql::Value*> tupleValues;
             std::sort(columns.begin(), columns.end(), sortColumns);

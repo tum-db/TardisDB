@@ -23,6 +23,8 @@ public:
 
     void push_back(void * ptr);
 
+    void remove_at(size_type index);
+
     void * reserve_back();
 
     void pop_back();

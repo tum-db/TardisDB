@@ -71,12 +71,16 @@ void TableScan::produce()
     {
         LoopBodyGen bodyGen(scanLoop);
 
+#if USE_DATA_VERSIONING
         auto branchId = _context.executionContext.branchIds[*alias];
         IfGen visibilityCheck(isVisible(tid, branchId));
         {
             produce(tid, branchId);
         }
         visibilityCheck.EndIf();
+#else
+        produce(tid);
+#endif
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
@@ -86,7 +90,7 @@ void TableScan::produce()
 }
 
 
-
+#if USE_DATA_VERSIONING
 void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
     iu_value_mapping_t values;
 
@@ -156,6 +160,56 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
 
     _parent->consume(values, *this);
 }
+#else
+void TableScan::produce(cg_tid_t tid) {
+    iu_value_mapping_t values;
+
+    // get null indicator column data
+    auto & nullIndicatorTable = table.getNullIndicatorTable();
+    iu_set_t required = getRequired();
+
+
+    size_t i = 0;
+    for (auto iu : required) {
+        // the final value
+        value_op_t sqlValue;
+
+        if (iu->columnInformation->columnName.compare("tid") == 0) {
+            //Add tid to the produced values
+            llvm::Value *tidValue = tid.getValue();
+            tidSqlValue = std::make_unique<LongInteger>(tidValue);
+            values[iu] = tidSqlValue.get();
+        } else {
+            column_t & column = columns[i];
+
+            ci_p_t ci = std::get<0>(column);
+
+            llvm::Value *elemPtr = getMasterElemPtr(tid,column);
+
+            // calculate the SQL value pointer
+
+            if (ci->type.nullable) {
+                assert(ci->nullIndicatorType == ColumnInformation::NullIndicatorType::Column);
+                // load null indicator
+                cg_bool_t isNull = genNullIndicatorLoad(nullIndicatorTable, tid, cg_unsigned_t(ci->nullColumnIndex));
+                SqlType notNullableType = toNotNullableTy(ci->type);
+                auto loadedValue = Value::load(elemPtr, notNullableType);
+                std::get<4>(column) = NullableValue::create(std::move(loadedValue), isNull);
+            } else {
+                // load the SQL value
+                std::get<4>(column) = Value::load(elemPtr, ci->type);
+            }
+
+            // map the value to the according iu
+            values[iu] = std::get<4>(column).get();
+
+            i += 1;
+        }
+    }
+
+    _parent->consume(values, *this);
+}
+#endif
 
 llvm::Value *TableScan::getMasterElemPtr(cg_tid_t &tid, column_t &column) {
 #ifdef __APPLE__

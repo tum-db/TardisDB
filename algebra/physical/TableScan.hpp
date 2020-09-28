@@ -17,7 +17,11 @@ public:
 
     void produce() override;
 
+#if USE_DATA_VERSIONING
     void produce(cg_tid_t tid, branch_id_t branchId);
+#else
+    void produce(cg_tid_t tid);
+#endif
 
 private:
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, Sql::value_op_t>;
