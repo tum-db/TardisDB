@@ -149,7 +149,7 @@ generate_MD() {
     deleteTempFile=$(echo "./delete_temp.txt")
     rm $statementFile
     rm $unversionizedStatementFile
-    for i in {1..2}
+    for i in {1..100}
     do
         randomNumber=$(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));
         echo "DELETE FROM page WHERE id = $randomNumber ;" | cat >> $statementFile
