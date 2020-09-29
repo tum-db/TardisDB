@@ -27,6 +27,7 @@ generate_MS() {
         echo "SELECT text FROM revision r , content c, page p WHERE c.id = r.textId AND p.id = r.pageId AND r.pageId = $randomNumber;" | cat >> $unversionizedStatementFile
     done
     echo "quit" | cat >> $statementFile
+    echo "quit" | cat >> $unversionizedStatementFile
 }
 
 generate_B1S() {
@@ -61,6 +62,7 @@ generate_MM() {
         echo "SELECT name FROM revision r , content c, page p, user u WHERE u.id = r.userId AND c.id = r.textId AND p.id = r.pageId AND r.pageId = $randomNumber;" | cat >> $unversionizedStatementFile
     done
     echo "quit" | cat >> $statementFile
+    echo "quit" | cat >> $unversionizedStatementFile
 }
 
 generate_B1M() {
@@ -92,11 +94,12 @@ generate_MU() {
     do
         randomNumber=$(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));
         echo "UPDATE page SET content = 'Hello_World!' WHERE id = $randomNumber;" | cat >> $statementFile
-        echo "SELECT id FROM revision r WHERE r.pageId = $randomNumber" | cat >> $unversionizedStatementFile
+        echo "SELECT id FROM revision r WHERE r.pageId = $randomNumber ;" | cat >> $unversionizedStatementFile
         echo "INSERT INTO revision ( id , parentId , pageId , textId , userId ) VALUES ( 2 , 1 , $randomNumber , $(($randomNumber + 1)) , 1 );" | cat >> $unversionizedStatementFile
         echo "INSERT INTO content ( id , text ) VALUES ( $(($randomNumber + 1)) , 'Hello' );" | cat >> $unversionizedStatementFile
     done
     echo "quit" | cat >> $statementFile
+    echo "quit" | cat >> $unversionizedStatementFile
 }
 
 generate_B1U() {
@@ -131,6 +134,7 @@ generate_MI() {
         echo "INSERT INTO user ( id , name ) VALUES ( $randomNumber , 'John_Doe' );" | cat >> $unversionizedStatementFile
     done
     echo "quit" | cat >> $statementFile
+    echo "quit" | cat >> $unversionizedStatementFile
 }
 
 generate_BI() {
@@ -169,6 +173,7 @@ generate_MD() {
         done < "$deleteTempFile"
     done
     echo "quit" | cat >> $statementFile
+    echo "quit" | cat >> $unversionizedStatementFile
 }
 
 generate_B1D() {
