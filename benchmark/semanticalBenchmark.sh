@@ -197,10 +197,14 @@ STATEMENTS
 
 generate_MS() {
     statementFile=$(echo "./benchmarkStatements/ms_statements_$1_$2.txt")
+    unversionizedStatementFile=$(echo "./benchmarkStatements/ms_statements_unv_$1_$2.txt")
     rm $statementFile
+    rm $unversionizedStatementFile
     for i in {1..100}
     do
-        echo "SELECT content FROM page p WHERE p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+        randomNumber=$(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));
+        echo "SELECT content FROM page p WHERE p.id = $randomNumber;" | cat >> $statementFile
+        echo "SELECT text FROM revision r , content c, page p WHERE c.id = r.textId AND p.id = r.pageId AND r.pageId = $randomNumber;" | cat >> $unversionizedStatementFile
     done
     echo "quit" | cat >> $statementFile
 }
@@ -227,10 +231,14 @@ generate_B2S() {
 
 generate_MM() {
     statementFile=$(echo "./benchmarkStatements/mm_statements_$1_$2.txt")
+    unversionizedStatementFile=$(echo "./benchmarkStatements/mm_statements_unv_$1_$2.txt")
     rm $statementFile
+    rm $unversionizedStatementFile
     for i in {1..100}
     do
-        echo "SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+        randomNumber=$(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));
+        echo "SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = $randomNumber;" | cat >> $statementFile
+        echo "SELECT name FROM revision r , content c, page p, user u WHERE u.id = r.userId AND c.id = r.textId AND p.id = r.pageId AND r.pageId = $randomNumber;" | cat >> $unversionizedStatementFile
     done
     echo "quit" | cat >> $statementFile
 }
@@ -257,10 +265,22 @@ generate_B2M() {
 
 generate_MU() {
     statementFile=$(echo "./benchmarkStatements/mu_statements_$1_$2.txt")
+    unversionizedUpdateStatementFile=$(echo "./benchmarkStatements/mu_statements_unv_$1_$2.txt")
+    unversionizedDeleteStatementFile=$(echo "./benchmarkStatements/md_statements_unv_$1_$2.txt")
     rm $statementFile
+    rm $unversionizedUpdateStatementFile
+    rm $unversionizedDeleteStatementFile
     for i in {1..100}
     do
-        echo "UPDATE page SET content = 'Hello_World!' WHERE id = $(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));" | cat >> $statementFile
+        randomNumber=$(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));
+        echo "UPDATE page SET content = 'Hello_World!' WHERE id = $randomNumber;" | cat >> $statementFile
+        echo "SELECT id FROM revision r WHERE r.pageId = $randomNumber" | cat >> $unversionizedUpdateStatementFile
+        echo "INSERT INTO revision ( id , parentId , pageId , textId , userId ) VALUES ( 2 , 1 , $randomNumber , $(($randomNumber + 1)) , 1 );" | cat >> $unversionizedUpdateStatementFile
+        echo "INSERT INTO content ( id , text ) VALUES ( $(($randomNumber + 1)) , 'Hello' );" | cat >> $unversionizedUpdateStatementFile
+        echo "SELECT textId FROM revision r , content c WHERE r.textId = c.id AND r.pageId = $randomNumber;" | cat >> $unversionizedDeleteStatementFile
+        echo "DELETE FROM page WHERE id = $randomNumber;" | cat >> $unversionizedDeleteStatementFile
+        echo "DELETE FROM revision WHERE pageId = $randomNumber;" | cat >> $unversionizedDeleteStatementFile
+        echo "DELETE FROM content WHERE id = $(($randomNumber + 1));" | cat >> $unversionizedDeleteStatementFile
     done
     echo "quit" | cat >> $statementFile
 }
@@ -287,10 +307,14 @@ generate_B2U() {
 
 generate_MI() {
     statementFile=$(echo "./benchmarkStatements/mi_statements_$1_$2.txt")
+    unversionizedStatementFile=$(echo "./benchmarkStatements/mi_statements_unv_$1_$2.txt")
     rm $statementFile
+    rm $unversionizedStatementFile
     for i in {1..100}
     do
-        echo "INSERT INTO user ( id , name ) VALUES ( $(( ( RANDOM % ($2 - $1) ) + $1 + 1 )) , 'John_Doe' );" | cat >> $statementFile
+        randomNumber=$(( ( RANDOM % ($2 - $1) ) + $1 + 1 ));
+        echo "INSERT INTO user ( id , name ) VALUES ( $randomNumber , 'John_Doe' );" | cat >> $statementFile
+        echo "INSERT INTO user ( id , name ) VALUES ( $randomNumber , 'John_Doe' );" | cat >> $unversionizedStatementFile
     done
     echo "quit" | cat >> $statementFile
 }
