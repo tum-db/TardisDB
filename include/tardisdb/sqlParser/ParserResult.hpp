@@ -9,10 +9,52 @@
 #include <string>
 
 namespace tardisParser {
-    using Relation = std::pair<std::string, std::string>; // relationName and binding
+    struct ColumnSpec {
+        std::string name;
+        std::string type;
+        size_t length;
+        size_t precision;
+        bool nullable;
+    };
+    struct CreateTableStatement {
+        std::string tableName;
+        std::vector<ColumnSpec> columns;
+    };
+    struct CreateBranchStatement {
+        std::string branchName;
+        std::string parentBranchName;
+    };
+    struct Table {
+        std::string name;
+        std::string alias;
+        std::string version;
+    };
+    struct Column {
+        std::string name;
+        std::string table;
+    };
+    struct SelectStatement {
+        std::vector<Column> projections;
+        std::vector<Table> relations;
+        std::vector<std::pair<Column,Column>> joinConditions;
+        std::vector<std::pair<Column,std::string>> selections;
+    };
+    struct UpdateStatement {
+        Table relation;
+        std::vector<std::pair<Column,std::string>> updates;
+        std::vector<std::pair<Column,std::string>> selections;
+    };
+    struct InsertStatement {
+        Table relation;
+        std::vector<Column> columns;
+        std::vector<std::string> values;
+    };
+    struct DeleteStatement {
+        Table relation;
+        std::vector<std::pair<Column,std::string>> selections;
+    };
+
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
-    using AttributeName = std::string;
-    using Constant = std::string;
 
     struct SQLParserResult {
 
@@ -20,33 +62,36 @@ namespace tardisParser {
             Select, Insert, Update, Delete, CreateTable, CreateBranch
         } opType;
 
-        std::vector<std::string> versions;
+        CreateTableStatement *createTableStmt;
+        CreateBranchStatement *createBranchStmt;
+        InsertStatement *insertStmt;
+        SelectStatement *selectStmt;
+        UpdateStatement *updateStmt;
+        DeleteStatement *deleteStmt;
 
-        //SELECT
-        std::vector<Relation> relations;
-        std::vector<AttributeName> projections;
-        std::vector<std::pair<BindingAttribute, Constant>> selections;
-        std::vector<std::pair<BindingAttribute, BindingAttribute>> joinConditions;
-
-        //Modification
-        std::string relation;
-
-        //INSERT
-        std::vector<std::string> columnNames;
-        std::vector<std::string> values;
-
-        //UPDATE
-        std::vector<std::pair<std::string,std::string>> columnToValue;
-
-        //CREATE
-        std::vector<std::string> columnTypes;
-        std::vector<bool> nullable;
-        std::vector<uint32_t> length;
-        std::vector<uint32_t> precision;
-
-        //Checkout
-        std::string branchId;
-        std::string parentBranchId;
+        SQLParserResult() {}
+        ~SQLParserResult() {
+            switch (opType) {
+                case Select:
+                    delete selectStmt;
+                    break;
+                case Insert:
+                    delete insertStmt;
+                    break;
+                case Update:
+                    delete updateStmt;
+                    break;
+                case Delete:
+                    delete deleteStmt;
+                    break;
+                case CreateTable:
+                    delete createTableStmt;
+                    break;
+                case CreateBranch:
+                    delete createBranchStmt;
+                    break;
+            }
+        }
     };
 }
 
