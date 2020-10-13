@@ -39,20 +39,14 @@ benchmark_input() {
     declare -a ghz
     declare -a loadDuration
     declare -a pageSize
+    declare -a contentSize
+    declare -a revisionSize
     declare -a userSize
 
     # Retrieve metrics from file
     input="output.txt"
-    #lineCounter=0
-    #insertLimit=$6
     while IFS= read -r line
     do
-        # Skip all insert and update statements which are responsible for loading the data into storage
-        #((lineCounter=lineCounter+1))
-        #if [ $lineCounter -le $(($insertLimit)) ]; then
-        #      continue
-        #fi
-
         IFS=','
         read -ra METRICS <<< "$line"
         if [ "${#METRICS[@]}" = "1" ]; then
@@ -65,6 +59,16 @@ benchmark_input() {
             pageSizeCandidate=$(echo -e "$pageSizeCandidate" | tr -d '[:space:]')
             if [[ $pageSizeCandidate != "" ]]; then
                 pageSize=$(echo $pageSizeCandidate)
+            fi
+            contentSizeCandidate=$(echo ${METRICS[0]} | grep 'Content' | cut -f2 -d ":")
+            contentSizeCandidate=$(echo -e "$contentSizeCandidate" | tr -d '[:space:]')
+            if [[ $contentSizeCandidate != "" ]]; then
+                contentSize=$(echo $contentSizeCandidate)
+            fi
+            revisionSizeCandidate=$(echo ${METRICS[0]} | grep 'Revision' | cut -f2 -d ":")
+            revisionSizeCandidate=$(echo -e "$revisionSizeCandidate" | tr -d '[:space:]')
+            if [[ $revisionSizeCandidate != "" ]]; then
+                revisionSize=$(echo $revisionSizeCandidate)
             fi
             userSizeCandidate=$(echo ${METRICS[0]} | grep 'User' | cut -f2 -d ":")
             userSizeCandidate=$(echo -e "$userSizeCandidate" | tr -d '[:space:]')
@@ -134,17 +138,15 @@ benchmark_input() {
         compile_time=$(bc -l <<<"${compile_time}+${compile_times[i]}")
         execution_time=$(bc -l <<<"${execution_time}+${execution_times[i]}")
         sum=$(bc -l <<<"${sum}+${sums[i]}")
-        counter=$(bc -l <<<"${counter}+1")
     done
 
-    parsing_time=$(bc -l <<<"${parsing_time}/${counter}")
-    analysing_time=$(bc -l <<<"${analysing_time}/${counter}")
-    translation_time=$(bc -l <<<"${translation_time}/${counter}")
-    compile_time=$(bc -l <<<"${compile_time}/${counter}")
-    execution_time=$(bc -l <<<"${execution_time}/${counter}")
-    sum=$(bc -l <<<"${sum}/${counter}")
+    parsing_time=$(bc -l <<<"${parsing_time}/$8")
+    analysing_time=$(bc -l <<<"${analysing_time}/$8")
+    translation_time=$(bc -l <<<"${translation_time}/$8")
+    compile_time=$(bc -l <<<"${compile_time}/$8")
+    execution_time=$(bc -l <<<"${execution_time}/$8")
+    sum=$(bc -l <<<"${sum}/$8")
 
-    counter=0
     for i in "${!time_sec[@]}"; do
         TIME_SEC=$(bc -l <<<"${TIME_SEC}+${time_sec[i]}")
         CYCLES=$(bc -l <<<"${CYCLES}+${cycles[i]}")
@@ -157,25 +159,24 @@ benchmark_input() {
         IPC=$(bc -l <<<"${IPC}+${ipc[i]}")
         CPUS=$(bc -l <<<"${CPUS}+${cpus[i]}")
         GHZ=$(bc -l <<<"${GHZ}+${ghz[i]}")
-        counter=$(bc -l <<<"${counter}+1")
     done
 
     if [ $counter -gt 0 ]; then
-        TIME_SEC=$(bc -l <<<"${TIME_SEC}/${counter}")
-        CYCLES=$(bc -l <<<"${CYCLES}/${counter}")
-        INSTRUCTIONS=$(bc -l <<<"${INSTRUCTIONS}/${counter}")
-        L1_MISSES=$(bc -l <<<"${L1_MISSES}/${counter}")
-        LLC_MISSES=$(bc -l <<<"${LLC_MISSES}/${counter}")
-        BRANCH_MISSES=$(bc -l <<<"${BRANCH_MISSES}/${counter}")
-        TASK_CLOCK=$(bc -l <<<"${TASK_CLOCK}/${counter}")
-        SCALE=$(bc -l <<<"${SCALE}/${counter}")
-        IPC=$(bc -l <<<"${IPC}/${counter}")
-        CPUS=$(bc -l <<<"${CPUS}/${counter}")
-        GHZ=$(bc -l <<<"${GHZ}/${counter}")
+        TIME_SEC=$(bc -l <<<"${TIME_SEC}/$8")
+        CYCLES=$(bc -l <<<"${CYCLES}/$8")
+        INSTRUCTIONS=$(bc -l <<<"${INSTRUCTIONS}/$8")
+        L1_MISSES=$(bc -l <<<"${L1_MISSES}/$8")
+        LLC_MISSES=$(bc -l <<<"${LLC_MISSES}/$8")
+        BRANCH_MISSES=$(bc -l <<<"${BRANCH_MISSES}/$8")
+        TASK_CLOCK=$(bc -l <<<"${TASK_CLOCK}/$8")
+        SCALE=$(bc -l <<<"${SCALE}/$8")
+        IPC=$(bc -l <<<"${IPC}/$8")
+        CPUS=$(bc -l <<<"${CPUS}/$8")
+        GHZ=$(bc -l <<<"${GHZ}/$8")
     fi
 
     # Append metrics to csv file
-    echo "$3;$5;$loadDuration;$pageSize;$userSize;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum};${TIME_SEC};${CYCLES};${INSTRUCTIONS};${L1_MISSES};${LLC_MISSES};${BRANCH_MISSES};${TASK_CLOCK};${SCALE};${IPC};${CPUS};${GHZ}" | cat >> $2
+    echo "$3;$5;$pageSize;$contentSize;$revisionSize;$userSize;${parsing_time};${analysing_time};${translation_time};${compile_time};${execution_time};${sum};${TIME_SEC};${CYCLES};${INSTRUCTIONS};${L1_MISSES};${LLC_MISSES};${BRANCH_MISSES};${TASK_CLOCK};${SCALE};${IPC};${CPUS};${GHZ}" | cat >> $2
 }
 
 benchmark_input_for_distributions() {
@@ -188,37 +189,23 @@ benchmark_input_for_distributions() {
 #    insertLimit=$(bc -l <<<"${insertLimit}*2")
 #    insertLimit=$(bc -l <<<"${insertLimit}+1")
 
-    benchmark_input $(echo "./benchmarkStatements/$1_23910821_23927983.txt") $2 $3 $4 "0.5" 23910821 23927983
+    benchmark_input $(echo "./benchmarkStatements/$1_unv_23910821_23927983.txt") $2 $3 $4 "0.5" 23910821 23927983 100
 
 #    rm buffer_file.txt
 }
 
-OUTPUT_FILE=$(echo "../benchmarkResults/results_${COMMIT_ID}.csv")
+OUTPUT_FILE=$(echo "../benchmarkResults/results_unv_${COMMIT_ID}.csv")
 rm $OUTPUT_FILE
-echo "Type;Dist;LoadDuration;PageSize;UserSize;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
+echo "Type;Dist;PageSize;ContentSize;RevisionSize;UserSize;ParsingTime;AnalysingTime;TranslationTime;CompilationTime;ExecutionTime;Time;TimeSec;Cycles;Instructions;L1Misses;LLCMisses;BranchMisses;TaskClock;Scale;IPC;CPUS;GHZ" | cat > $OUTPUT_FILE
 
 echo ""
 echo "Benchmark Select Statements..."
 benchmark_input_for_distributions ms_statements $OUTPUT_FILE 1 3
-echo "Benchmark Select Statements with branching..."
-benchmark_input_for_distributions b1s_statements $OUTPUT_FILE 2 3
-benchmark_input_for_distributions b2s_statements $OUTPUT_FILE 3 3
 echo "Benchmark Merge Statements..."
 benchmark_input_for_distributions mm_statements $OUTPUT_FILE 4 1
-echo "Benchmark Merge Statements with branching..."
-benchmark_input_for_distributions b1m_statements $OUTPUT_FILE 5 1
-benchmark_input_for_distributions b2m_statements $OUTPUT_FILE 6 1
 echo "Benchmark Update Statements..."
 benchmark_input_for_distributions mu_statements $OUTPUT_FILE 7 3
-echo "Benchmark Update Statements with branching..."
-benchmark_input_for_distributions b1u_statements $OUTPUT_FILE 8 3
-benchmark_input_for_distributions b2u_statements $OUTPUT_FILE 9 3
 echo "Benchmark Insert Statements..."
-benchmark_input "./benchmarkStatements/mi_statements_23910821_23927983.txt" $OUTPUT_FILE 10 1 "0.5" 23910821 23927983
-echo "Benchmark Insert Statements with branching..."
-benchmark_input "./benchmarkStatements/bi_statements_23910821_23927983.txt" $OUTPUT_FILE 11 1 "0.5" 23910821 23927983
+benchmark_input "./benchmarkStatements/mi_statements_unv_23910821_23927983.txt" $OUTPUT_FILE 10 1 "0.5" 23910821 23927983 100
 echo "Benchmark Delete Statements..."
 benchmark_input_for_distributions md_statements $OUTPUT_FILE 12 1
-echo "Benchmark Delete Statements with branching..."
-benchmark_input_for_distributions b1d_statements $OUTPUT_FILE 13 1
-benchmark_input_for_distributions b2d_statements $OUTPUT_FILE 14 1
