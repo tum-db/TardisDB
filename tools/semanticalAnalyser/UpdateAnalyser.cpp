@@ -9,12 +9,15 @@ namespace semanticalAnalysis {
     //TODO: Verifier check on only one table to update
     std::unique_ptr<Operator> UpdateAnalyser::constructTree() {
         QueryPlan plan;
+        tardisParser::UpdateStatement *stmt = _parserResult.updateStmt;
 
-        construct_scans(_context, plan, _parserResult);
-        construct_selects(_context, plan, _parserResult);
+        std::vector<tardisParser::Table> relations;
+        relations.push_back(stmt->relation);
+        construct_scans(_context, plan, relations);
+        construct_selects(plan, stmt->selections);
 
-        std::string &relationName = _parserResult.relations[0].first;
-        Table* table = _context.db.getTable(relationName);
+        Table* table = _context.db.getTable(stmt->relation.name);
+        if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
 
         std::vector<std::pair<iu_p_t,std::string>> updateIUs;
 
@@ -26,19 +29,17 @@ namespace semanticalAnalysis {
         }
 
         //Map values to be updated to the corresponding ius
-        for (auto columnValuePairs : _parserResult.columnToValue) {
-            const std::string &valueString = columnValuePairs.second;
-
+        for (auto &[column,value] : stmt->updates) {
             for (auto &iuPair : updateIUs) {
-                if (iuPair.first->columnInformation->columnName.compare(columnValuePairs.first) == 0) {
-                    iuPair.second = valueString;
+                if (iuPair.first->columnInformation->columnName.compare(column.name) == 0) {
+                    iuPair.second = value;
                 }
             }
         }
 
-        auto &production = plan.dangling_productions[relationName];
+        auto &production = plan.dangling_productions[stmt->relation.alias];
 
-        return std::make_unique<Update>( std::move(production), updateIUs, *table, new std::string(relationName));
+        return std::make_unique<Update>( std::move(production), updateIUs, *table, new std::string(stmt->relation.name));
     }
 
 }

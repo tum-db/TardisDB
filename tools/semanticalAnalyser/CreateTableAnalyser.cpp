@@ -9,37 +9,31 @@ namespace semanticalAnalysis {
     std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
         QueryPlan plan;
 
-        auto & createdTable = _context.db.createTable(_parserResult.relation);
+        auto & createdTable = _context.db.createTable(_parserResult.createTableStmt->tableName);
 
-        for (int i = 0; i < _parserResult.columnNames.size(); i++) {
-            std::string &columnName = _parserResult.columnNames[i];
-            std::string &columnType = _parserResult.columnTypes[i];
-            bool nullable = _parserResult.nullable[i];
-            uint32_t length = _parserResult.length[i];
-            uint32_t precision = _parserResult.precision[i];
-
+        for (auto &columnSpec : _parserResult.createTableStmt->columns) {
             Sql::SqlType sqlType;
-            if (columnType.compare("bool") == 0) {
-                sqlType = Sql::getBoolTy(nullable);
-            } else if (columnType.compare("date") == 0) {
-                sqlType = Sql::getDateTy(nullable);
-            } else if (columnType.compare("integer") == 0) {
-                sqlType = Sql::getIntegerTy(nullable);
-            } else if (columnType.compare("longinteger") == 0) {
-                sqlType = Sql::getLongIntegerTy(nullable);
-            } else if (columnType.compare("numeric") == 0) {
-                sqlType = Sql::getNumericTy(length,precision,nullable);
-            } else if (columnType.compare("char") == 0) {
-                sqlType = Sql::getCharTy(length, nullable);
-            } else if (columnType.compare("varchar") == 0) {
-                sqlType = Sql::getVarcharTy(length, nullable);
-            } else if (columnType.compare("timestamp") == 0) {
-                sqlType = Sql::getTimestampTy(nullable);
-            } else if (columnType.compare("text") == 0) {
-                sqlType = Sql::getTextTy(nullable);
+            if (columnSpec.type.compare("bool") == 0) {
+                sqlType = Sql::getBoolTy(columnSpec.nullable);
+            } else if (columnSpec.type.compare("date") == 0) {
+                sqlType = Sql::getDateTy(columnSpec.nullable);
+            } else if (columnSpec.type.compare("integer") == 0) {
+                sqlType = Sql::getIntegerTy(columnSpec.nullable);
+            } else if (columnSpec.type.compare("longinteger") == 0) {
+                sqlType = Sql::getLongIntegerTy(columnSpec.nullable);
+            } else if (columnSpec.type.compare("numeric") == 0) {
+                sqlType = Sql::getNumericTy(columnSpec.length,columnSpec.precision,columnSpec.nullable);
+            } else if (columnSpec.type.compare("char") == 0) {
+                sqlType = Sql::getCharTy(columnSpec.length, columnSpec.nullable);
+            } else if (columnSpec.type.compare("varchar") == 0) {
+                sqlType = Sql::getVarcharTy(columnSpec.length, columnSpec.nullable);
+            } else if (columnSpec.type.compare("timestamp") == 0) {
+                sqlType = Sql::getTimestampTy(columnSpec.nullable);
+            } else if (columnSpec.type.compare("text") == 0) {
+                sqlType = Sql::getTextTy(columnSpec.nullable);
             }
 
-            createdTable.addColumn(columnName, sqlType);
+            createdTable.addColumn(columnSpec.name, sqlType);
         }
 
         return nullptr;

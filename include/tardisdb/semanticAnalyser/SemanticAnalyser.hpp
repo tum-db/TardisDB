@@ -38,12 +38,12 @@ namespace semanticalAnalysis {
         static std::unique_ptr<SemanticAnalyser> getSemanticAnalyser(QueryContext &context, tardisParser::SQLParserResult &parserResult);
 
     protected:
-        static void construct_scans(QueryContext& context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
-        static void construct_selects(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
-        static void construct_joins(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
+        static void construct_scans(QueryContext& context, QueryPlan & plan, std::vector<tardisParser::Table> &relations);
+        static void construct_selects(QueryPlan & plan, std::vector<std::pair<tardisParser::Column,std::string>> &selections);
+        static void construct_joins(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult &parserResult);
 
     private:
-        static void construct_join_graph(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult);
+        static void construct_join_graph(QueryContext & context, QueryPlan & plan, tardisParser::SelectStatement *stmt);
         static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
     };
 

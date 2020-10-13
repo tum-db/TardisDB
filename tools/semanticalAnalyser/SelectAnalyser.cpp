@@ -10,24 +10,28 @@ namespace semanticalAnalysis {
 //TODO: Check physical tree projections do not work after joining
     std::unique_ptr<Operator> SelectAnalyser::constructTree() {
         QueryPlan plan;
+        tardisParser::SelectStatement *stmt = _parserResult.selectStmt;
 
-        construct_scans(_context, plan, _parserResult);
-        construct_selects(_context, plan, _parserResult);
+        construct_scans(_context, plan, stmt->relations);
+        construct_selects(plan, stmt->selections);
         construct_joins(_context,plan, _parserResult);
 
         auto & db = _context.db;
 
         //get projected IUs
         std::vector<iu_p_t> projectedIUs;
-        for (const std::string& projectedIUName : _parserResult.projections) {
-            for (auto& production : plan.ius) {
-                for (auto& iu : production.second) {
-                    if (iu.first.compare(projectedIUName) == 0) {
-                        projectedIUs.push_back( iu.second );
+        for (auto &column : stmt->projections) {
+            if (column.table.length() == 0) {
+                for (auto& production : plan.ius) {
+                    for (auto& iu : production.second) {
+                        if (iu.first.compare(column.name) == 0) {
+                            projectedIUs.push_back( iu.second );
+                        }
                     }
                 }
+            } else {
+                projectedIUs.push_back(plan.ius[column.table][column.name]);
             }
-
         }
 
         if (plan.joinedTree != nullptr) {

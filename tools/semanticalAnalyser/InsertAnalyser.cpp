@@ -8,26 +8,23 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> InsertAnalyser::constructTree() {
         QueryPlan plan;
+        tardisParser::InsertStatement *stmt = _parserResult.insertStmt;
 
         auto& db = _context.db;
-        Table* table = db.getTable(_parserResult.relation);
+        Table* table = db.getTable(stmt->relation.name);
 
-        if (_parserResult.versions.size() == 1) {
-            std::string &branchName = _parserResult.versions[0];
-            if (branchName.compare("master") != 0) {
-                _context.executionContext.branchId = db._branchMapping[branchName];
-            } else {
-                _context.executionContext.branchId = 0;
-            }
+        std::string &branchName = stmt->relation.version;
+        if (branchName.compare("master") != 0) {
+            _context.executionContext.branchId = db._branchMapping[branchName];
         } else {
-            return nullptr;
+            _context.executionContext.branchId = 0;
         }
 
         std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
 
-        for (int i=0; i<_parserResult.columnNames.size(); i++) {
-            Native::Sql::SqlType type = table->getCI(_parserResult.columnNames[i])->type;
-            std::string &value = _parserResult.values[i];
+        for (int i=0; i<stmt->columns.size(); i++) {
+            Native::Sql::SqlType type = table->getCI(stmt->columns[i].name)->type;
+            std::string &value = stmt->values[i];
             std::unique_ptr<Native::Sql::Value> sqlvalue = Native::Sql::Value::castString(value,type);
 
             sqlvalues.emplace_back(std::move(sqlvalue));

@@ -10,8 +10,8 @@ namespace semanticalAnalysis {
         QueryPlan plan;
 
         // Get branchName and parentBranchId from statement
-        std::string &branchName = _parserResult.branchId;
-        std::string &parentBranchName = _parserResult.parentBranchId;
+        std::string &branchName = _parserResult.createBranchStmt->branchName;
+        std::string &parentBranchName = _parserResult.createBranchStmt->parentBranchName;
 
         // Search for mapped branchId of parentBranchName
         branch_id_t _parentBranchId = 0;

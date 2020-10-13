@@ -14,58 +14,48 @@
 
 namespace semanticalAnalysis {
 
-    //TODO: Store version in binding
-    void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan, tardisParser::SQLParserResult parserResult) {
-        if (parserResult.versions.size() != parserResult.relations.size()) {
-            return;
-        }
-
-        size_t i = 0;
-        for (auto &[tableName,tableAlias] : parserResult.relations) {
-            if (parserResult.relations.size() == 1 && tableAlias.length() == 0) tableAlias = tableName;
-
+    void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan, std::vector<tardisParser::Table> &relations) {
+        for (auto &relation : relations) {
+            if (relation.alias.compare("") == 0) relation.alias = relation.name;
 
             // Recognize version
-            std::string &branchName = parserResult.versions[i];
+            std::string &branchName = relation.version;
             if (branchName.compare("master") != 0) {
-                context.executionContext.branchIds.insert({tableAlias,context.db._branchMapping[branchName]});
+                context.executionContext.branchIds.insert({relation.alias,context.db._branchMapping[branchName]});
             } else {
-                context.executionContext.branchIds.insert({tableAlias,master_branch_id});
+                context.executionContext.branchIds.insert({relation.alias,master_branch_id});
             }
 
             //Construct the logical TableScan operator
-            Table* table = context.db.getTable(tableName);
-            std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context, *table, new std::string(tableAlias));
+            Table* table = context.db.getTable(relation.name);
+            std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context, *table, new std::string(relation.alias));
 
             //Store the ius produced by this TableScan
             for (iu_p_t iu : scan->getProduced()) {
-                plan.ius[tableAlias][iu->columnInformation->columnName] = iu;
+                plan.ius[relation.alias][iu->columnInformation->columnName] = iu;
             }
 
             //Add a new production with TableScan as root node
-            plan.dangling_productions.insert({tableAlias, std::move(scan)});
-            i++;
+            plan.dangling_productions.insert({relation.alias, std::move(scan)});
         }
     }
 
     // TODO: Implement nullable
-    void SemanticAnalyser::construct_selects(QueryContext& context, QueryPlan& plan, tardisParser::SQLParserResult parserResult) {
-        for (auto &[selection,valueString] : parserResult.selections) {
-            auto &[productionName,productionIUName] = selection;
-            if (parserResult.relations.size() == 1 && productionName.length() == 0) productionName = parserResult.relations[0].first;
-
+    void SemanticAnalyser::construct_selects(QueryPlan& plan, std::vector<std::pair<tardisParser::Column,std::string>> &selections) {
+        for (auto &[column,valueString] : selections) {
             // Construct Expression
             iu_p_t iu;
-            if (productionName.compare("") == 0) {
-                for (auto &[_,production] : plan.ius) {
+            if (column.table.compare("") == 0) {
+                for (auto &[productionName,production] : plan.ius) {
                     for (auto &[key,value] : production) {
-                        if (key.compare(productionIUName) == 0) {
+                        if (key.compare(column.name) == 0) {
+                            column.table = productionName;
                             iu = value;
                         }
                     }
                 }
             } else {
-                iu = plan.ius[productionName][productionIUName];
+                iu = plan.ius[column.table][column.name];
             }
             auto constExp = std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type);
             auto identifier = std::make_unique<Expressions::Identifier>(iu);
@@ -76,39 +66,36 @@ namespace semanticalAnalysis {
             );
 
             //Construct the logical Select operator
-            std::unique_ptr<Select> select = std::make_unique<Select>(std::move(plan.dangling_productions[productionName]), std::move(exp));
+            std::unique_ptr<Select> select = std::make_unique<Select>(std::move(plan.dangling_productions[column.table]), std::move(exp));
 
             //Update corresponding production by setting the Select operator as new root node
-            plan.dangling_productions[productionName] = std::move(select);
+            plan.dangling_productions[column.table] = std::move(select);
         }
     }
 
-    void SemanticAnalyser::construct_join_graph(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult) {
+    void SemanticAnalyser::construct_join_graph(QueryContext & context, QueryPlan & plan, tardisParser::SelectStatement *stmt) {
         JoinGraph &graph = plan.graph;
 
         // create and add vertices to join graph
-        for (auto & rel : parserResult.relations) {
-            std::string &tableAlias = rel.second;
-            if (rel.second.length() == 0) tableAlias = rel.first;
+        for (auto & rel : stmt->relations) {
+            std::string &tableAlias = rel.alias;
+            if (rel.alias.length() == 0) tableAlias = rel.name;
             JoinGraph::Vertex v = JoinGraph::Vertex(plan.dangling_productions[tableAlias]);
             graph.addVertex(tableAlias,v);
         }
 
         // create edges
-        for (auto &[vNode,uNode] : parserResult.joinConditions) {
-            auto &[vName,vColumn] = vNode;
-            auto &[uName,uColumn] = uNode;
-
+        for (auto &[vNode,uNode] : stmt->joinConditions) {
             //If edge does not already exist add it
-            if (!graph.hasEdge(vName,uName)) {
+            if (!graph.hasEdge(vNode.table,uNode.table)) {
                 std::vector<Expressions::exp_op_t> expressions;
-                JoinGraph::Edge edge = JoinGraph::Edge(vName,uName,expressions);
+                JoinGraph::Edge edge = JoinGraph::Edge(vNode.table,uNode.table,expressions);
                 graph.addEdge(edge);
             }
 
             //Get InformationUnits for both attributes
-            iu_p_t iuV = plan.ius[vName][vColumn];
-            iu_p_t iuU = plan.ius[uName][uColumn];
+            iu_p_t iuV = plan.ius[vNode.table][vNode.name];
+            iu_p_t iuU = plan.ius[uNode.table][uNode.name];
 
             //Create new compare expression as join condition
             std::vector<Expressions::exp_op_t> joinExprVec;
@@ -118,7 +105,7 @@ namespace semanticalAnalysis {
                     std::make_unique<Expressions::Identifier>(iuU)
             );
             //Add join condition to edge
-            graph.getEdge(vName,uName)->expressions.push_back(std::move(joinExpr));
+            graph.getEdge(vNode.table,uNode.table)->expressions.push_back(std::move(joinExpr));
         }
     }
 
@@ -172,9 +159,9 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SemanticAnalyser::construct_joins(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult parserResult) {
+    void SemanticAnalyser::construct_joins(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult &parserResult) {
         // Construct the join graph
-        construct_join_graph(context,plan,parserResult);
+        construct_join_graph(context,plan,parserResult.selectStmt);
 
         //Start with the first vertex in the vector of vertices of the join graph
         std::string firstVertexName = plan.graph.getFirstVertexName();
