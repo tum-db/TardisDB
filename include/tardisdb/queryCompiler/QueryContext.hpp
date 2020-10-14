@@ -9,8 +9,6 @@
 
 #include <boost/dynamic_bitset.hpp>
 
-using scope_level_t = size_t;
-
 struct ExecutionResource {
     virtual ~ExecutionResource() { }
 };
@@ -33,8 +31,6 @@ struct QueryContext {
             codeGen(getThreadLocalCodeGen())
     { }
 
-//    ExecutionContext & getExecutionContext();
-
     // compilation related
     Database & db;
     IUFactory iuFactory;
@@ -53,11 +49,3 @@ struct QueryContext {
     // runtime related
     ExecutionContext executionContext;
 };
-
-void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol);
-
-void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan);
-
-void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan, const std::string & prefix);
-
-iu_p_t lookup(QueryContext & context, const std::string & symbol);

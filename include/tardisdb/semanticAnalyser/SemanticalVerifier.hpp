@@ -22,6 +22,14 @@ namespace semanticalAnalysis {
     private:
         QueryContext& _context;
     };
+
+    void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol);
+
+    void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan);
+
+    void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan, const std::string & prefix);
+
+    iu_p_t lookup(QueryContext & context, const std::string & symbol);
 }
 
 

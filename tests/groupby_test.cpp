@@ -8,6 +8,7 @@
 #include "foundations/loader.hpp"
 #include "foundations/version_management.hpp"
 #include "queryExecutor/queryExecutor.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -30,7 +31,7 @@ llvm::Function * genFunc(Database & db)
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
         auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
+        semanticalAnalysis::addToScope(context, *scan);
 
         auto count = std::make_unique<Aggregations::CountAll>(context);
         selection.push_back( count->getProduced() );
@@ -54,9 +55,9 @@ llvm::Function * genFunc(Database & db)
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
         auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
+        semanticalAnalysis::addToScope(context, *scan);
 
-        iu_p_t semesterIU = lookup(context, "semester");
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
         auto sumExp = std::make_unique<Identifier>(semesterIU);
         auto sum = std::make_unique<Aggregations::Sum>( context, std::move(sumExp) );
         selection.push_back( sum->getProduced() );
@@ -80,8 +81,8 @@ llvm::Function * genFunc(Database & db)
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
         auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
-        iu_p_t semesterIU = lookup(context, "semester");
+        semanticalAnalysis::addToScope(context, *scan);
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
 
         auto avgExp = std::make_unique<Identifier>(semesterIU);
         auto avg = std::make_unique<Aggregations::Avg>( context, std::move(avgExp) );
@@ -106,8 +107,8 @@ llvm::Function * genFunc(Database & db)
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
         auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
-        iu_p_t semesterIU = lookup(context, "semester");
+        semanticalAnalysis::addToScope(context, *scan);
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
 
         auto count = std::make_unique<Aggregations::CountAll>(context);
         selection.push_back( count->getProduced() );
@@ -141,8 +142,8 @@ llvm::Function * genFunc(Database & db)
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
         auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
-        iu_p_t semesterIU = lookup(context, "semester");
+        semanticalAnalysis::addToScope(context, *scan);
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
 
         auto keep = std::make_unique<Aggregations::Keep>( context, semesterIU );
         selection.push_back( keep->getProduced() );
