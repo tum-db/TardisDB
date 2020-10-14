@@ -54,8 +54,6 @@ struct QueryContext {
     ExecutionContext executionContext;
 };
 
-static bool overflowFlag = false;
-
 void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol);
 
 void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan);
@@ -63,9 +61,3 @@ void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan);
 void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan, const std::string & prefix);
 
 iu_p_t lookup(QueryContext & context, const std::string & symbol);
-
-void genOverflowException();
-
-void genOverflowEvaluation();
-
-cg_bool_t genEvaluateOverflow();

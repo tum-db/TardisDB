@@ -5,7 +5,7 @@
 #include <functional>
 #include <unordered_map>
 
-#include "foundations/QueryContext.hpp"
+#include "sql/SqlOperators.hpp"
 
 using benchmarkFunc = std::function<void (unsigned)>;
 
@@ -23,7 +23,7 @@ void benchmarkNamedQuery(const std::string & queryName, unsigned runs)
     auto it = benchmarks.find(queryName);
     if (it != benchmarks.end()) {
         it->second(runs);
-        if (overflowFlag) {
+        if (Sql::Operators::overflowFlag) {
             fprintf(stderr, "arithmetic overflow\n");
         }
     } else {
@@ -43,7 +43,7 @@ void runNamedQuery(const std::string & queryName)
     auto it = queries.find(queryName);
     if (it != queries.end()) {
         it->second();
-        if (overflowFlag) {
+        if (Sql::Operators::overflowFlag) {
             fprintf(stderr, "arithmetic overflow\n");
         }
     } else {

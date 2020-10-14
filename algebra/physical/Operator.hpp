@@ -8,7 +8,7 @@
 #include "algebra/logical/operators.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/InformationUnit.hpp"
-#include "foundations/QueryContext.hpp"
+#include "queryCompiler/QueryContext.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 

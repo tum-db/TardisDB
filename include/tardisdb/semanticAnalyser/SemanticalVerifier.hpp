@@ -7,7 +7,7 @@
 
 #include "semanticAnalyser/ParserResult.hpp"
 #include "foundations/Database.hpp"
-#include "foundations/QueryContext.hpp"
+#include "queryCompiler/QueryContext.hpp"
 
 namespace semanticalAnalysis {
     struct semantic_sql_error : std::runtime_error {

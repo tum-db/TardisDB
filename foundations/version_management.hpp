@@ -3,7 +3,7 @@
 #include <tuple>
 
 #include "foundations/Database.hpp"
-#include "foundations/QueryContext.hpp"
+#include "queryCompiler/QueryContext.hpp"
 #include "native/sql/Register.hpp"
 #include "native/sql/SqlValues.hpp"
 #include "native/sql/SqlTuple.hpp"

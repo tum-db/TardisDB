@@ -7,7 +7,7 @@
 
 #include "algebra/logical/expressions.hpp"
 #include "foundations/InformationUnit.hpp"
-#include "foundations/QueryContext.hpp"
+#include "queryCompiler/QueryContext.hpp"
 
 namespace Algebra {
 namespace Logical {
