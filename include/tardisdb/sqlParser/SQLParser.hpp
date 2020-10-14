@@ -99,7 +99,7 @@ namespace tardisParser {
     class SQLParser {
     public:
 
-        static void parse_sql_statement(ParsingContext &context, std::string &sql);
+        static void parse_sql_statement(ParsingContext &context, std::string sql);
 
     private:
 

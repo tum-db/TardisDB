@@ -26,7 +26,7 @@ namespace tardisParser {
         return BindingAttribute(binding, attribute);
     }
 
-    state_t SQLParser::parse_next_token(Tokenizer &token_src, const state_t state, SQLParserResult &query) {
+    state_t SQLParser::parse_next_token(Tokenizer &token_src, const state_t state, ParsingContext &query) {
         // Get the next token from the tokenizer
         const Token &token = token_src.next();
 
@@ -52,19 +52,19 @@ namespace tardisParser {
         switch (state) {
             case State::Init:
                 if (equals_keyword(token,keywords::Select)) {
-                    query.opType = SQLParserResult::OpType::Select;
+                    query.opType = ParsingContext::OpType::Select;
                     query.selectStmt = new SelectStatement();
                     new_state = State::Select;
                 } else if (equals_keyword(token,keywords::Insert)) {
-                    query.opType = SQLParserResult::OpType::Insert;
+                    query.opType = ParsingContext::OpType::Insert;
                     query.insertStmt = new InsertStatement();
                     new_state = State::Insert;
                 } else if (equals_keyword(token,keywords::Update)) {
-                    query.opType = SQLParserResult::OpType::Update;
+                    query.opType = ParsingContext::OpType::Update;
                     query.updateStmt = new UpdateStatement();
                     new_state = State::Update;
                 } else if (equals_keyword(token,keywords::Delete)) {
-                    query.opType = SQLParserResult::OpType::Delete;
+                    query.opType = ParsingContext::OpType::Delete;
                     query.deleteStmt = new DeleteStatement();
                     new_state = State::Delete;
                 } else if (equals_keyword(token,keywords::Create)) {
@@ -79,11 +79,11 @@ namespace tardisParser {
                 //
             case State::Create:
                 if (equals_keyword(token, keywords::Table)) {
-                    query.opType = SQLParserResult::OpType::CreateTable;
+                    query.opType = ParsingContext::OpType::CreateTable;
                     query.createTableStmt = new CreateTableStatement();
                     new_state = State::CreateTable;
                 } else if (equals_keyword(token, keywords::Branch)) {
-                    query.opType = SQLParserResult::OpType::CreateBranch;
+                    query.opType = ParsingContext::OpType::CreateBranch;
                     query.createBranchStmt = new CreateBranchStatement();
                     new_state = State::CreateBranch;
                 } else {
@@ -640,8 +640,7 @@ namespace tardisParser {
         return new_state;
     }
 
-    SQLParserResult SQLParser::parse_sql_statement(std::string sql) {
-        SQLParserResult result;
+    void SQLParser::parse_sql_statement(ParsingContext &context, std::string sql) {
 
         std::stringstream in(sql);
         // Initialize Tokenizer
@@ -650,10 +649,8 @@ namespace tardisParser {
         // Parse the input String token by token
         state_t state = State::Init;
         while (state != State::Done) {
-            state = parse_next_token(tokenizer, state, result);
+            state = parse_next_token(tokenizer, state, context);
         }
-
-        return result;
     }
 }
 
