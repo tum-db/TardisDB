@@ -406,6 +406,7 @@ public:
         _translated.push( std::make_unique<Physical::Delete>(
                 op,
                 std::move(child),
+                op.getTIDIU(),
                 op.getTable()
         ));
     }

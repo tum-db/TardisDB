@@ -40,6 +40,16 @@ void Vector::push_back(void * ptr)
     std::memcpy(elemAddr, ptr, _elementSize);
 }
 
+void Vector::remove_at(size_type index) {
+    if (index < size() - 1) {
+        void *elementPtr = at(index);
+        void *nextElementPtr = at(index + 1);
+        size_type restLength = (size() - index - 1) * _elementSize;
+        std::memcpy(elementPtr,nextElementPtr,restLength);
+    }
+    pop_back();
+}
+
 void * Vector::reserve_back()
 {
     if (_elementCount == _capacity) {

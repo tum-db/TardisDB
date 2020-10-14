@@ -280,6 +280,38 @@ protected:
 };
 
 //-----------------------------------------------------------------------------
+// Varchar
+
+class Text : public BasicString {
+public:
+    static value_op_t castString(const std::string & str, SqlType type);
+
+    static value_op_t castString(cg_ptr8_t str, cg_size_t length, SqlType type);
+
+    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values, SqlType type);
+
+    static value_op_t load(llvm::Value * ptr, SqlType type);
+
+    value_op_t clone() const override;
+
+    void store(llvm::Value * ptr) const override;
+
+    cg_hash_t hash() const override;
+
+    void accept(ValueVisitor & visitor) override;
+
+    cg_bool_t equals(const Value & other) const override;
+
+    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
+
+    Text(SqlType type, llvm::Value * value);
+protected:
+    //Text(SqlType type, llvm::Value * value, llvm::Value * length);
+    //Text(SqlType type, llvm::Value * value);
+    Text(llvm::Value * value);
+};
+
+//-----------------------------------------------------------------------------
 // Date
 
 class Date : public Value {
@@ -458,6 +490,7 @@ class ValueVisitor {
 public:
     virtual void visit(Bool & value) = 0;
     virtual void visit(Char & value) = 0;
+    virtual void visit(Text & value) = 0;
     virtual void visit(Date & value) = 0;
     virtual void visit(Integer & value) = 0;
     virtual void visit(LongInteger & value) = 0;

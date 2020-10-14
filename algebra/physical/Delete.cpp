@@ -10,8 +10,8 @@ using namespace Sql;
 namespace Algebra {
     namespace Physical {
 
-        Delete::Delete(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table)  :
-                UnaryOperator(std::move(logicalOperator), std::move(input)), table(table) {}
+        Delete::Delete(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, iu_p_t &tidIU, Table & table)  :
+                UnaryOperator(std::move(logicalOperator), std::move(input)), table(table), tidIU(std::move(tidIU)) { }
 
         Delete::~Delete()
         { }
@@ -32,6 +32,12 @@ namespace Algebra {
             Functions::genPrintfCall("Deleted %lu tuples\n", tupleCnt);
         }
 
+#if !USE_DATA_VERSIONING
+        void delete_tuple_without_versioning(tid_t tid, Table & table, QueryContext & ctx) {
+            table.removeRow(tid);
+        }
+#endif
+
         void Delete::consume(const iu_value_mapping_t & values, const Operator & src)
         {
             cg_size_t tid;
@@ -45,7 +51,11 @@ namespace Algebra {
             // Call the delete_tuple function in version_management.hpp
             llvm::FunctionType * funcDeleteTupleTy = llvm::TypeBuilder<void (size_t, void *, void *), false>::get(_codeGen.getLLVMContext());
             llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("delete_tuple", funcDeleteTupleTy) );
+#if USE_DATA_VERSIONING
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&delete_tuple);
+#else
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&delete_tuple_without_versioning);
+#endif
             llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
 
             // increment tuple counter

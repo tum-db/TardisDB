@@ -95,6 +95,8 @@ public:
 
     void addRow(branch_id_t branchId);
 
+    void removeRow(tid_t tid);
+
     void removeRowForBranch(tid_t tid, branch_id_t branchId);
 
     void createBranch(branch_id_t parent);

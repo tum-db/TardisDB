@@ -13,6 +13,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/TargetSelect.h>
+#include <foundations/StringPool.hpp>
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
@@ -51,7 +52,670 @@ static bool ValidateDistribution(const char *flagname, const std::string &value)
 
 DEFINE_validator(l, &ValidateDatabase);
 
+#if USE_DATA_VERSIONING
+void loadWikiDb(Database *db, int lowerBound, int upperBound)
+{
+    uint64_t loadDuration = 0;
+
+    std::stringstream ssRange;
+    ssRange << "_";
+    ssRange << lowerBound;
+    ssRange << "_";
+    ssRange << upperBound;
+    std::string pageRangeStr = ssRange.str();
+
+
+    std::string pageFileName = "page" + pageRangeStr + ".tbl";
+    std::string revisionFileName = "revision" + pageRangeStr + ".tbl";
+    std::string contentFileName = "content" + pageRangeStr + ".tbl";
+    std::string userFileName = "user" + pageRangeStr + ".tbl";
+
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title TEXT NOT NULL , userId INTEGER NOT NULL , content TEXT NOT NULL );",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE user ( id INTEGER NOT NULL, name TEXT NOT NULL );",*db);
+
+    std::ifstream streamRevision(revisionFileName);
+    if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
+    std::ifstream streamPage(pageFileName);
+    if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
+    std::ifstream streamContent(contentFileName);
+    if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
+    std::ifstream streamUser(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
+
+    Table *pageTable = db->getTable("page");
+    Table *userTable = db->getTable("user");
+
+    std::set<std::string> userIDS = {};
+    std::string userRowStr;
+
+    QueryContext userCtx(*db);
+    userCtx.executionContext.branchId = 0;
+    db->constructBranchLineage(0, userCtx.executionContext);
+    while(std::getline(streamUser,userRowStr)) {
+        std::vector<std::string> userValues = split(userRowStr,'|');
+
+        if (userIDS.find(userValues[0]) == userIDS.end()) {
+            userIDS.insert(userValues[0]);
+            std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
+            int counter = 0;
+            for (auto &columnName : userTable->getColumnNames()) {
+                sqlvalues.push_back(Native::Sql::Value::castString(userValues[counter],userTable->getCI(columnName)->type));
+                counter++;
+            }
+            Native::Sql::SqlTuple userTuple(std::move(sqlvalues));
+            insert_tuple(userTuple, *userTable, userCtx);
+        }
+    }
+
+    streamUser.close();
+    streamUser = std::ifstream(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
+
+    std::string skippingPageId = "";
+
+    std::string currentPageId = "";
+    std::string currentPageTitle = "";
+
+    std::string revisionRowStr;
+    std::string pageRowStr;
+    std::string contentRowStr;
+
+    QueryContext firstctx(*db);
+    firstctx.executionContext.branchId = 0;
+    db->constructBranchLineage(0, firstctx.executionContext);
+    while(std::getline(streamRevision, revisionRowStr)) {
+        std::vector<std::string> revisionValues = split(revisionRowStr,'|');
+
+        if (std::stoi(revisionValues[2]) < lowerBound) {
+            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
+                skippingPageId = revisionValues[2];
+                assert(std::getline(streamPage,pageRowStr));
+            }
+            assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
+            continue;
+        }
+        if (std::stoi(revisionValues[2]) > upperBound) {
+            break;
+        }
+
+        if (currentPageId.compare("") == 0 || currentPageId.compare(revisionValues[2]) != 0) {
+            currentPageId = revisionValues[2];
+
+            assert(std::getline(streamPage,pageRowStr));
+            std::vector<std::string> pageValues = split(pageRowStr,'|');
+            assert(pageValues.size() == 2);
+            assert(pageValues[0].compare(currentPageId) == 0);
+
+            assert(std::getline(streamUser,userRowStr));
+            std::vector<std::string> userValues = split(userRowStr,'|');
+            assert(userValues.size() == 2);
+            pageValues.push_back(userValues[0]);
+            assert(std::getline(streamContent,contentRowStr));
+            std::vector<std::string> contentValues = split(contentRowStr,'|');
+            assert(contentValues.size() == 2);
+            pageValues.push_back(contentValues[1]);
+
+            std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
+            int counter = 0;
+            for (auto &columnName : pageTable->getColumnNames()) {
+                sqlvalues.push_back(Native::Sql::Value::castString(pageValues[counter],pageTable->getCI(columnName)->type));
+                counter++;
+            }
+            Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
+            auto loadStart = std::chrono::high_resolution_clock::now();
+            insert_tuple(pageTuple, *pageTable, firstctx);
+            loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
+        } else {
+            assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
+        }
+    }
+
+    QueryCompiler::compileAndExecute("CREATE BRANCH branch1 FROM master;",*db);
+
+    streamRevision.close();
+    streamPage.close();
+    streamContent.close();
+    streamUser.close();
+    streamRevision = std::ifstream(revisionFileName);
+    if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
+    streamPage = std::ifstream(pageFileName);
+    if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
+    streamContent = std::ifstream(contentFileName);
+    if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
+    streamUser = std::ifstream(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
+
+    currentPageId = "";
+    skippingPageId = "";
+    std::vector<std::string> currentPageValues;
+    std::vector<std::string> lastContentValues;
+    std::vector<std::string> lastUserValues;
+    tid_t pageTID = 0;
+    bool wasFirstRevision = true;
+
+    QueryContext secondctx(*db);
+    secondctx.executionContext.branchId = 0;
+    db->constructBranchLineage(0, secondctx.executionContext);
+    while(std::getline(streamRevision, revisionRowStr)) {
+        std::vector<std::string> revisionValues = split(revisionRowStr,'|');
+
+        if (std::stoi(revisionValues[2]) < lowerBound) {
+            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
+                skippingPageId = revisionValues[2];
+                assert(std::getline(streamPage,pageRowStr));
+            }
+            assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
+            continue;
+        }
+        if (std::stoi(revisionValues[2]) > upperBound) {
+            break;
+        }
+
+        if (currentPageId.compare("") == 0) {
+            currentPageId = revisionValues[2];
+
+            assert(std::getline(streamPage,pageRowStr));
+            currentPageValues = split(pageRowStr,'|');
+            assert(currentPageValues.size() == 2);
+            assert(currentPageValues[0].compare(currentPageId) == 0);
+
+            assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
+            wasFirstRevision = true;
+            continue;
+        }
+
+        if (currentPageId.compare(revisionValues[2]) != 0) {
+            currentPageId = revisionValues[2];
+
+            assert(std::getline(streamPage,pageRowStr));
+            currentPageValues = split(pageRowStr,'|');
+            assert(currentPageValues.size() == 2);
+            assert(currentPageValues[0].compare(currentPageId) == 0);
+
+            assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
+
+            pageTID++;
+            wasFirstRevision = true;
+            continue;
+        }
+
+        if (!wasFirstRevision && currentPageId.compare(revisionValues[2]) == 0) {
+            std::vector<std::string> lastPageValues = currentPageValues;
+            lastPageValues.push_back(lastUserValues[0]);
+            lastPageValues.push_back(lastContentValues[1]);
+
+            std::vector<std::unique_ptr<Native::Sql::Value>> sqlValues;
+            int counter = 0;
+            for (auto &columnName : pageTable->getColumnNames()) {
+                sqlValues.push_back(Native::Sql::Value::castString(lastPageValues[counter],pageTable->getCI(columnName)->type));
+                counter++;
+            }
+            Native::Sql::SqlTuple pageTuple(std::move(sqlValues));
+            auto loadStart = std::chrono::high_resolution_clock::now();
+            update_tuple(pageTID,pageTuple,*pageTable,secondctx);
+            loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
+        }
+
+        assert(std::getline(streamUser,userRowStr));
+        lastUserValues = split(userRowStr,'|');
+        assert(lastUserValues.size() == 2);
+        assert(std::getline(streamContent,contentRowStr));
+        lastContentValues = split(contentRowStr,'|');
+        assert(lastContentValues.size() == 2);
+        wasFirstRevision = false;
+    }
+
+    QueryCompiler::compileAndExecute("CREATE BRANCH branch2 FROM master;",*db);
+
+    streamRevision.close();
+    streamPage.close();
+    streamContent.close();
+    streamUser.close();
+    streamRevision = std::ifstream(revisionFileName);
+    if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
+    streamPage = std::ifstream(pageFileName);
+    if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
+    streamContent = std::ifstream(contentFileName);
+    if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
+    streamUser = std::ifstream(userFileName);
+    if (!streamUser) { throw std::runtime_error("file not found: tables/user.tbl"); }
+
+    currentPageId = "";
+    skippingPageId = "";
+    pageTID = 0;
+    bool isFirstRevisionOfPage = true;
+
+    QueryContext thirdctx(*db);
+    thirdctx.executionContext.branchId = 0;
+    db->constructBranchLineage(0, thirdctx.executionContext);
+    while(std::getline(streamRevision, revisionRowStr)) {
+        std::vector<std::string> revisionValues = split(revisionRowStr,'|');
+
+        if (std::stoi(revisionValues[2]) < lowerBound) {
+            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
+                skippingPageId = revisionValues[2];
+                assert(std::getline(streamPage,pageRowStr));
+            }
+            assert(std::getline(streamContent,contentRowStr));
+            assert(std::getline(streamUser,userRowStr));
+            continue;
+        }
+        if (std::stoi(revisionValues[2]) > upperBound) {
+            break;
+        }
+
+
+        if (currentPageId.compare("") == 0) {
+            currentPageId = revisionValues[2];
+            isFirstRevisionOfPage = true;
+            continue;
+        }
+
+        if (!isFirstRevisionOfPage && currentPageId.compare(revisionValues[2]) != 0) {
+            assert(std::getline(streamPage,pageRowStr));
+            std::vector<std::string> pageValues = split(pageRowStr,'|');
+            assert(pageValues.size() == 2);
+            assert(pageValues[0].compare(currentPageId) == 0);
+
+            assert(std::getline(streamUser,userRowStr));
+            std::vector<std::string> userValues = split(userRowStr,'|');
+            assert(userValues.size() == 2);
+            pageValues.push_back(userValues[0]);
+            assert(std::getline(streamContent,contentRowStr));
+            std::vector<std::string> contentValues = split(contentRowStr,'|');
+            assert(contentValues.size() == 2);
+            pageValues.push_back(contentValues[1]);
+
+            std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
+            int counter = 0;
+            for (auto &columnName : pageTable->getColumnNames()) {
+                sqlvalues.push_back(Native::Sql::Value::castString(pageValues[counter],pageTable->getCI(columnName)->type));
+                counter++;
+            }
+            Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
+            auto loadStart = std::chrono::high_resolution_clock::now();
+            update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
+            loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
+
+            pageTID++;
+            isFirstRevisionOfPage = true;
+            currentPageId = revisionValues[2];
+            continue;
+        }
+
+        if (currentPageId.compare(revisionValues[2]) != 0) {
+            assert(std::getline(streamPage,pageRowStr));
+            pageTID++;
+            isFirstRevisionOfPage = true;
+            currentPageId = revisionValues[2];
+        } else {
+            isFirstRevisionOfPage = false;
+        }
+
+        assert(std::getline(streamUser,userRowStr));
+        assert(std::getline(streamContent,contentRowStr));
+    }
+
+    if (!isFirstRevisionOfPage) {
+        assert(std::getline(streamPage,pageRowStr));
+        std::vector<std::string> pageValues = split(pageRowStr,'|');
+        assert(pageValues.size() == 2);
+        assert(pageValues[0].compare(currentPageId) == 0);
+
+        assert(std::getline(streamUser,userRowStr));
+        std::vector<std::string> userValues = split(userRowStr,'|');
+        assert(userValues.size() == 2);
+        pageValues.push_back(userValues[0]);
+        assert(std::getline(streamContent,contentRowStr));
+        std::vector<std::string> contentValues = split(contentRowStr,'|');
+        assert(contentValues.size() == 2);
+        pageValues.push_back(contentValues[1]);
+
+        std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
+        int counter = 0;
+        for (auto &columnName : pageTable->getColumnNames()) {
+            sqlvalues.push_back(Native::Sql::Value::castString(pageValues[counter],pageTable->getCI(columnName)->type));
+            counter++;
+        }
+        Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
+        auto loadStart = std::chrono::high_resolution_clock::now();
+        update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
+        loadDuration += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - loadStart).count();
+    }
+
+    streamRevision.close();
+    streamPage.close();
+    streamContent.close();
+    streamUser.close();
+
+    std::cout << "Table Sizes:\n";
+    std::cout << "Page:\t" << db->getTable("page")->size() << "\n";
+    std::cout << "User:\t" << db->getTable("user")->size() << "\n";
+    std::cout << "LoadDuration:\t" << std::fixed << loadDuration / 1000 << std::endl;
+}
+
+#else
+
+void storeTextGen(char *dest, const uint8_t * bytes, size_t len) {
+    if (len > 15) {
+        std::unique_ptr<uint8_t[]> data(new uint8_t[len]);
+        std::memcpy(data.get(), bytes, len);
+        auto & storedStr = StringPool::instance().put(sql_string_t(len, std::move(data)));
+        uint8_t * beginPtr = storedStr.second.get();
+        uint8_t * endPtr = beginPtr+len;
+
+        uintptr_t first_value = reinterpret_cast<uintptr_t>(beginPtr);
+        first_value ^= static_cast<uintptr_t>(1) << (8*sizeof(uintptr_t)-1);
+
+        memcpy(dest,(char*)&first_value,8);
+        memcpy(dest + 8, &endPtr, 8);
+    } else {
+        dest[0] = (char) len;
+        memcpy(&dest[1],bytes,len);
+    }
+}
+
+void genLoadTextCall(cg_ptr8_t dest, cg_ptr8_t str, cg_size_t strLen)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (const char *, const char*, size_t), false>::get(context);
+    llvm::CallInst * result = codeGen.CreateCall(&storeTextGen, funcTy, {dest, str, strLen});
+}
+
 void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+
+    // this is fine for both types of null indicators
+    // - there is no space within the Vector in the case of an external null indicator (see NullIndicatorTable)
+    // - it wont matter for internal null indicators
+    Sql::SqlType notNullableType = toNotNullableTy(type);
+
+    // parse value
+    Sql::value_op_t value;
+    if (type.typeID == Sql::SqlType::TypeID::TextID) {
+        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
+
+        genLoadTextCall(arrayPtr,str,length);
+
+        value = Sql::value_op_t( new Sql::Text(type, arrayPtr) );
+    } else {
+        value = Sql::Value::castString(str, length, notNullableType);
+    }
+
+    cg_voidptr_t destPtr = genVectoBackCall(cg_voidptr_t::fromRawPointer(&column));
+
+    // cast destination pointer
+    llvm::Type * sqlValuePtrTy = llvm::PointerType::getUnqual(toLLVMTy(notNullableType));
+    llvm::Value * sqlValuePtr = codeGen->CreatePointerCast(destPtr.getValue(), sqlValuePtrTy);
+
+    value->store(sqlValuePtr);
+}
+
+struct RowItem {
+    size_t length;
+    const char * str;
+};
+
+static llvm::Type * getRowItemTy()
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+
+    std::vector<llvm::Type *> members(2);
+
+    // RowItem struct members:
+    members[0] = cg_size_t::getType();
+    members[1] = cg_ptr8_t::getType();
+
+    llvm::StructType * rowItemTy = llvm::StructType::get(context, false);
+    rowItemTy->setBody(members);
+
+    return rowItemTy;
+}
+
+static inline llvm::Type * getRowTy(size_t columnCount, llvm::Type * rowItemTy)
+{
+    llvm::Type * rowTy = llvm::ArrayType::get(rowItemTy, columnCount);
+    return rowTy;
+}
+
+llvm::Function * genLoadRowFunction(Table *table)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    // prototype: loadRow(RowItem items[])
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *), false>::get(context);
+    FunctionGen funcGen(moduleGen, "loadRow", funcTy);
+
+    llvm::Type * rowItemTy = getRowItemTy();
+    // get types
+    llvm::Type * rowTy = getRowTy(table->getColumnCount(), rowItemTy);
+
+    // cast row pointer
+    llvm::Value * rawPtr = funcGen.getArg(0);
+    llvm::Value * rowPtr = codeGen->CreateBitCast(rawPtr, llvm::PointerType::getUnqual(rowTy));
+
+    // load each value within the row
+    size_t i = 0;
+    for (const std::string & column : table->getColumnNames()) {
+        ci_p_t ci = table->getCI(column);
+
+#ifdef __APPLE__
+        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ull), cg_size_t(i) });
+#else
+        llvm::Value * itemPtr = codeGen->CreateGEP(rowTy, rowPtr, { cg_size_t(0ul), cg_size_t(i) });
+#endif
+
+        llvm::Value * lengthPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 0);
+        llvm::Value * strPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 1);
+
+        llvm::Value * length = codeGen->CreateLoad(lengthPtr);
+        llvm::Value * str = codeGen->CreateLoad(strPtr);
+
+        genLoadValue(cg_ptr8_t(str), cg_size_t(length), ci->type, *ci->column);
+
+        i += 1;
+    }
+
+    return funcGen.getFunction();
+}
+
+typedef void (* FunPtr)(void *);
+
+void loadTable(std::istream & stream, Table* table, int tableType)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & moduleGen = codeGen.getCurrentModuleGen();
+
+    llvm::Function * loadFun = genLoadRowFunction(table);
+
+    // compile
+    llvm::EngineBuilder eb( moduleGen.finalizeModule() );
+    auto ee = std::unique_ptr<llvm::ExecutionEngine>( eb.create() );
+    ee->finalizeObject();
+
+    // lookup compiled function
+    FunPtr f = reinterpret_cast<FunPtr>(ee->getPointerToFunction(loadFun));
+
+    // Branch ID generator
+    std::default_random_engine generator;
+
+    size_t tid = 0;
+
+    // load each row
+    std::string rowStr;
+    std::vector<RowItem> row(table->getColumnCount());
+    while (std::getline(stream, rowStr)) {
+        table->addRow(0);
+
+        std::vector<std::string> items = split(rowStr, '|');
+        assert(row.size() == items.size());
+
+        if (tableType == 1) {
+            items[3] = std::to_string(tid);
+        }
+        if (tableType == 2) {
+            items[0] = std::to_string(tid);
+        }
+
+        size_t i = 0;
+        for (const std::string & itemStr : items) {
+            RowItem & item = row[i];
+            item.length = itemStr.size();
+            item.str = itemStr.c_str();
+            i += 1;
+        }
+
+        // load row
+        f(row.data());
+
+        tid++;
+    }
+}
+
+void loadWikiDb(Database *db, int lowerBound, int upperBound)
+{
+    std::stringstream ssRange;
+    ssRange << "_";
+    ssRange << lowerBound;
+    ssRange << "_";
+    ssRange << upperBound;
+    std::string pageRangeStr = ssRange.str();
+
+    std::string pageFileName = "page" + pageRangeStr + ".tbl";
+    std::string revisionFileName = "revision" + pageRangeStr + ".tbl";
+    std::string contentFileName = "content" + pageRangeStr + ".tbl";
+    std::string userFileName = "user" + pageRangeStr + ".tbl";
+
+    QueryCompiler::compileAndExecute("CREATE TABLE user ( id INTEGER NOT NULL, name TEXT NOT NULL );",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title TEXT NOT NULL);",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE revision ( id INTEGER NOT NULL, parentId INTEGER NOT NULL, pageId INTEGER NOT NULL, textId INTEGER NOT NULL, userId INTEGER NOT NULL);",*db);
+    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text TEXT NOT NULL);",*db);
+
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("user");
+        std::ifstream fs(userFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/user.tbl"); }
+        loadTable(fs, item,0);
+        fs.close();
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("page");
+        std::ifstream fs(pageFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/page.tbl"); }
+        loadTable(fs, item,0);
+        fs.close();
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("content");
+        std::ifstream fs(contentFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/content.tbl"); }
+        loadTable(fs, item,2);
+        fs.close();
+    }
+    {
+        ModuleGen moduleGen("LoadTableModule");
+        Table *item = db->getTable("revision");
+        std::ifstream fs(revisionFileName);
+        if (!fs) { throw std::runtime_error("file not found: tables/revision.tbl"); }
+        loadTable(fs, item,1);
+        fs.close();
+    }
+
+    std::cout << "Table Sizes:\n";
+    std::cout << "User:\t" << db->getTable("user")->size() << "\n";
+    std::cout << "Page:\t" << db->getTable("page")->size() << "\n";
+    std::cout << "Revision:\t" << db->getTable("revision")->size() << "\n";
+    std::cout << "Content:\t" << db->getTable("content")->size() << "\n";
+}
+
+#endif
+
+void benchmarkQuery(std::string query, Database &db, unsigned runs) {
+    std::vector<QueryCompiler::BenchmarkResult> results;
+
+#ifdef PERF_AVAILABLE
+    std::string header;
+    std::string data;
+    BenchmarkParameters params;
+
+    {
+        PerfEventBlock e(runs, params, false);
+#endif
+
+        for (int i = 0; i < runs; i++) {
+            results.push_back(QueryCompiler::compileAndBenchmark(query, db));
+        }
+
+#ifdef PERF_AVAILABLE
+    }
+#endif
+
+    double parsingTime = 0;
+    double analsingTime = 0;
+    double translationTime = 0;
+    double compileTime = 0;
+    double executionTime = 0;
+    for (auto &result : results) {
+        parsingTime += result.parsingTime;
+        analsingTime += result.analysingTime;
+        translationTime += result.translationTime;
+        compileTime += result.llvmCompilationTime;
+        executionTime += result.executionTime;
+    }
+    double sum = parsingTime + analsingTime + translationTime + compileTime + executionTime;
+    std::cout << std::fixed << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << (sum / runs) << std::endl;
+}
+
+void prompt(Database &database, unsigned runs)
+{
+    while (true) {
+        try {
+            fflush(stdout);
+
+            std::string input = readline();
+            if (input == "quit\n") {
+                break;
+            }
+
+            benchmarkQuery(input,database,runs);
+        } catch (const std::exception & e) {
+            fprintf(stderr, "Exception: %s\n", e.what());
+        }
+    }
+}
+
+int main(int argc, char * argv[]) {
+    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name>] [-d <Master Share>] [-r <Runs per Statement>]");
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+    llvm::InitializeNativeTargetAsmParser();
+
+    std::unique_ptr<Database> db = std::make_unique<Database>();
+
+    loadWikiDb(db.get(),FLAGS_lowerBound,FLAGS_upperBound);
+
+    prompt(*db,FLAGS_r);
+
+    llvm::llvm_shutdown();
+}
+
+/*void genLoadValue(cg_ptr8_t str, cg_size_t length, Sql::SqlType type, Vector & column)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
@@ -327,320 +991,6 @@ void loadWikiTable(std::istream & stream, bool isDistributing, Table* table, std
     }
 }
 
-void loadWikiDb(Database *db, int lowerBound, int upperBound)
-{
-    std::stringstream ssRange;
-    ssRange << "_";
-    ssRange << lowerBound;
-    ssRange << "_";
-    ssRange << upperBound;
-    std::string pageRangeStr = ssRange.str();
-
-
-    std::string pageFileName = "page" + pageRangeStr + ".tbl";
-    std::string revisionFileName = "revision" + pageRangeStr + ".tbl";
-    std::string contentFileName = "content" + pageRangeStr + ".tbl";
-
-    QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
-    QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
-
-    std::ifstream streamRevision(revisionFileName);
-    if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    std::ifstream streamPage(pageFileName);
-    if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    std::ifstream streamContent(contentFileName);
-    if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
-
-    Table *pageTable = db->getTable("page");
-    Table *contentTable = db->getTable("content");
-
-    std::string skippingPageId = "";
-
-    std::string currentPageId = "";
-    std::string currentPageTitle = "";
-
-    std::string revisionRowStr;
-    std::string pageRowStr;
-    std::string contentRowStr;
-
-    QueryContext firstctx(*db);
-    firstctx.executionContext.branchId = 0;
-    db->constructBranchLineage(0, firstctx.executionContext);
-    while(std::getline(streamRevision, revisionRowStr)) {
-        std::vector<std::string> revisionValues = split(revisionRowStr,'|');
-
-        if (std::stoi(revisionValues[2]) < lowerBound) {
-            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
-                skippingPageId = revisionValues[2];
-                assert(std::getline(streamPage,pageRowStr));
-            }
-            assert(std::getline(streamContent,contentRowStr));
-            continue;
-        }
-        if (std::stoi(revisionValues[2]) > upperBound) {
-            break;
-        }
-
-        if (currentPageId.compare("") == 0 || currentPageId.compare(revisionValues[2]) != 0) {
-            currentPageId = revisionValues[2];
-
-            assert(std::getline(streamPage,pageRowStr));
-            std::vector<std::string> pageValues = split(pageRowStr,'|');
-            assert(pageValues.size() == 2);
-            assert(pageValues[0].compare(currentPageId) == 0);
-            pageValues.push_back(revisionValues[3]);
-
-            assert(std::getline(streamContent,contentRowStr));
-            std::vector<std::string> contentValues = split(contentRowStr,'|');
-            assert(contentValues.size() == 2);
-
-            std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
-            int counter = 0;
-            for (auto &columnName : pageTable->getColumnNames()) {
-                sqlvalues.push_back(Native::Sql::Value::castString(pageValues[counter],pageTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
-            insert_tuple(pageTuple, *pageTable, firstctx);
-
-            sqlvalues.clear();
-            counter = 0;
-            for (auto &columnName : contentTable->getColumnNames()) {
-                sqlvalues.push_back(Native::Sql::Value::castString(contentValues[counter],contentTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-            insert_tuple(contentTuple, *contentTable, firstctx);
-        } else {
-            assert(std::getline(streamContent,contentRowStr));
-        }
-    }
-
-    QueryCompiler::compileAndExecute("CREATE BRANCH branch1 FROM master;",*db);
-
-    streamRevision.close();
-    streamPage.close();
-    streamContent.close();
-    streamRevision = std::ifstream(revisionFileName);
-    if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    streamPage = std::ifstream(pageFileName);
-    if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    streamContent = std::ifstream(contentFileName);
-    if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
-
-    currentPageId = "";
-    skippingPageId = "";
-    std::vector<std::string> currentPageValues;
-    std::vector<std::string> lastContentValues;
-    tid_t pageTID = 0;
-    bool wasFirstRevision = true;
-
-    QueryContext secondctx(*db);
-    secondctx.executionContext.branchId = 0;
-    db->constructBranchLineage(0, secondctx.executionContext);
-    while(std::getline(streamRevision, revisionRowStr)) {
-        std::vector<std::string> revisionValues = split(revisionRowStr,'|');
-
-        if (std::stoi(revisionValues[2]) < lowerBound) {
-            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
-                skippingPageId = revisionValues[2];
-                assert(std::getline(streamPage,pageRowStr));
-            }
-            assert(std::getline(streamContent,contentRowStr));
-            continue;
-        }
-        if (std::stoi(revisionValues[2]) > upperBound) {
-            break;
-        }
-
-        if (currentPageId.compare("") == 0) {
-            currentPageId = revisionValues[2];
-
-            assert(std::getline(streamPage,pageRowStr));
-            currentPageValues = split(pageRowStr,'|');
-            assert(currentPageValues.size() == 2);
-            assert(currentPageValues[0].compare(currentPageId) == 0);
-
-            assert(std::getline(streamContent,contentRowStr));
-            wasFirstRevision = true;
-            continue;
-        }
-
-        if (currentPageId.compare(revisionValues[2]) != 0) {
-            currentPageId = revisionValues[2];
-
-            assert(std::getline(streamPage,pageRowStr));
-            currentPageValues = split(pageRowStr,'|');
-            assert(currentPageValues.size() == 2);
-            assert(currentPageValues[0].compare(currentPageId) == 0);
-
-            assert(std::getline(streamContent,contentRowStr));
-
-            pageTID++;
-            wasFirstRevision = true;
-            continue;
-        }
-
-        if (!wasFirstRevision && currentPageId.compare(revisionValues[2]) == 0) {
-            std::vector<std::string> lastPageValues = currentPageValues;
-            lastPageValues.push_back(lastContentValues[0]);
-
-            std::vector<std::unique_ptr<Native::Sql::Value>> sqlValues;
-            int counter = 0;
-            for (auto &columnName : pageTable->getColumnNames()) {
-                sqlValues.push_back(Native::Sql::Value::castString(lastPageValues[counter],pageTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple pageTuple(std::move(sqlValues));
-            update_tuple(pageTID,pageTuple,*pageTable,secondctx);
-
-            sqlValues.clear();
-            counter = 0;
-            for (auto &columnName : contentTable->getColumnNames()) {
-                sqlValues.push_back(Native::Sql::Value::castString(lastContentValues[counter],contentTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple contentTuple(std::move(sqlValues));
-            insert_tuple(contentTuple, *contentTable, secondctx);
-        }
-
-        assert(std::getline(streamContent,contentRowStr));
-        lastContentValues = split(contentRowStr,'|');
-        assert(lastContentValues.size() == 2);
-        wasFirstRevision = false;
-    }
-
-    QueryCompiler::compileAndExecute("CREATE BRANCH branch2 FROM master;",*db);
-
-    streamRevision.close();
-    streamPage.close();
-    streamContent.close();
-    streamRevision = std::ifstream(revisionFileName);
-    if (!streamRevision) { throw std::runtime_error("file not found: tables/revision.tbl"); }
-    streamPage = std::ifstream(pageFileName);
-    if (!streamPage) { throw std::runtime_error("file not found: tables/page.tbl"); }
-    streamContent = std::ifstream(contentFileName);
-    if (!streamContent) { throw std::runtime_error("file not found: tables/content.tbl"); }
-
-    currentPageId = "";
-    skippingPageId = "";
-    pageTID = 0;
-    bool isFirstRevisionOfPage = true;
-
-    QueryContext thirdctx(*db);
-    thirdctx.executionContext.branchId = 0;
-    db->constructBranchLineage(0, thirdctx.executionContext);
-    while(std::getline(streamRevision, revisionRowStr)) {
-        std::vector<std::string> revisionValues = split(revisionRowStr,'|');
-
-        if (std::stoi(revisionValues[2]) < lowerBound) {
-            if (skippingPageId.compare("") == 0 || skippingPageId.compare(revisionValues[2]) != 0) {
-                skippingPageId = revisionValues[2];
-                assert(std::getline(streamPage,pageRowStr));
-            }
-            assert(std::getline(streamContent,contentRowStr));
-            continue;
-        }
-        if (std::stoi(revisionValues[2]) > upperBound) {
-            break;
-        }
-
-
-        if (currentPageId.compare("") == 0) {
-            currentPageId = revisionValues[2];
-            isFirstRevisionOfPage = true;
-            continue;
-        }
-
-        if (!isFirstRevisionOfPage && currentPageId.compare(revisionValues[2]) != 0) {
-            assert(std::getline(streamPage,pageRowStr));
-            std::vector<std::string> pageValues = split(pageRowStr,'|');
-            assert(pageValues.size() == 2);
-            assert(pageValues[0].compare(currentPageId) == 0);
-
-            assert(std::getline(streamContent,contentRowStr));
-            std::vector<std::string> contentValues = split(contentRowStr,'|');
-            assert(contentValues.size() == 2);
-            pageValues.push_back(contentValues[0]);
-
-            std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
-            int counter = 0;
-            for (auto &columnName : pageTable->getColumnNames()) {
-                sqlvalues.push_back(Native::Sql::Value::castString(pageValues[counter],pageTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
-            update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
-
-            sqlvalues.clear();
-            counter = 0;
-            for (auto &columnName : contentTable->getColumnNames()) {
-                sqlvalues.push_back(Native::Sql::Value::castString(contentValues[counter],contentTable->getCI(columnName)->type));
-                counter++;
-            }
-            Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-            insert_tuple(contentTuple, *contentTable, thirdctx);
-
-            pageTID++;
-            isFirstRevisionOfPage = true;
-            currentPageId = revisionValues[2];
-            continue;
-        }
-
-        if (currentPageId.compare(revisionValues[2]) != 0) {
-            assert(std::getline(streamPage,pageRowStr));
-            pageTID++;
-            isFirstRevisionOfPage = true;
-            currentPageId = revisionValues[2];
-        } else {
-            isFirstRevisionOfPage = false;
-        }
-
-        assert(std::getline(streamContent,contentRowStr));
-    }
-
-    if (!isFirstRevisionOfPage) {
-        assert(std::getline(streamPage,pageRowStr));
-        std::vector<std::string> pageValues = split(pageRowStr,'|');
-        assert(pageValues.size() == 2);
-        assert(pageValues[0].compare(currentPageId) == 0);
-
-        assert(std::getline(streamContent,contentRowStr));
-        std::vector<std::string> contentValues = split(contentRowStr,'|');
-        assert(contentValues.size() == 2);
-        pageValues.push_back(contentValues[0]);
-
-        std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
-        int counter = 0;
-        for (auto &columnName : pageTable->getColumnNames()) {
-            sqlvalues.push_back(Native::Sql::Value::castString(pageValues[counter],pageTable->getCI(columnName)->type));
-            counter++;
-        }
-        Native::Sql::SqlTuple pageTuple(std::move(sqlvalues));
-        update_tuple(pageTID,pageTuple,*pageTable,thirdctx);
-
-        sqlvalues.clear();
-        counter = 0;
-        for (auto &columnName : contentTable->getColumnNames()) {
-            sqlvalues.push_back(Native::Sql::Value::castString(contentValues[counter],contentTable->getCI(columnName)->type));
-            counter++;
-        }
-        Native::Sql::SqlTuple contentTuple(std::move(sqlvalues));
-        insert_tuple(contentTuple, *contentTable, thirdctx);
-
-        pageTID++;
-        isFirstRevisionOfPage = true;
-    }
-
-    streamRevision.close();
-    streamPage.close();
-    streamContent.close();
-
-    std::cout << "Table Sizes:\n";
-    std::cout << "Page:\t" << db->getTable("page")->size() << "\n";
-    std::cout << "Content:\t" << db->getTable("content")->size() << "\n";
-}
-
 std::unique_ptr<Database> loadTPCC() {
     auto tpccDb = std::make_unique<Database>();
 
@@ -882,8 +1232,8 @@ std::unique_ptr<Database> generateWikiTBL() {
 
     DistributionEngine distributionEngine = DistributionEngine({ 2 , 1 });
 
-    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>)> insertCallback =
-            [db = tpccDb.get(),distributionEnginePtr = &distributionEngine](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents) {
+    std::function<void(wikiparser::Page,std::vector<wikiparser::Revision>,std::vector<wikiparser::Content>,std::vector<wikiparser::User>)> insertCallback =
+            [db = tpccDb.get(),distributionEnginePtr = &distributionEngine](wikiparser::Page page, std::vector<wikiparser::Revision> revisions, std::vector<wikiparser::Content> contents, std::vector<wikiparser::User> users) {
         if (revisions.size() != contents.size()) return;
 
         std::vector<int> branchMappings(0);
@@ -954,15 +1304,6 @@ std::unique_ptr<Database> generateWikiTBL() {
     {
         std::cerr << "libxml++ exception: " << ex.what() << std::endl;
     }
-    /*try {
-        wikiparser::WikiParser parser(pageCallback, revisionCallback, contentCallback);
-        parser.set_substitute_entities(false);
-        std::ifstream ifs ("enwiki-20200801-stub-meta-history1.xml", std::ifstream::in);
-        ifs.re
-        parser.parse_stream(ifs);
-    } catch (const xmlpp::exception& ex) {
-        std::cerr << "libxml++ exception: " << ex.what() << std::endl;
-    }*/
 
     std::cout << "Table Sizes:\n";
     std::cout << "Page:\t" << tpccDb->getTable("page")->size() << "\n";
@@ -1016,88 +1357,4 @@ std::unique_ptr<Database> loadWiki(std::discrete_distribution<int> &distribution
     std::cout << "Content:\t" << wikidb->getTable("content")->size() << "\n";
 
     return wikidb;
-}
-
-void benchmarkQuery(std::string query, Database &db, unsigned runs) {
-    std::vector<QueryCompiler::BenchmarkResult> results;
-
-#ifdef PERF_AVAILABLE
-    std::string header;
-    std::string data;
-    BenchmarkParameters params;
-
-    {
-        PerfEventBlock e(runs, params, false);
-#endif
-
-        for (int i = 0; i < runs; i++) {
-            results.push_back(QueryCompiler::compileAndBenchmark(query, db));
-        }
-
-#ifdef PERF_AVAILABLE
-    }
-#endif
-
-    double parsingTime = 0;
-    double analsingTime = 0;
-    double translationTime = 0;
-    double compileTime = 0;
-    double executionTime = 0;
-    for (auto &result : results) {
-        parsingTime += result.parsingTime;
-        analsingTime += result.analysingTime;
-        translationTime += result.translationTime;
-        compileTime += result.llvmCompilationTime;
-        executionTime += result.executionTime;
-    }
-    double sum = parsingTime + analsingTime + translationTime + compileTime + executionTime;
-    //std::cout << "Parsing time , Analysing time , Translation time , Compile time , Execution time , Sum" << std::endl;
-    std::cout << std::fixed << (parsingTime / runs) << " , " << (analsingTime / runs) << " , " << (translationTime / runs) << " , " << (compileTime / runs) << " , " << (executionTime / runs) << " , " << (sum / runs) << std::endl;
-}
-
-void prompt(Database &database, unsigned runs)
-{
-    while (true) {
-        try {
-            fflush(stdout);
-
-            std::string input = readline();
-            if (input == "quit\n") {
-                break;
-            }
-
-            benchmarkQuery(input,database,runs);
-        } catch (const std::exception & e) {
-            fprintf(stderr, "Exception: %s\n", e.what());
-        }
-    }
-}
-
-int main(int argc, char * argv[]) {
-    gflags::SetUsageMessage("semanticalBench [-b] [-l <Database Name>] [-d <Master Share>] [-r <Runs per Statement>]");
-    gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-    llvm::InitializeNativeTarget();
-    llvm::InitializeNativeTargetAsmPrinter();
-    llvm::InitializeNativeTargetAsmParser();
-
-    std::array<double,2> _distribution;
-    _distribution[0] = FLAGS_d;
-    _distribution[1] = 1 - _distribution[0];
-    std::discrete_distribution<int> distribution(_distribution.begin(),_distribution.end());
-
-    std::unique_ptr<Database> db = std::make_unique<Database>();
-
-    const auto loadStart = std::chrono::high_resolution_clock::now();
-    loadWikiDb(db.get(),FLAGS_lowerBound,FLAGS_upperBound);
-    const auto loadDuration = std::chrono::high_resolution_clock::now() - loadStart;
-    std::cout << "Load Time: " << std::fixed << std::chrono::duration_cast<std::chrono::milliseconds>(loadDuration).count() << std::endl;
-
-
-    //QueryCompiler::compileAndExecute("CREATE TABLE page ( id INTEGER NOT NULL, title VARCHAR ( 300 ) NOT NULL , textId INTEGER NOT NULL );",*db);
-    //QueryCompiler::compileAndExecute("CREATE TABLE content ( id INTEGER NOT NULL, text VARCHAR ( 32 ) NOT NULL);",*db);
-
-    prompt(*db,FLAGS_r);
-
-    llvm::llvm_shutdown();
-}
+}*/

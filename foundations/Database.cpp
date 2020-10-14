@@ -196,9 +196,19 @@ void Table::addRow(branch_id_t branchId)
     for (auto & [ci, vec] : _columns) {
         vec->reserve_back();
     }
+#if USE_DATA_VERSIONING
     _nullIndicatorTable.addRow();
     _branchBitmap.addRow();
     _branchBitmap.set(_columns.front().second->size() - 1,branchId,1);
+#endif
+}
+
+void Table::removeRow(tid_t tid) {
+#if !USE_DATA_VERSIONING
+    for (auto & [ci, vec] : _columns) {
+        vec->remove_at(tid);
+    }
+#endif
 }
 
 void Table::removeRowForBranch(tid_t tid, branch_id_t branchId) {
