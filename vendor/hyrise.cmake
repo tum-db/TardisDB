@@ -8,6 +8,10 @@ ExternalProject_Add(
     GIT_REPOSITORY "ssh://git@gitlab.db.in.tum.de:2222/thomasb/sql-parser.git"
     GIT_TAG develop
     TIMEOUT 10
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
+    INSTALL_COMMAND make install
+    UPDATE_COMMAND ""
     CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/vendor/hyrise
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}

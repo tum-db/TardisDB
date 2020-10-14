@@ -16,6 +16,7 @@
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
 #include <llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm/Target/TargetMachine.h>
+#include <include/tardisdb/sqlParser/SQLParser.hpp>
 
 #include "algebra/logical/operators.hpp"
 #include "algebra/translation.hpp"
@@ -26,6 +27,11 @@
 #include "queryExecutor/queryExecutor.hpp"
 
 #include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
+#include "sqlParser/ParserResult.hpp"
+
+#if USE_HYRISE
+    #include "SQLParser.h"
+#endif
 
 namespace QueryCompiler {
 
@@ -50,15 +56,20 @@ namespace QueryCompiler {
         return queryFunc;
     }
 
-
     void compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {
         QueryContext queryContext(db);
 
         ModuleGen moduleGen("QueryModule");
 
-        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(query);
+#if USE_HYRISE
+        hsql::SQLParser::parse(query, &queryContext.hyriseResult);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
+#else
+        tardisParser::SQLParser::parse_sql_statement(queryContext.parsingContext,query);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
+#endif
 
-        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,parserResult);
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,queryContext.analyzingContext.parserResult);
         analyser->verify();
         auto queryTree = analyser->constructTree();
         if (queryTree == nullptr) return;
@@ -79,11 +90,17 @@ namespace QueryCompiler {
         ModuleGen moduleGen("QueryModule");
 
         const auto parsingStart = std::chrono::high_resolution_clock::now();
-        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(query);
+#if USE_HYRISE
+        hsql::SQLParser::parse(query, &queryContext.hyriseResult);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
+#else
+        tardisParser::SQLParser::parse_sql_statement(queryContext.parsingContext,query);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
+#endif
         const auto parsingDuration = std::chrono::high_resolution_clock::now() - parsingStart;
 
         const auto analysingStart = std::chrono::high_resolution_clock::now();
-        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,parserResult);
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,queryContext.analyzingContext.parserResult);
         analyser->verify();
         auto queryTree = analyser->constructTree();
         const auto analysingDuration = std::chrono::high_resolution_clock::now() - analysingStart;

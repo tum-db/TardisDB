@@ -1,6 +1,12 @@
 
 #pragma once
 
+#if USE_HYRISE
+#include "SQLParser.h"
+#else
+#include "sqlParser/ParserResult.hpp"
+#endif
+#include "semanticAnalyser/AnalyzingContext.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
 #include "foundations/InformationUnit.hpp"
@@ -48,4 +54,21 @@ struct QueryContext {
 
     // runtime related
     ExecutionContext executionContext;
+    semanticalAnalysis::AnalyzingContext analyzingContext;
+#if USE_HYRISE
+    hsql::SQLParserResult hyriseResult;
+#else
+    tardisParser::ParsingContext parsingContext;
+#endif
+
+#if USE_HYRISE
+    static std::tuple<std::string,int,int> convertDataType(hsql::ColumnType type);
+    static void collectTables(std::vector<semanticalAnalysis::Relation> &relations, hsql::TableRef *tableRef);
+    static std::string expressionValueToString(hsql::Expr *expr);
+    static void collectSelections(std::vector<std::pair<semanticalAnalysis::Column,std::string>> &selections, hsql::Expr *whereClause);
+    static void collectJoinConditions(std::vector<std::pair<semanticalAnalysis::Column,semanticalAnalysis::Column>> &joinConditions, hsql::Expr *whereClause);
+    static void convertToParserResult(semanticalAnalysis::SQLParserResult &dest, hsql::SQLParserResult &source);
+#else
+    static void convertToParserResult(semanticalAnalysis::SQLParserResult &dest, tardisParser::ParsingContext &source);
+#endif
 };
