@@ -8,7 +8,7 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> InsertAnalyser::constructTree() {
         QueryPlan plan;
-        tardisParser::InsertStatement *stmt = _parserResult.insertStmt;
+        InsertStatement *stmt = _parserResult.insertStmt;
 
         auto& db = _context.db;
         Table* table = db.getTable(stmt->relation.name);

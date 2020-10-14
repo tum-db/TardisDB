@@ -14,7 +14,7 @@
 
 namespace semanticalAnalysis {
 
-    void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan, std::vector<tardisParser::Table> &relations) {
+    void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan, std::vector<Relation> &relations) {
         for (auto &relation : relations) {
             if (relation.alias.compare("") == 0) relation.alias = relation.name;
 
@@ -41,7 +41,7 @@ namespace semanticalAnalysis {
     }
 
     // TODO: Implement nullable
-    void SemanticAnalyser::construct_selects(QueryPlan& plan, std::vector<std::pair<tardisParser::Column,std::string>> &selections) {
+    void SemanticAnalyser::construct_selects(QueryPlan& plan, std::vector<std::pair<Column,std::string>> &selections) {
         for (auto &[column,valueString] : selections) {
             // Construct Expression
             iu_p_t iu;
@@ -73,7 +73,7 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SemanticAnalyser::construct_join_graph(QueryContext & context, QueryPlan & plan, tardisParser::SelectStatement *stmt) {
+    void SemanticAnalyser::construct_join_graph(QueryContext & context, QueryPlan & plan, SelectStatement *stmt) {
         JoinGraph &graph = plan.graph;
 
         // create and add vertices to join graph
@@ -159,7 +159,7 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SemanticAnalyser::construct_joins(QueryContext & context, QueryPlan & plan, tardisParser::SQLParserResult &parserResult) {
+    void SemanticAnalyser::construct_joins(QueryContext & context, QueryPlan & plan, SQLParserResult &parserResult) {
         // Construct the join graph
         construct_join_graph(context,plan,parserResult.selectStmt);
 
@@ -171,19 +171,19 @@ namespace semanticalAnalysis {
     }
 
     std::unique_ptr<SemanticAnalyser> SemanticAnalyser::getSemanticAnalyser(QueryContext &context,
-            tardisParser::SQLParserResult &parserResult) {
+                                                                            SQLParserResult &parserResult) {
         switch (parserResult.opType) {
-            case tardisParser::SQLParserResult::OpType::Select:
+            case SQLParserResult::OpType::Select:
                 return std::make_unique<SelectAnalyser>(context,parserResult);
-            case tardisParser::SQLParserResult::OpType::Insert:
+            case SQLParserResult::OpType::Insert:
                 return std::make_unique<InsertAnalyser>(context,parserResult);
-            case tardisParser::SQLParserResult::OpType::Update:
+            case SQLParserResult::OpType::Update:
                 return std::make_unique<UpdateAnalyser>(context,parserResult);
-            case tardisParser::SQLParserResult::OpType::Delete:
+            case SQLParserResult::OpType::Delete:
                 return std::make_unique<DeleteAnalyser>(context,parserResult);
-            case tardisParser::SQLParserResult::OpType::CreateTable:
+            case SQLParserResult::OpType::CreateTable:
                 return std::make_unique<CreateTableAnalyser>(context,parserResult);
-            case tardisParser::SQLParserResult::OpType::CreateBranch:
+            case SQLParserResult::OpType::CreateBranch:
                 return std::make_unique<CreateBranchAnalyser>(context,parserResult);
         }
 

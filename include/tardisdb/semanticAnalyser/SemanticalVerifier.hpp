@@ -5,7 +5,7 @@
 #ifndef PROTODB_SEMANTICALVERIFIER_HPP
 #define PROTODB_SEMANTICALVERIFIER_HPP
 
-#include "sqlParser/ParserResult.hpp"
+#include "semanticAnalyser/ParserResult.hpp"
 #include "foundations/Database.hpp"
 #include "foundations/QueryContext.hpp"
 
@@ -18,7 +18,7 @@ namespace semanticalAnalysis {
     class SemanticalVerifier {
     public:
         SemanticalVerifier(QueryContext &context) : _context(context) {}
-        void analyse_sql_statement(tardisParser::SQLParserResult &result);
+        void analyse_sql_statement(SQLParserResult &result);
     private:
         QueryContext& _context;
     };

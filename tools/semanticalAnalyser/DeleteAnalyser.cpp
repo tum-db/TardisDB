@@ -8,9 +8,9 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> DeleteAnalyser::constructTree() {
         QueryPlan plan;
-        tardisParser::DeleteStatement *stmt = _parserResult.deleteStmt;
+        DeleteStatement *stmt = _parserResult.deleteStmt;
 
-        std::vector<tardisParser::Table> relations;
+        std::vector<Relation> relations;
         relations.push_back(stmt->relation);
         construct_scans(_context, plan, relations);
         construct_selects(plan, stmt->selections);

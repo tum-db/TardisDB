@@ -90,7 +90,7 @@ namespace semanticalAnalysis {
         }
     }*/
 
-    void SemanticalVerifier::analyse_sql_statement(tardisParser::SQLParserResult &result) {
+    void SemanticalVerifier::analyse_sql_statement(SQLParserResult &result) {
         /*auto scope = construct_scope(_context.db, result);
         fully_qualify_names(scope, result);
         validate_sql_statement(scope, _context.db, result);*/

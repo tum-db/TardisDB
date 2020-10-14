@@ -10,7 +10,7 @@ namespace semanticalAnalysis {
 //TODO: Check physical tree projections do not work after joining
     std::unique_ptr<Operator> SelectAnalyser::constructTree() {
         QueryPlan plan;
-        tardisParser::SelectStatement *stmt = _parserResult.selectStmt;
+        SelectStatement *stmt = _parserResult.selectStmt;
 
         construct_scans(_context, plan, stmt->relations);
         construct_selects(plan, stmt->selections);

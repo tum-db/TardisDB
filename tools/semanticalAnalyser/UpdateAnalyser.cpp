@@ -9,9 +9,9 @@ namespace semanticalAnalysis {
     //TODO: Verifier check on only one table to update
     std::unique_ptr<Operator> UpdateAnalyser::constructTree() {
         QueryPlan plan;
-        tardisParser::UpdateStatement *stmt = _parserResult.updateStmt;
+        UpdateStatement *stmt = _parserResult.updateStmt;
 
-        std::vector<tardisParser::Table> relations;
+        std::vector<Relation> relations;
         relations.push_back(stmt->relation);
         construct_scans(_context, plan, relations);
         construct_selects(plan, stmt->selections);

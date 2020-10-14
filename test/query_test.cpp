@@ -1,7 +1,3 @@
-//
-// Created by josef on 04.01.17.
-//
-
 #include <llvm/IR/TypeBuilder.h>
 
 #include "codegen/CodeGen.hpp"
@@ -26,20 +22,20 @@ namespace {
         static void stateProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(2)));
-            ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(6,2,false),300)));
+            ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),300000000)));
         }
 
 
         static void stateKemperCallbackHandler(Native::Sql::SqlTuple *tuple) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(1)));
-            ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(6,2,false),400)));
+            ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),400000000)));
         }
 
         static void stateKemperUpdatedCallbackHandler(Native::Sql::SqlTuple *tuple) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(1)));
-            ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(6,2,false),500)));
+            ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),500000000)));
         }
 
         static void stateKemperProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple) {
@@ -47,9 +43,9 @@ namespace {
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(1)) || tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(2)));
 
             if (tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(1))) {
-                ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(6,2,false),400)));
+                ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),400000000)));
             } else {
-                ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(6,2,false),300)));
+                ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),300000000)));
             }
         }
 
@@ -58,8 +54,11 @@ namespace {
 
 
     TEST_F(QueryTest, CreateTable) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
-
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         ASSERT_TRUE(db->hasTable("professoren"));
         Table* professorenTable = db->getTable("professoren");
         ASSERT_NE(professorenTable, nullptr);
@@ -77,7 +76,7 @@ namespace {
 
         ci_p_t rangCI = professorenTable->getCI("rang");
         ASSERT_NE(rangCI, nullptr);
-        ASSERT_TRUE(Sql::equals(rangCI->type,Sql::getNumericTy(6,2,false),Sql::SqlTypeEqualsMode::Full));
+        ASSERT_TRUE(Sql::equals(rangCI->type,Sql::getNumericTy(32,8,false),Sql::SqlTypeEqualsMode::Full));
         ASSERT_NO_THROW(db->getTable("professoren")->getColumn("rang"));
     }
 
@@ -94,19 +93,31 @@ namespace {
     }
 
     TEST_F(QueryTest, InsertIntoSelect) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperCallbackHandler);
     }
 
     TEST_F(QueryTest, SelectJoin) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperCallbackHandler);
     }
 
     TEST_F(QueryTest, InsertIntoVersion) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("INSERT INTO professoren VERSION hello ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
@@ -115,14 +126,22 @@ namespace {
     }
 
     TEST_F(QueryTest, Update) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("UPDATE professoren SET rang = 5 WHERE id = 1 ;",*db);
         QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperUpdatedCallbackHandler);
     }
 
     TEST_F(QueryTest, UpdateBranchVersion) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("UPDATE professoren VERSION hello SET rang = 5 WHERE id = 1 ;",*db);
@@ -131,7 +150,11 @@ namespace {
     }
 
     TEST_F(QueryTest, UpdateMasterVersion) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("UPDATE professoren SET rang = 5 WHERE id = 1 ;",*db);
@@ -140,7 +163,11 @@ namespace {
     }
 
     TEST_F(QueryTest, Delete) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
         QueryCompiler::compileAndExecute("DELETE FROM professoren WHERE id = 1 ;",*db);
@@ -148,7 +175,11 @@ namespace {
     }
 
     TEST_F(QueryTest, DeleteBranchVisisbleVersion) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
@@ -158,7 +189,11 @@ namespace {
     }
 
     TEST_F(QueryTest, DeleteInBranchVersion) {
-        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 6 , 2 ) NOT NULL );",*db);
+#if USE_HYRISE
+        QueryCompiler::compileAndExecute("create table professoren ( id INT NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang FLOAT NOT NULL );",*db);
+#else
+        QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
+#endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
