@@ -615,7 +615,7 @@ namespace tardisParser {
                     query.selectStmt->joinConditions.back().first.table = lhs.first;
                     query.selectStmt->joinConditions.back().first.name = lhs.second;
                     query.selectStmt->joinConditions.back().second.table = rhs.first;
-                    query.selectStmt->joinConditions.back().second.name = lhs.second;
+                    query.selectStmt->joinConditions.back().second.name = rhs.second;
                 } else if (token.type == TokenType::literal) {
                     BindingAttribute lhs = parse_binding_attribute(token_src.prev(2).value);
                     query.selectStmt->selections.push_back(std::make_pair(Column(),token.value));

@@ -61,7 +61,7 @@ namespace tardisParser {
     struct ParsingContext {
 
         enum OpType : unsigned int {
-            Select, Insert, Update, Delete, CreateTable, CreateBranch
+            Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch
         } opType;
 
         CreateTableStatement *createTableStmt;
@@ -71,9 +71,13 @@ namespace tardisParser {
         UpdateStatement *updateStmt;
         DeleteStatement *deleteStmt;
 
-        ParsingContext() {}
+        ParsingContext() {
+            opType = Unkown;
+        }
         ~ParsingContext() {
             switch (opType) {
+                case Unkown:
+                    break;
                 case Select:
                     delete selectStmt;
                     break;

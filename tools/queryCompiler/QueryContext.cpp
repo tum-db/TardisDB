@@ -201,6 +201,26 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
 
 void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &dest, tardisParser::ParsingContext &source) {
     dest = std::move((semanticalAnalysis::SQLParserResult&)source);
+    switch (source.opType) {
+        case tardisParser::ParsingContext::CreateTable:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::CreateTable;
+            break;
+        case tardisParser::ParsingContext::CreateBranch:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::CreateBranch;
+            break;
+        case tardisParser::ParsingContext::Insert:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Insert;
+            break;
+        case tardisParser::ParsingContext::Select:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
+            break;
+        case tardisParser::ParsingContext::Update:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Update;
+            break;
+        case tardisParser::ParsingContext::Delete:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Delete;
+            break;
+    }
     source = tardisParser::ParsingContext();
 }
 
