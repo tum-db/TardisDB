@@ -5,6 +5,7 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/StaticHashtable.hpp"
 #include "foundations/MemoryPool.hpp"
+#include "foundations/Vector.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"
@@ -18,67 +19,76 @@ using namespace Sql;
 
 // table 1:
 
-static std::vector<value_op_t> table1_column1;
-static std::vector<value_op_t> table1_column2;
-static std::vector<value_op_t> table1_column3;
-// table 2:
-static std::vector<value_op_t> table2_column1;
+void initTables(std::vector<value_op_t> &persistentStore, Vector &table1_column1, Vector &table1_column2, Vector &table1_column3,
+                Vector &table2_column1, Vector &table2_column2, Vector &table2_column3) {
+    persistentStore.push_back(Text::castString("left1", getTextTy()));
+    persistentStore.push_back(Text::castString("left2", getTextTy()));
+    persistentStore.push_back(Text::castString("left3", getTextTy()));
+    persistentStore.push_back(Text::castString("left4", getTextTy()));
+    persistentStore.push_back(Text::castString("left5", getTextTy()));
+    persistentStore.push_back(Text::castString("left6", getTextTy()));
+    persistentStore.push_back(Text::castString("left7", getTextTy()));
+    persistentStore.push_back(Text::castString("left8", getTextTy()));
+    persistentStore.push_back(Text::castString("left9", getTextTy()));
 
-static std::vector<value_op_t> table2_column2;
-static std::vector<value_op_t> table2_column3;
+    persistentStore[0]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(0)));
+    persistentStore[1]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(1)));
+    persistentStore[2]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(2)));
+    persistentStore[3]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(3)));
+    persistentStore[4]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(4)));
+    persistentStore[5]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(5)));
+    persistentStore[6]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(6)));
+    persistentStore[7]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(7)));
+    persistentStore[8]->store(cg_voidptr_t::fromRawPointer(table1_column1.at(8)));
 
-void initTables() {
-    table1_column1.emplace_back(std::move(Varchar::castString("left1", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left2", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left3", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left4", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left5", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left6", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left7", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left8", getVarcharTy(5))));
-    table1_column1.emplace_back(std::move(Varchar::castString("left9", getVarcharTy(5))));
+    (new Integer(1))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(0)));
+    (new Integer(2))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(1)));
+    (new Integer(2))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(2)));
+    (new Integer(3))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(3)));
+    (new Integer(4))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(4)));
+    (new Integer(5))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(5)));
+    (new Integer(12))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(6)));
+    (new Integer(13))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(7)));
+    (new Integer(12))->store(cg_voidptr_t::fromRawPointer(table1_column2.at(8)));
 
-    table1_column2.emplace_back(std::make_unique<Integer>(1));
-    table1_column2.emplace_back(std::make_unique<Integer>(2));
-    table1_column2.emplace_back(std::make_unique<Integer>(2));
-    table1_column2.emplace_back(std::make_unique<Integer>(3));
-    table1_column2.emplace_back(std::make_unique<Integer>(4));
-    table1_column2.emplace_back(std::make_unique<Integer>(5));
-    table1_column2.emplace_back(std::make_unique<Integer>(12));
-    table1_column2.emplace_back(std::make_unique<Integer>(13));
-    table1_column2.emplace_back(std::make_unique<Integer>(12));
+    (new Integer(6))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(0)));
+    (new Integer(7))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(1)));
+    (new Integer(7))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(2)));
+    (new Integer(8))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(3)));
+    (new Integer(9))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(4)));
+    (new Integer(10))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(7)));
+    (new Integer(12))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(6)));
+    (new Integer(13))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(7)));
+    (new Integer(12))->store(cg_voidptr_t::fromRawPointer(table1_column3.at(8)));
 
-    table1_column3.emplace_back(std::make_unique<Integer>(6));
-    table1_column3.emplace_back(std::make_unique<Integer>(7));
-    table1_column3.emplace_back(std::make_unique<Integer>(7));
-    table1_column3.emplace_back(std::make_unique<Integer>(8));
-    table1_column3.emplace_back(std::make_unique<Integer>(9));
-    table1_column3.emplace_back(std::make_unique<Integer>(10));
-    table1_column3.emplace_back(std::make_unique<Integer>(12));
-    table1_column3.emplace_back(std::make_unique<Integer>(13));
-    table1_column3.emplace_back(std::make_unique<Integer>(12));
 
-    table2_column1.emplace_back(std::move(Varchar::castString("right1", getVarcharTy(6))));
-    table2_column1.emplace_back(std::move(Varchar::castString("right2", getVarcharTy(6))));
-    table2_column1.emplace_back(std::move(Varchar::castString("right3", getVarcharTy(6))));
-    table2_column1.emplace_back(std::move(Varchar::castString("right4", getVarcharTy(6))));
-    table2_column1.emplace_back(std::move(Varchar::castString("right5", getVarcharTy(6))));
-    table2_column1.emplace_back(std::move(Varchar::castString("right6", getVarcharTy(6))));
+    persistentStore.push_back(Text::castString("right1", getTextTy()));
+    persistentStore.push_back(Text::castString("right2", getTextTy()));
+    persistentStore.push_back(Text::castString("right3", getTextTy()));
+    persistentStore.push_back(Text::castString("right4", getTextTy()));
+    persistentStore.push_back(Text::castString("right5", getTextTy()));
+    persistentStore.push_back(Text::castString("right6", getTextTy()));
 
-    table2_column2.emplace_back(std::make_unique<Integer>(1));
-    table2_column2.emplace_back(std::make_unique<Integer>(2));
-    table2_column2.emplace_back(std::make_unique<Integer>(2));
-    table2_column2.emplace_back(std::make_unique<Integer>(3));
-    table2_column2.emplace_back(std::make_unique<Integer>(3));
-    table2_column2.emplace_back(std::make_unique<Integer>(4));
+    persistentStore[9]->store(cg_voidptr_t::fromRawPointer(table2_column1.at(0)));
+    persistentStore[10]->store(cg_voidptr_t::fromRawPointer(table2_column1.at(1)));
+    persistentStore[11]->store(cg_voidptr_t::fromRawPointer(table2_column1.at(2)));
+    persistentStore[12]->store(cg_voidptr_t::fromRawPointer(table2_column1.at(3)));
+    persistentStore[13]->store(cg_voidptr_t::fromRawPointer(table2_column1.at(4)));
+    persistentStore[14]->store(cg_voidptr_t::fromRawPointer(table2_column1.at(5)));
 
-    table2_column3.emplace_back(std::make_unique<Integer>(6));
-    table2_column3.emplace_back(std::make_unique<Integer>(7));
-    table2_column3.emplace_back(std::make_unique<Integer>(7));
-    table2_column3.emplace_back(std::make_unique<Integer>(8));
-    table2_column3.emplace_back(std::make_unique<Integer>(8));
-    table2_column3.emplace_back(std::make_unique<Integer>(11));
+    (new Integer(1))->store(cg_voidptr_t::fromRawPointer(table2_column2.at(0)));
+    (new Integer(2))->store(cg_voidptr_t::fromRawPointer(table2_column2.at(1)));
+    (new Integer(2))->store(cg_voidptr_t::fromRawPointer(table2_column2.at(2)));
+    (new Integer(3))->store(cg_voidptr_t::fromRawPointer(table2_column2.at(3)));
+    (new Integer(3))->store(cg_voidptr_t::fromRawPointer(table2_column2.at(4)));
+    (new Integer(4))->store(cg_voidptr_t::fromRawPointer(table2_column2.at(5)));
 
+    (new Integer(6))->store(cg_voidptr_t::fromRawPointer(table2_column3.at(0)));
+    (new Integer(7))->store(cg_voidptr_t::fromRawPointer(table2_column3.at(1)));
+    (new Integer(7))->store(cg_voidptr_t::fromRawPointer(table2_column3.at(2)));
+    (new Integer(8))->store(cg_voidptr_t::fromRawPointer(table2_column3.at(3)));
+    (new Integer(8))->store(cg_voidptr_t::fromRawPointer(table2_column3.at(4)));
+    (new Integer(11))->store(cg_voidptr_t::fromRawPointer(table2_column3.at(5)));
 }
 
 // join: table1_column2 == table2_column2 and table1_column3 == table2_column3
@@ -182,7 +192,7 @@ static std::vector<Value *> rightProduced;
 
 static llvm::Type * listNodeTy;
 
-static void doProbe(cg_voidptr_t p)
+static void doProbe(cg_voidptr_t p, Vector &table1_column1, Vector &table1_column2, Vector &table1_column3)
 {
     Functions::genPrintfCall("===\ndoProbe() iter node: %p\n===\n", p);
 
@@ -190,9 +200,9 @@ static void doProbe(cg_voidptr_t p)
     auto & funcGen = codeGen.getCurrentFunctionGen();
 
     std::vector<SqlType> tds = {
-            table1_column1.front()->type,
-            table1_column2.front()->type,
-            table1_column3.front()->type
+            getTextTy(),
+            std::make_unique<Integer>(1)->type,
+            std::make_unique<Integer>(1)->type
     };
 
 //    llvm::Type * nodeTy = getListNodeTy( SqlTuple::getType(tds) );
@@ -230,8 +240,8 @@ static void doProbe(cg_voidptr_t p)
     check.EndIf();
 }
 
-
-llvm::Function * genJoinTest()
+llvm::Function * genJoinTest(std::vector<value_op_t> &persistentStore, Vector &table1_column1, Vector &table1_column2, Vector &table1_column3,
+                             Vector &table2_column1, Vector &table2_column2, Vector &table2_column3)
 {
     auto & codeGen = getThreadLocalCodeGen();
     auto & context = codeGen.getLLVMContext();
@@ -240,7 +250,7 @@ llvm::Function * genJoinTest()
     llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
     FunctionGen funcGen(moduleGen, "joinTest", funcTy);
 
-    initTables();
+    initTables(persistentStore, table1_column1, table1_column2, table1_column3, table2_column1, table2_column2,table2_column3);
     //std::vector join_attr_indices { 1, 2 };
 
     //[ join produce start
@@ -249,17 +259,17 @@ llvm::Function * genJoinTest()
 
     //[ scan left (produce) start
     //[ loop start
-    auto & elem1Td = table1_column1.front(); // store
+    auto elem1Td = Text::castString("right1", getTextTy()); // store
     llvm::Type * column1Ty = llvm::ArrayType::get(elem1Td->getLLVMType(), table1_column1.size()); // store
-    llvm::Value * column1Ptr = createPointerValue(&table1_column1.front(), column1Ty); // store
+    llvm::Value * column1Ptr = createPointerValue(table1_column1.front(), column1Ty); // store
 
-    auto & elem2Td = table1_column2.front();
+    auto elem2Td = std::make_unique<Integer>(1);
     llvm::Type * column2Ty = llvm::ArrayType::get(elem2Td->getLLVMType(), table1_column2.size());
-    llvm::Value * column2Ptr = createPointerValue(&table1_column2.front(), column2Ty);
+    llvm::Value * column2Ptr = createPointerValue(table1_column2.front(), column2Ty);
 
-    auto & elem3Td = table1_column3.front();
+    auto elem3Td = std::make_unique<Integer>(1);
     llvm::Type * column3Ty = llvm::ArrayType::get(elem3Td->getLLVMType(), table1_column3.size());
-    llvm::Value * column3Ptr = createPointerValue(&table1_column3.front(), column3Ty);
+    llvm::Value * column3Ptr = createPointerValue(table1_column3.front(), column3Ty);
     //] end loop
 
     cg_size_t table1Size = table1_column1.size();
@@ -304,6 +314,7 @@ llvm::Function * genJoinTest()
         values.push_back(std::move(elem2));
         values.push_back(std::move(elem3));
         SqlTuple tuple(std::move(values));
+
         genPrintSqlTuple(tuple);
 
         listNodeTy = getListNodeTy( tuple.getType() );
@@ -328,17 +339,17 @@ llvm::Function * genJoinTest()
 
     //[ scan right (produce) start
     //[ loop start
-    auto & elem4Td = table2_column1.front(); // store
+    auto elem4Td = Text::castString("right1", getTextTy()); // store
     llvm::Type * column4Ty = llvm::ArrayType::get(elem4Td->getLLVMType(), table2_column1.size()); // store
-    llvm::Value * column4Ptr = createPointerValue(&table2_column1.front(), column4Ty); // store
+    llvm::Value * column4Ptr = createPointerValue(table2_column1.front(), column4Ty); // store
 
-    auto & elem5Td = table2_column2.front();
+    auto elem5Td = std::make_unique<Integer>(1);
     llvm::Type * column5Ty = llvm::ArrayType::get(elem5Td->getLLVMType(), table2_column2.size());
-    llvm::Value * column5Ptr = createPointerValue(&table2_column2.front(), column5Ty);
+    llvm::Value * column5Ptr = createPointerValue(table2_column2.front(), column5Ty);
 
-    auto & elem6Td = table2_column3.front();
+    auto elem6Td = std::make_unique<Integer>(1);
     llvm::Type * column6Ty = llvm::ArrayType::get(elem6Td->getLLVMType(), table2_column3.size());
-    llvm::Value * column6Ptr = createPointerValue(&table2_column3.front(), column3Ty);
+    llvm::Value * column6Ptr = createPointerValue(table2_column3.front(), column3Ty);
     //] end loop
 
     cg_size_t table2Size = table2_column1.size();
@@ -380,7 +391,37 @@ llvm::Function * genJoinTest()
             h = genHashCombine(h, elem6->hash());
         }
 
-        genStaticHashtableIter(joinTable, h, &doProbe);
+        {
+            cg_voidptr_t first = genStaticHashtableLookupCall(joinTable, h);
+            llvm::Type * i8Ptr = llvm::PointerType::getInt8PtrTy(codeGen.getLLVMContext() );
+
+//    Functions::genPrintfCall("lookup result: %p\n", first);
+
+            // iterate over the all members of the bucket
+            LoopGen bucketIter(funcGen, !first.isNullPtr(), {{"current", first}});
+            cg_voidptr_t current(bucketIter.getLoopVar(0));
+            {
+                LoopBodyGen bodyGen(bucketIter);
+
+                // the second field of the "Node"-struct contains the hashcode
+                cg_voidptr_t hp = current + sizeof(void *);
+//        Functions::genPrintfCall("hashcode ptr: %p\n", hp);
+
+                cg_hash_t currentHash(codeGen->CreateLoad(cg_hash_t::getType(), hp));
+//        Functions::genPrintfCall("hashcode: %lu\n", currentHash);
+
+                IfGen compareHash(funcGen, h == currentHash);
+                {
+                    // elementHandler is supposed to generate code that handles the current match
+                    //doProbe(current, table1_column1, table1_column2, table1_column3);
+                }
+                compareHash.EndIf();
+            }
+            // the first field of the struct represents the "next"-pointer
+            cg_voidptr_t next(codeGen->CreateLoad(i8Ptr, current));
+            bucketIter.loopDone(!next.isNullPtr(), {next});
+        }
+
 
         //] join consume right end
     }
@@ -400,7 +441,16 @@ llvm::Function * genJoinTest()
 /*TEST(JoinTest, Join1Test) {
     ModuleGen moduleGen("JoinTestModule");
     std::vector<llvm::GenericValue> args;
-    llvm::Function * joinTest = genJoinTest();
+
+    Vector *table1_column1 = new Vector(16,9);
+    Vector *table1_column2 = new Vector(4,9);
+    Vector *table1_column3 = new Vector(4,9);
+    Vector *table2_column1 = new Vector(16,6);
+    Vector *table2_column2 = new Vector(4,6);
+    Vector *table2_column3 = new Vector(4,6);
+
+    std::vector<value_op_t> persistentStore;
+    llvm::Function * joinTest = genJoinTest(persistentStore, *table1_column1, *table1_column2, *table1_column3, *table2_column1, *table2_column2, *table2_column3);
     llvm::GenericValue resultJoinTest = QueryExecutor::executeFunction(joinTest,args);
     ASSERT_NE(resultJoinTest.IntVal.getZExtValue(),0);
 }*/
@@ -408,7 +458,15 @@ llvm::Function * genJoinTest()
 void executeJoinTest() {
     ModuleGen moduleGen("JoinTestModule");
     std::vector<llvm::GenericValue> args;
-    llvm::Function * joinTest = genJoinTest();
+
+    std::unique_ptr<Vector> table1_column1 = std::make_unique<Vector>(16);
+    std::unique_ptr<Vector> table1_column2 = std::make_unique<Vector>(4);
+    std::unique_ptr<Vector> table1_column3 = std::make_unique<Vector>(4);
+    std::unique_ptr<Vector> table2_column1 = std::make_unique<Vector>(16);
+    std::unique_ptr<Vector> table2_column2 = std::make_unique<Vector>(4);
+    std::unique_ptr<Vector> table2_column3 = std::make_unique<Vector>(4);
+    std::vector<value_op_t> persistentStore;
+    llvm::Function * joinTest = genJoinTest(persistentStore , *table1_column1, *table1_column2, *table1_column3, *table2_column1, *table2_column2, *table2_column3);
     llvm::GenericValue resultJoinTest = QueryExecutor::executeFunction(joinTest,args);
     std::cout << "test: passed: " << resultJoinTest.IntVal.getZExtValue() << "\n";
 }
