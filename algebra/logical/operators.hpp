@@ -456,7 +456,7 @@ protected:
 
 class Insert : public NullaryOperator {
 public:
-    Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple);
+    Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple, branch_id_t branchId);
 
     ~Insert() override;
 
@@ -466,11 +466,13 @@ public:
 
     Native::Sql::SqlTuple *getTuple() { return sqlTuple; }
 
+    branch_id_t getBranchId() { return branchId; }
 protected:
     void computeProduced() override;
     void computeRequired() override;
 
     Table & _table;
+    branch_id_t branchId;
     Native::Sql::SqlTuple *sqlTuple;
 };
 
@@ -479,7 +481,7 @@ protected:
 
 class Update : public UnaryOperator {
 public:
-    Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, std::string *alias);
+    Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, branch_id_t branchId);
 
     Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table);
 
@@ -490,7 +492,7 @@ public:
 
     Table & getTable() const { return _table; }
 
-    std::string *getAlias() { return alias; }
+    branch_id_t getBranchId() { return branchId; }
 
     std::vector<std::pair<iu_p_t,std::string>> &getUpdateIUValuePairs() { return updateIUValuePairs; }
 
@@ -499,7 +501,7 @@ protected:
     void computeRequired() override;
 
     Table & _table;
-    std::string *alias;
+    branch_id_t branchId;
 
     std::vector<std::pair<iu_p_t,std::string>> updateIUValuePairs;
 };
@@ -533,16 +535,15 @@ protected:
 
 class TableScan : public NullaryOperator {
 public:
-    TableScan(QueryContext & context, Table & table, std::string *alias) :
+    TableScan(QueryContext & context, Table & table, branch_id_t branchId) :
             NullaryOperator(context),
             _table(table),
-            alias(alias)
+            branchId(branchId)
     { }
 
     TableScan(QueryContext & context, Table & table) :
             NullaryOperator(context),
-            _table(table),
-            alias(nullptr)
+            _table(table)
     { }
 
     ~TableScan() override { }
@@ -551,14 +552,14 @@ public:
 
     Table & getTable() const { return _table; }
 
-    std::string *getAlias() { return alias; }
+    branch_id_t getBranchId() { return branchId; }
 
 protected:
     void computeProduced() override;
     void computeRequired() override;
 
     Table & _table;
-    std::string *alias;
+    branch_id_t branchId;
 };
 
 //-----------------------------------------------------------------------------

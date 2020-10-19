@@ -11,7 +11,7 @@ namespace Physical {
 /// The table scan operator
 class TableScan : public NullaryOperator {
 public:
-    TableScan(const logical_operator_t & logicalOperator, Table & table, std::string *alias);
+    TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId);
 
     virtual ~TableScan();
 
@@ -31,7 +31,7 @@ private:
     llvm::Value *getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voidptr_t &resultPtr, cg_bool_t &ptrIsNotNull);
 
     Table & table;
-    std::string *alias;
+    branch_id_t branchId;
 
     std::vector<column_t> columns;
     Sql::value_op_t tidSqlValue;

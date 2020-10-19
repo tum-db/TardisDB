@@ -11,7 +11,7 @@ namespace Algebra {
 /// The print operator
         class Insert : public NullaryOperator {
         public:
-            Insert(const logical_operator_t & logicalOperator, Table & table, Native::Sql::SqlTuple *tuple, QueryContext &context);
+            Insert(const logical_operator_t & logicalOperator, Table & table, Native::Sql::SqlTuple *tuple, QueryContext &context, branch_id_t branchId);
 
             virtual ~Insert();
 
@@ -21,6 +21,7 @@ namespace Algebra {
             Native::Sql::SqlTuple *tuple;
             Table & table;
             QueryContext &context;
+            branch_id_t branchId;
         };
 
     } // end namespace Physical

@@ -19,6 +19,13 @@ namespace semanticalAnalysis {
         Table* table = _context.db.getTable(stmt->relation.name);
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
 
+        branch_id_t branchId;
+        if (stmt->relation.version.compare("master") != 0) {
+            branchId = _context.db._branchMapping[stmt->relation.version];
+        } else {
+            branchId = master_branch_id;
+        }
+
         std::vector<std::pair<iu_p_t,std::string>> updateIUs;
 
         //Get all ius of the tuple to update
@@ -39,7 +46,7 @@ namespace semanticalAnalysis {
 
         auto &production = plan.dangling_productions[stmt->relation.alias];
 
-        return std::make_unique<Update>( std::move(production), updateIUs, *table, new std::string(stmt->relation.name));
+        return std::make_unique<Update>( std::move(production), updateIUs, *table, _context.db._branchMapping[stmt->relation.version]);
     }
 
 }

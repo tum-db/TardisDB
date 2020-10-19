@@ -14,10 +14,11 @@ namespace semanticalAnalysis {
         Table* table = db.getTable(stmt->relation.name);
 
         std::string &branchName = stmt->relation.version;
+        branch_id_t branchId;
         if (branchName.compare("master") != 0) {
-            _context.executionContext.branchId = db._branchMapping[branchName];
+            branchId = db._branchMapping[branchName];
         } else {
-            _context.executionContext.branchId = 0;
+            branchId = master_branch_id;
         }
 
         std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
@@ -32,7 +33,7 @@ namespace semanticalAnalysis {
 
         Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
 
-        return std::make_unique<Insert>(_context,*table,tuple);
+        return std::make_unique<Insert>(_context,*table,tuple,branchId);
     }
 
 }
