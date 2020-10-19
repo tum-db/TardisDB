@@ -9,7 +9,8 @@
 #include "semanticAnalyser/AnalyzingContext.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
-#include "foundations/InformationUnit.hpp"
+#include "semanticAnalyser/InformationUnit.hpp"
+#include "semanticAnalyser/IUFactory.hpp"
 
 #include <unordered_map>
 

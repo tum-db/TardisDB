@@ -5,7 +5,7 @@
 #include <set>
 #include <unordered_map>
 
-#include "Database.hpp"
+#include "foundations/Database.hpp"
 #include "sql/SqlType.hpp"
 
 namespace Algebra {
@@ -25,22 +25,6 @@ struct InformationUnit {
 
 using iu_p_t = const InformationUnit *;
 using iu_set_t = std::set<iu_p_t>;
-
-class IUFactory {
-public:
-    IUFactory() = default;
-
-    /// \brief Create an iu for a temporary
-    iu_p_t createIU(Sql::SqlType type);
-
-    /// \brief Create an iu for a given column
-    iu_p_t createIU(const Algebra::Logical::TableScan & producer, ci_p_t columnInformation);
-
-private:
-    using iu_op_t = std::unique_ptr<InformationUnit>;
-
-    std::vector<iu_op_t> iu_vec;
-};
 
 inline Sql::SqlType getType(iu_p_t iu)
 {

@@ -6,7 +6,7 @@
 #include "native/sql/SqlTuple.hpp"
 
 #include "algebra/logical/expressions.hpp"
-#include "foundations/InformationUnit.hpp"
+#include "semanticAnalyser/InformationUnit.hpp"
 #include "queryCompiler/QueryContext.hpp"
 
 namespace Algebra {

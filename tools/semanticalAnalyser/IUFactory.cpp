@@ -1,5 +1,5 @@
 
-#include "InformationUnit.hpp"
+#include "semanticAnalyser/IUFactory.hpp"
 
 #include "algebra/logical/operators.hpp"
 
