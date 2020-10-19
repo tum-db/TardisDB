@@ -2,13 +2,13 @@
 // Created by Blum Thomas on 2020-06-28.
 //
 
-#ifndef PROTODB_PARSINGCONTEXT_HPP
-#define PROTODB_PARSINGCONTEXT_HPP
+#ifndef PROTODB_PARSERRESULT_HPP
+#define PROTODB_PARSERRESULT_HPP
 
 #include <vector>
 #include <string>
 
-namespace tardisParser {
+namespace semanticalAnalysis {
 
     struct ColumnSpec {
         std::string name;
@@ -17,7 +17,7 @@ namespace tardisParser {
         size_t precision;
         bool nullable;
     };
-    struct Table {
+    struct Relation {
         std::string name;
         std::string alias;
         std::string version;
@@ -37,31 +37,31 @@ namespace tardisParser {
     };
     struct SelectStatement {
         std::vector<Column> projections;
-        std::vector<Table> relations;
+        std::vector<Relation> relations;
         std::vector<std::pair<Column,Column>> joinConditions;
         std::vector<std::pair<Column,std::string>> selections;
     };
     struct UpdateStatement {
-        Table relation;
+        Relation relation;
         std::vector<std::pair<Column,std::string>> updates;
         std::vector<std::pair<Column,std::string>> selections;
     };
     struct InsertStatement {
-        Table relation;
+        Relation relation;
         std::vector<Column> columns;
         std::vector<std::string> values;
     };
     struct DeleteStatement {
-        Table relation;
+        Relation relation;
         std::vector<std::pair<Column,std::string>> selections;
     };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
 
-    struct ParsingContext {
+    struct SQLParserResult {
 
         enum OpType : unsigned int {
-            Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch
+            Select, Insert, Update, Delete, CreateTable, CreateBranch
         } opType;
 
         CreateTableStatement *createTableStmt;
@@ -71,13 +71,9 @@ namespace tardisParser {
         UpdateStatement *updateStmt;
         DeleteStatement *deleteStmt;
 
-        ParsingContext() {
-            opType = Unkown;
-        }
-        ~ParsingContext() {
+        SQLParserResult() {}
+        ~SQLParserResult() {
             switch (opType) {
-                case Unkown:
-                    break;
                 case Select:
                     delete selectStmt;
                     break;
@@ -101,4 +97,4 @@ namespace tardisParser {
     };
 }
 
-#endif //PROTODB_PARSINGCONTEXT_HPP
+#endif //PROTODB_PARSERRESULT_HPP

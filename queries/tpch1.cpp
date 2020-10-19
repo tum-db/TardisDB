@@ -10,6 +10,7 @@
 #include "queryCompiler/queryCompiler.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 #include "queries/common.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -56,16 +57,16 @@ static llvm::Function * genFunc(Database & db)
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
     auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU    = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU    = lookup(context, "l_linestatus");
-    iu_p_t l_quantityIU      = lookup(context, "l_quantity");
-    iu_p_t l_extendedpriceIU = lookup(context, "l_extendedprice");
-    iu_p_t l_discountIU      = lookup(context, "l_discount");
-    iu_p_t l_taxIU           = lookup(context, "l_tax");
-    iu_p_t l_shipdateIU      = lookup(context, "l_shipdate");
+    iu_p_t l_returnflagIU    = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU    = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_quantityIU      = semanticalAnalysis::lookup(context, "l_quantity");
+    iu_p_t l_extendedpriceIU = semanticalAnalysis::lookup(context, "l_extendedprice");
+    iu_p_t l_discountIU      = semanticalAnalysis::lookup(context, "l_discount");
+    iu_p_t l_taxIU           = semanticalAnalysis::lookup(context, "l_tax");
+    iu_p_t l_shipdateIU      = semanticalAnalysis::lookup(context, "l_shipdate");
 
     // select operator
     // where l_shipdate <= date '1998-12-01' - interval '90' day

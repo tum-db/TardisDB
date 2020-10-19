@@ -380,7 +380,8 @@ public:
                 op,
                 op.getTable(),
                 op.getTuple(),
-                op.getContext()
+                op.getContext(),
+                op.getBranchId()
         ) );
     }
 
@@ -394,7 +395,7 @@ public:
                 std::move(child),
                 op.getTable(),
                 op.getUpdateIUValuePairs(),
-                op.getAlias()
+                op.getBranchId()
         ) );
     }
 
@@ -456,7 +457,7 @@ public:
         _translated.push( std::make_unique<Physical::TableScan>(
             op,
             op.getTable(),
-            op.getAlias()
+            op.getBranchId()
         ) );
     }
 

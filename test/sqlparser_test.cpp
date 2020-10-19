@@ -5,6 +5,7 @@
 #include <set>
 #include "gtest/gtest.h"
 
+#if !USE_HYRISE
 #include "sqlParser/SQLParser.hpp"
 
 namespace {
@@ -12,96 +13,104 @@ namespace {
     TEST(SqlParserTest, SelectStatment) {
         std::string statement = "SELECT name FROM professoren p;";
 
-        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
+        tardisParser::ParsingContext::OpType opType = tardisParser::ParsingContext::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
         std::string projection = "name";
 
-        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
+        tardisParser::ParsingContext result;
+        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
-        ASSERT_EQ(result.relations[0].first, relationName);
-        ASSERT_EQ(result.relations[0].second, bindingName);
-        ASSERT_EQ(result.projections[0], projection);
-        ASSERT_EQ(result.versions[0], version);
+        ASSERT_EQ(stmt->relations[0].name, relationName);
+        ASSERT_EQ(stmt->relations[0].alias, bindingName);
+        ASSERT_EQ(stmt->relations[0].version, version);
+        ASSERT_EQ(stmt->projections[0].name, projection);
     }
 
     TEST(SqlParserTest, SelectStatmentProjections) {
         std::string statement = "SELECT persnr, name, rang, raum FROM professoren p;";
 
-        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
+        tardisParser::ParsingContext::OpType opType = tardisParser::ParsingContext::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
         std::set<std::string> projections = { "persnr", "name", "rang", "raum" };
 
-        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
-
+        tardisParser::ParsingContext result;
+        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
-        ASSERT_EQ(result.relations[0].first, relationName);
-        ASSERT_EQ(result.relations[0].second, bindingName);
-        ASSERT_EQ(result.versions[0], version);
+        ASSERT_EQ(stmt->relations[0].name, relationName);
+        ASSERT_EQ(stmt->relations[0].alias, bindingName);
+        ASSERT_EQ(stmt->relations[0].version, version);
 
-        for (auto &projection : result.projections) {
-            ASSERT_NE(projections.find(projection),projections.end());
+        for (auto &projection : stmt->projections) {
+            ASSERT_NE(projections.find(projection.name),projections.end());
         }
     }
 
     TEST(SqlParserTest, SelectStatmentProjectionStar) {
         std::string statement = "SELECT * FROM professoren p;";
 
-        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
+        tardisParser::ParsingContext::OpType opType = tardisParser::ParsingContext::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
 
-        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
-
+        tardisParser::ParsingContext result;
+        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
-        ASSERT_EQ(result.relations[0].first, relationName);
-        ASSERT_EQ(result.relations[0].second, bindingName);
-        ASSERT_EQ(result.versions[0], version);
-        ASSERT_TRUE(result.projections.empty());
+        ASSERT_EQ(stmt->relations[0].name, relationName);
+        ASSERT_EQ(stmt->relations[0].alias, bindingName);
+        ASSERT_EQ(stmt->relations[0].version, version);
+        ASSERT_TRUE(stmt->projections.empty());
     }
 
     TEST(SqlParserTest, SelectStatmentMultiRelations) {
         std::string statement = "SELECT * FROM professoren p, studenten s;";
 
-        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
-        std::set<std::pair<std::string,std::string>> relationBindings;
-        relationBindings.insert(std::make_pair("professoren","p"));
-        relationBindings.insert(std::make_pair("studenten","s"));
+        tardisParser::ParsingContext::OpType opType = tardisParser::ParsingContext::OpType::Select;
+        std::set<std::string> relationNames = { "professoren", "studenten"};
+        std::set<std::string> relationBindings = { "p", "s"};
         std::string version = "master";
 
-        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
-
+        tardisParser::ParsingContext result;
+        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
-        for (auto &projection : result.relations) {
-            ASSERT_NE(relationBindings.find(projection),relationBindings.end());
+        for (auto &relation : stmt->relations) {
+            ASSERT_NE(relationNames.find(relation.name),relationNames.end());
+            ASSERT_NE(relationBindings.find(relation.alias),relationNames.end());
         }
-        ASSERT_EQ(result.versions[0], version);
-        ASSERT_TRUE(result.projections.empty());
+        ASSERT_EQ(stmt->relations[0].version, version);
+        ASSERT_TRUE(stmt->projections.empty());
     }
 
     TEST(SqlParserTest, SelectStatmentWhereNumberCompare) {
         std::string statement = "SELECT * FROM professoren p WHERE rang = 4;";
 
-        tardisParser::SQLParserResult::OpType opType = tardisParser::SQLParserResult::OpType::Select;
+        tardisParser::ParsingContext::OpType opType = tardisParser::ParsingContext::OpType::Select;
         std::string relationName = "professoren";
         std::string bindingName = "p";
         std::string version = "master";
         std::string whereColumn = "rang";
         std::string whereValue = "4";
 
-        tardisParser::SQLParserResult result = tardisParser::SQLParser::parse_sql_statement(statement);
-
+        tardisParser::ParsingContext result;
+        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
-        ASSERT_EQ(result.relations[0].first, relationName);
-        ASSERT_EQ(result.relations[0].second, bindingName);
-        ASSERT_EQ(result.versions[0], version);
-        ASSERT_TRUE(result.projections.empty());
-        ASSERT_EQ(result.selections[0].first.second, whereColumn);
-        ASSERT_EQ(result.selections[0].second, whereValue);
+        ASSERT_EQ(stmt->relations[0].name, relationName);
+        ASSERT_EQ(stmt->relations[0].alias, bindingName);
+        ASSERT_EQ(stmt->relations[0].version, version);
+        ASSERT_TRUE(stmt->projections.empty());
+        ASSERT_EQ(stmt->selections[0].first.name, whereColumn);
+        ASSERT_EQ(stmt->selections[0].second, whereValue);
     }
 
 }  // namespace
+
+#endif

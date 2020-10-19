@@ -1,6 +1,12 @@
 
 #pragma once
 
+#if USE_HYRISE
+#include "SQLParser.h"
+#else
+#include "sqlParser/ParserResult.hpp"
+#endif
+#include "semanticAnalyser/AnalyzingContext.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
 #include "foundations/InformationUnit.hpp"
@@ -8,8 +14,6 @@
 #include <unordered_map>
 
 #include <boost/dynamic_bitset.hpp>
-
-using scope_level_t = size_t;
 
 struct ExecutionResource {
     virtual ~ExecutionResource() { }
@@ -33,8 +37,6 @@ struct QueryContext {
             codeGen(getThreadLocalCodeGen())
     { }
 
-//    ExecutionContext & getExecutionContext();
-
     // compilation related
     Database & db;
     IUFactory iuFactory;
@@ -52,20 +54,21 @@ struct QueryContext {
 
     // runtime related
     ExecutionContext executionContext;
+    semanticalAnalysis::AnalyzingContext analyzingContext;
+#if USE_HYRISE
+    hsql::SQLParserResult hyriseResult;
+#else
+    tardisParser::ParsingContext parsingContext;
+#endif
+
+#if USE_HYRISE
+    static std::tuple<std::string,int,int> convertDataType(hsql::ColumnType type);
+    static void collectTables(std::vector<semanticalAnalysis::Relation> &relations, hsql::TableRef *tableRef);
+    static std::string expressionValueToString(hsql::Expr *expr);
+    static void collectSelections(std::vector<std::pair<semanticalAnalysis::Column,std::string>> &selections, hsql::Expr *whereClause);
+    static void collectJoinConditions(std::vector<std::pair<semanticalAnalysis::Column,semanticalAnalysis::Column>> &joinConditions, hsql::Expr *whereClause);
+    static void convertToParserResult(semanticalAnalysis::SQLParserResult &dest, hsql::SQLParserResult &source);
+#else
+    static void convertToParserResult(semanticalAnalysis::SQLParserResult &dest, tardisParser::ParsingContext &source);
+#endif
 };
-
-static bool overflowFlag = false;
-
-void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol);
-
-void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan);
-
-void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan, const std::string & prefix);
-
-iu_p_t lookup(QueryContext & context, const std::string & symbol);
-
-void genOverflowException();
-
-void genOverflowEvaluation();
-
-cg_bool_t genEvaluateOverflow();

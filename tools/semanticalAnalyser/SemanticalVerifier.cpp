@@ -3,11 +3,13 @@
 //
 
 #include "semanticAnalyser/SemanticalVerifier.hpp"
+#include "foundations/exceptions.hpp"
+#include "algebra/logical/operators.hpp"
 
 namespace semanticalAnalysis {
 
     // identifier -> (binding, Attribute)
-    using scope_t = std::unordered_map<std::string, std::pair<std::string,ci_p_t>>;
+    /*using scope_t = std::unordered_map<std::string, std::pair<std::string,ci_p_t>>;
 
     bool in_scope(const scope_t & scope, const tardisParser::BindingAttribute & binding_attr) {
         std::string identifier = binding_attr.first + "." + binding_attr.second;
@@ -88,12 +90,45 @@ namespace semanticalAnalysis {
                 throw semantic_sql_error("unknown column '" + rhs.first + "." + rhs.second + "'");
             }
         }
+    }*/
+
+    void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol)
+    {
+        context.scope.emplace(symbol, iu);
     }
 
-    void SemanticalVerifier::analyse_sql_statement(tardisParser::SQLParserResult &result) {
-        auto scope = construct_scope(_context.db, result);
+    void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan)
+    {
+        auto & scope = context.scope;
+        for (iu_p_t iu : scan.getProduced()) {
+            ci_p_t ci = getColumnInformation(iu);
+            scope.emplace(ci->columnName, iu);
+        }
+    }
+
+    void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan, const std::string & prefix)
+    {
+        auto & scope = context.scope;
+        for (iu_p_t iu : scan.getProduced()) {
+            ci_p_t ci = getColumnInformation(iu);
+            scope.emplace(prefix + "." + ci->columnName, iu);
+        }
+    }
+
+    iu_p_t lookup(QueryContext & context, const std::string & symbol)
+    {
+        auto & scope = context.scope;
+        auto it = scope.find(symbol);
+        if (it == scope.end()) {
+            throw ParserException("unknown identifier: " + symbol);
+        }
+        return it->second;
+    }
+
+    void SemanticalVerifier::analyse_sql_statement(SQLParserResult &result) {
+        /*auto scope = construct_scope(_context.db, result);
         fully_qualify_names(scope, result);
-        validate_sql_statement(scope, _context.db, result);
+        validate_sql_statement(scope, _context.db, result);*/
     }
 
 }

@@ -15,10 +15,10 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, std::string *alias) :
+TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId) :
         NullaryOperator(std::move(logicalOperator)),
         table(table),
-        alias(alias)
+        branchId(branchId)
 {
     // collect all information which is necessary to access the columns
     for (auto iu : getRequired()) {
@@ -72,7 +72,6 @@ void TableScan::produce()
         LoopBodyGen bodyGen(scanLoop);
 
 #if USE_DATA_VERSIONING
-        auto branchId = _context.executionContext.branchIds[*alias];
         IfGen visibilityCheck(isVisible(tid, branchId));
         {
             produce(tid, branchId);
@@ -84,9 +83,6 @@ void TableScan::produce()
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
-
-    //Free the memory pointed by the alias string pointer
-    Functions::genFreeCall(cg_voidptr_t::fromRawPointer(alias));
 }
 
 
@@ -104,7 +100,7 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
         llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
         llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_entry", funcTy) );
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
-        llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_ptr8_t::fromRawPointer(alias), _codeGen.getCurrentFunctionGen().getArg(1)});
+        llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
         resultPtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
 #ifdef __APPLE__
         ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));

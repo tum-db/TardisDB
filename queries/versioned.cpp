@@ -9,6 +9,7 @@
 #include "foundations/version_management.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 #include "queries/common.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -37,18 +38,18 @@ static llvm::Function * genFunc(Database & db)
     Table * versiontable = db.getTable("Versiontable");
     assert(versiontable != nullptr);
     auto versiontableScan = std::make_unique<TableScan>(context, *versiontable);
-    addToScope(context, *versiontableScan, "u");
+    semanticalAnalysis::addToScope(context, *versiontableScan, "u");
 
     Table * usertable = db.getTable("users");
     assert(usertable != nullptr);
     auto usertableScan = std::make_unique<TableScan>(context, *usertable);
-    addToScope(context, *usertableScan, "v");
+    semanticalAnalysis::addToScope(context, *usertableScan, "v");
 
     // collect ius
-    iu_p_t u_rid     = lookup(context, "u.rid");
-    iu_p_t v_rid     = lookup(context, "v.rid");
-    iu_p_t v_tableid = lookup(context, "v.tableid");
-    iu_p_t v_vid     = lookup(context, "v.vid");
+    iu_p_t u_rid     = semanticalAnalysis::lookup(context, "u.rid");
+    iu_p_t v_rid     = semanticalAnalysis::lookup(context, "v.rid");
+    iu_p_t v_tableid = semanticalAnalysis::lookup(context, "v.tableid");
+    iu_p_t v_vid     = semanticalAnalysis::lookup(context, "v.vid");
 
     auto vidExpr = std::make_unique<Comparison>(
         ComparisonMode::eq,

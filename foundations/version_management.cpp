@@ -66,6 +66,11 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
     return tid;
 }
 
+tid_t insert_tuple_with_binding(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx, branch_id_t branchId) {
+    ctx.executionContext.branchId = branchId;
+    return insert_tuple(tuple,table,ctx);
+}
+
 VersionEntry * get_version_entry(tid_t tid, Table & table) {
     if (is_marked_as_dangling_tid(tid)) {
         tid_t unmarked = unmark_dangling_tid(tid);
@@ -165,10 +170,8 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
     }
 }
 
-void update_tuple_with_binding(tid_t tid, std::string *binding, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
-    if (binding != nullptr) {
-        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
-    }
+void update_tuple_with_binding(tid_t tid, branch_id_t branchId, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
+    ctx.executionContext.branchId = branchId;
     return update_tuple(tid,tuple,table,ctx);
 }
 
@@ -259,10 +262,8 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
     }
 }
 
-const void *get_latest_entry(tid_t tid, Table & table, std::string *binding, QueryContext & ctx) {
-    if (binding != nullptr) {
-        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
-    }
+const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx) {
+    ctx.executionContext.branchId = branchId;
     ctx.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
 
     if (ctx.executionContext.branchId == master_branch_id) {

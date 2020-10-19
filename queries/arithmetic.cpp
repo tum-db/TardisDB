@@ -12,6 +12,7 @@
 #include "foundations/version_management.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 #include "queries/common.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -79,12 +80,12 @@ static llvm::Function * gen_arithmentic1_func(Database & db)
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
     auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU    = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU    = lookup(context, "l_linestatus");
-    iu_p_t l_discountIU      = lookup(context, "l_discount");
+    iu_p_t l_returnflagIU    = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU    = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_discountIU      = semanticalAnalysis::lookup(context, "l_discount");
 
     // keep l_returnflag
     auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
@@ -195,12 +196,12 @@ static llvm::Function * gen_arithmentic2_func(Database & db)
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
     auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU    = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU    = lookup(context, "l_linestatus");
-    iu_p_t l_discountIU      = lookup(context, "l_discount");
+    iu_p_t l_returnflagIU    = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU    = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_discountIU      = semanticalAnalysis::lookup(context, "l_discount");
 
     // keep l_returnflag
     auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
@@ -292,12 +293,12 @@ static llvm::Function * gen_arithmentic3_func(Database & db)
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
     auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU = lookup(context, "l_linestatus");
-    iu_p_t l_linenumberIU = lookup(context, "l_linenumber");
+    iu_p_t l_returnflagIU = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_linenumberIU = semanticalAnalysis::lookup(context, "l_linenumber");
 
     // keep l_returnflag
     auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
@@ -382,12 +383,12 @@ static llvm::Function * gen_arithmentic4_func(Database & db)
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
     auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU = lookup(context, "l_linestatus");
-    iu_p_t l_linenumberIU = lookup(context, "l_linenumber");
+    iu_p_t l_returnflagIU = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_linenumberIU = semanticalAnalysis::lookup(context, "l_linenumber");
 
     // keep l_returnflag
     auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );

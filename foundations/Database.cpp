@@ -8,7 +8,6 @@
 #include <llvm/IR/TypeBuilder.h>
 
 #include "foundations/exceptions.hpp"
-#include "foundations/QueryContext.hpp"
 #include "foundations/version_management.hpp"
 
 //-----------------------------------------------------------------------------

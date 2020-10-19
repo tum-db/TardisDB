@@ -8,17 +8,15 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> DeleteAnalyser::constructTree() {
         QueryPlan plan;
+        DeleteStatement *stmt = _parserResult.deleteStmt;
 
-        construct_scans(_context, plan, _parserResult);
-        construct_selects(_context, plan, _parserResult);
+        std::vector<Relation> relations;
+        relations.push_back(stmt->relation);
+        construct_scans(_context, plan, relations);
+        construct_selects(plan, stmt->selections);
 
-        if (plan.dangling_productions.size() != 1 || _parserResult.relations.size() != 1) {
-            throw std::runtime_error("no or more than one root found: Table joining has failed");
-        }
-
-        auto &relationName = _parserResult.relations[0].second;
-        if (relationName.length() == 0) relationName = _parserResult.relations[0].first;
-        Table* table = _context.db.getTable(_parserResult.relations[0].first);
+        if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
+        Table* table = _context.db.getTable(stmt->relation.name);
 
         iu_p_t tidIU;
 
@@ -31,7 +29,7 @@ namespace semanticalAnalysis {
             }
         }
 
-        auto &production = plan.dangling_productions[relationName];
+        auto &production = plan.dangling_productions[stmt->relation.alias];
 
         return std::make_unique<Delete>( std::move(production), tidIU, *table);
     }

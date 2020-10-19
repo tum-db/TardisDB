@@ -99,7 +99,7 @@ namespace tardisParser {
     class SQLParser {
     public:
 
-        static SQLParserResult parse_sql_statement(std::string sql);
+        static void parse_sql_statement(ParsingContext &context, std::string sql);
 
     private:
 
@@ -109,7 +109,7 @@ namespace tardisParser {
 
         static BindingAttribute parse_binding_attribute(std::string value);
 
-        static state_t parse_next_token(Tokenizer &token_src, const state_t state, SQLParserResult &query);
+        static state_t parse_next_token(Tokenizer &token_src, const state_t state, ParsingContext &query);
     };
 }
 

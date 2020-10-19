@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(LIBXML_AVAILABLE false)
 set(ENABLE_PERFBENCHMARKING false)
 set(USE_DATA_VERSIONING true)
+set(USE_HYRISE false)
 set(TUPLE_STREAM_REQUIRED true)
 
 ### set up boost
@@ -31,10 +32,14 @@ include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
 if(ENABLE_PERFBENCHMARKING)
 	include("${CMAKE_SOURCE_DIR}/vendor/perfevent.cmake")
 endif(ENABLE_PERFBENCHMARKING)
+if(USE_HYRISE)
+	include("${CMAKE_SOURCE_DIR}/vendor/hyrise.cmake")
+endif(USE_HYRISE)
 
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
 		${GFLAGS_INCLUDE_DIR}
+		${HYRISE_INCLUDE_DIR}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
 		)
 add_definitions(${LLVM_DEFINITIONS})
@@ -53,7 +58,9 @@ llvm_map_components_to_libnames(LLVM_LIBS
 )
 
 ### libraries
-include(tools/sqlParser/local.cmake)
+if(NOT USE_HYRISE)
+	include(tools/sqlParser/local.cmake)
+endif(NOT USE_HYRISE)
 include(tools/semanticalAnalyser/local.cmake)
 include(tools/queryCompiler/local.cmake)
 include(tools/queryExecutor/local.cmake)
@@ -150,7 +157,14 @@ endif(TUPLE_STREAM_REQUIRED)
 if(USE_DATA_VERSIONING)
 	target_compile_definitions(dblib PUBLIC -D USE_DATA_VERSIONING=true)
 endif(USE_DATA_VERSIONING)
-target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
+target_link_libraries(dblib semanticalAnalyser LLVM)
+if(USE_HYRISE)
+	target_compile_definitions(dblib PUBLIC -D USE_HYRISE=true)
+	target_link_libraries(dblib hyriselib)
+else(NOT USE_HYRISE)
+	target_compile_definitions(dblib PUBLIC -D USE_HYRISE=false)
+	target_link_libraries(dblib sqlparser)
+endif(USE_HYRISE)
 
 ### main application
 add_executable(protodb main.cpp ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})

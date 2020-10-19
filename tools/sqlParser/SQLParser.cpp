@@ -26,7 +26,7 @@ namespace tardisParser {
         return BindingAttribute(binding, attribute);
     }
 
-    state_t SQLParser::parse_next_token(Tokenizer &token_src, const state_t state, SQLParserResult &query) {
+    state_t SQLParser::parse_next_token(Tokenizer &token_src, const state_t state, ParsingContext &query) {
         // Get the next token from the tokenizer
         const Token &token = token_src.next();
 
@@ -52,16 +52,20 @@ namespace tardisParser {
         switch (state) {
             case State::Init:
                 if (equals_keyword(token,keywords::Select)) {
-                    query.opType = SQLParserResult::OpType::Select;
+                    query.opType = ParsingContext::OpType::Select;
+                    query.selectStmt = new SelectStatement();
                     new_state = State::Select;
                 } else if (equals_keyword(token,keywords::Insert)) {
-                    query.opType = SQLParserResult::OpType::Insert;
+                    query.opType = ParsingContext::OpType::Insert;
+                    query.insertStmt = new InsertStatement();
                     new_state = State::Insert;
                 } else if (equals_keyword(token,keywords::Update)) {
-                    query.opType = SQLParserResult::OpType::Update;
+                    query.opType = ParsingContext::OpType::Update;
+                    query.updateStmt = new UpdateStatement();
                     new_state = State::Update;
                 } else if (equals_keyword(token,keywords::Delete)) {
-                    query.opType = SQLParserResult::OpType::Delete;
+                    query.opType = ParsingContext::OpType::Delete;
+                    query.deleteStmt = new DeleteStatement();
                     new_state = State::Delete;
                 } else if (equals_keyword(token,keywords::Create)) {
                     new_state = State::Create;
@@ -75,10 +79,12 @@ namespace tardisParser {
                 //
             case State::Create:
                 if (equals_keyword(token, keywords::Table)) {
-                    query.opType = SQLParserResult::OpType::CreateTable;
+                    query.opType = ParsingContext::OpType::CreateTable;
+                    query.createTableStmt = new CreateTableStatement();
                     new_state = State::CreateTable;
                 } else if (equals_keyword(token, keywords::Branch)) {
-                    query.opType = SQLParserResult::OpType::CreateBranch;
+                    query.opType = ParsingContext::OpType::CreateBranch;
+                    query.createBranchStmt = new CreateBranchStatement();
                     new_state = State::CreateBranch;
                 } else {
                     throw incorrect_sql_error("Expected 'TABLE' or 'Branch', found '" + token.value + "'");
@@ -86,7 +92,7 @@ namespace tardisParser {
                 break;
             case State::CreateBranch:
                 if (token.type == TokenType::identifier) {
-                    query.branchId = token.value;
+                    query.createBranchStmt->branchName = token.value;
                     new_state = State::CreateBranchTag;
                 } else {
                     throw incorrect_sql_error("Expected branch name, found '" + token.value + "'");
@@ -101,7 +107,7 @@ namespace tardisParser {
                 break;
             case State::CreateBranchFrom:
                 if (token.type == TokenType::identifier) {
-                    query.parentBranchId = token.value;
+                    query.createBranchStmt->parentBranchName = token.value;
                     new_state = State::CreateBranchParent;
                 } else {
                     throw incorrect_sql_error("Expected parent branch name, found '" + token.value + "'");
@@ -110,7 +116,7 @@ namespace tardisParser {
 
             case State::CreateTable:
                 if (token.type == TokenType::identifier) {
-                    query.relation = token.value;
+                    query.createTableStmt->tableName = token.value;
                     new_state = State::CreateTableRelationName;
                 } else {
                     throw incorrect_sql_error("Expected table name, found '" + token.value + "'");
@@ -124,7 +130,8 @@ namespace tardisParser {
             case State::CreateTableColumnsBegin:
             case State::CreateTableColumnSeperator:
                 if (token.type == TokenType::identifier) {
-                    query.columnNames.emplace_back(token.value);
+                    query.createTableStmt->columns.push_back(ColumnSpec());
+                    query.createTableStmt->columns.back().name = token.value;
                     new_state = CreateTableColumnName;
                 } else {
                     throw incorrect_sql_error("Expected column name, found '" + token.value + "'");
@@ -134,7 +141,7 @@ namespace tardisParser {
                 if (token.type == TokenType::identifier) {
                     std::string lowercase_token_value;
                     std::transform(token.value.begin(), token.value.end(), std::back_inserter(lowercase_token_value), tolower);
-                    query.columnTypes.emplace_back(lowercase_token_value);
+                    query.createTableStmt->columns.back().type = lowercase_token_value;
                     new_state = CreateTableColumnType;
                 } else {
                     throw incorrect_sql_error("Expected column name, found '" + token.value + "'");
@@ -145,13 +152,13 @@ namespace tardisParser {
                     new_state = CreateTableTypeDetailBegin;
                     break;
                 }
-                query.length.emplace_back(0);
-                query.precision.emplace_back(0);
+                query.createTableStmt->columns.back().length = 0;
+                query.createTableStmt->columns.back().precision = 0;
                 if (equals_keyword(token,keywords::Not)) {
                     new_state = CreateTableTypeNot;
                     break;
                 }
-                query.nullable.emplace_back(true);
+                query.createTableStmt->columns.back().nullable = true;
 
                 if (equals_controlSymbol(token,controlSymbols::closeBracket)) {
                     new_state = CreateTableColumnsEnd;
@@ -163,7 +170,7 @@ namespace tardisParser {
                 break;
             case State::CreateTableTypeDetailBegin:
                 if (token.type == literal && std::isdigit(token.value[0])) {
-                    query.length.emplace_back(std::stoi(token.value));
+                    query.createTableStmt->columns.back().length = std::stoi(token.value);
                     new_state = CreateTableTypeDetailLength;
                 } else {
                     throw incorrect_sql_error("Expected type length, found '" + token.value + "'");
@@ -171,7 +178,7 @@ namespace tardisParser {
                 break;
             case State::CreateTableTypeDetailLength:
                 if (equals_controlSymbol(token,controlSymbols::closeBracket)) {
-                    query.precision.emplace_back(0);
+                    query.createTableStmt->columns.back().precision = 0;
                     new_state = CreateTableTypeDetailEnd;
                 } else if (equals_controlSymbol(token,controlSymbols::separator)) {
                     new_state = CreateTableTypeDetailSeperator;
@@ -181,7 +188,7 @@ namespace tardisParser {
                 break;
             case State::CreateTableTypeDetailSeperator:
                 if (token.type == literal && std::isdigit(token.value[0])) {
-                    query.precision.emplace_back(std::stoi(token.value));
+                    query.createTableStmt->columns.back().precision = std::stoi(token.value);
                     new_state = CreateTableTypeDetailPrecision;
                 } else {
                     throw incorrect_sql_error("Expected type precision, found '" + token.value + "'");
@@ -206,11 +213,11 @@ namespace tardisParser {
                 } else {
                     throw incorrect_sql_error("Expected ',' , ')' or 'NOT', found '" + token.value + "'");
                 }
-                query.nullable.emplace_back(true);
+                query.createTableStmt->columns.back().nullable = true;
                 break;
             case State::CreateTableTypeNot:
                 if (equals_keyword(token,keywords::Null)) {
-                    query.nullable.emplace_back(false);
+                    query.createTableStmt->columns.back().nullable = false;
                     new_state = State::CreateTableTypeNotNull;
                 } else {
                     throw incorrect_sql_error("Expected 'NULL', found '" + token.value + "'");
@@ -238,8 +245,7 @@ namespace tardisParser {
                 break;
             case State::DeleteFrom:
                 if (token.type == TokenType::identifier) {
-                    using rel_t = decltype(query.relations)::value_type;
-                    query.relations.push_back(rel_t(token.value, {}));
+                    query.deleteStmt->relation.name = token.value;
                     new_state = DeleteRelationName;
                 } else {
                     throw incorrect_sql_error("Expected table name, found '" + token.value + "'");
@@ -249,7 +255,7 @@ namespace tardisParser {
                 if (equals_keyword(token, keywords::Version)) {
                     new_state = State::DeleteVersion;
                 } else if (equals_keyword(token, keywords::Where)) {
-                    query.versions.emplace_back("master");
+                    query.deleteStmt->relation.version = "master";
                     new_state = State::DeleteWhere;
                 } else {
                     throw incorrect_sql_error("Expected 'VERSION' or 'WHERE', found '" + token.value + "'");
@@ -257,7 +263,7 @@ namespace tardisParser {
                 break;
             case State::DeleteVersion:
                 if (token.type == TokenType::identifier) {
-                    query.versions.emplace_back(token.value);
+                    query.deleteStmt->relation.version = token.value;
                     new_state = DeleteTag;
                 } else {
                     throw incorrect_sql_error("Expected version name, found '" + token.value + "'");
@@ -287,9 +293,8 @@ namespace tardisParser {
                 break;
             case State::DeleteWhereExprOp:
                 if (token.type == TokenType::literal) {
-                    std::string lhs = token_src.prev(2).value;
-                    Constant rhs = token.value;
-                    query.selections.push_back(std::make_pair(BindingAttribute("", lhs), rhs));
+                    query.deleteStmt->selections.push_back(std::make_pair(Column(),token.value));
+                    query.deleteStmt->selections.back().first.name = token_src.prev(2).value;
                     new_state = State::DeleteWhereExprRhs;
                 } else {
                     throw incorrect_sql_error("Expected right expression, found '" + token.value + "'");
@@ -308,8 +313,7 @@ namespace tardisParser {
                 //
             case State::Update:
                 if (token.type == TokenType::identifier) {
-                    using rel_t = decltype(query.relations)::value_type;
-                    query.relations.push_back(rel_t(token.value, {}));
+                    query.updateStmt->relation.name = token.value;
                     new_state = UpdateRelationName;
                 } else {
                     throw incorrect_sql_error("Expected table name, found '" + token.value + "'");
@@ -319,7 +323,7 @@ namespace tardisParser {
                 if (equals_keyword(token,keywords::Version)) {
                     new_state = State::UpdateVersion;
                 } else if (equals_keyword(token,keywords::Set)) {
-                    query.versions.emplace_back("master");
+                    query.updateStmt->relation.version = "master";
                     new_state = State::UpdateSet;
                 } else {
                     throw incorrect_sql_error("Expected 'VERSION', 'SET', found '" + token.value + "'");
@@ -327,7 +331,7 @@ namespace tardisParser {
                 break;
             case State::UpdateVersion:
                 if (token.type == TokenType::identifier) {
-                    query.versions.emplace_back(token.value);
+                    query.updateStmt->relation.version = token.value;
                     new_state = UpdateTag;
                 } else {
                     throw incorrect_sql_error("Expected version name, found '" + token.value + "'");
@@ -357,8 +361,8 @@ namespace tardisParser {
                 break;
             case State::UpdateSetExprOp:
                 if (token.type == TokenType::literal) {
-                    std::string lhs = token_src.prev(2).value;
-                    query.columnToValue.push_back(std::make_pair(lhs, token.value));
+                    query.updateStmt->updates.push_back(std::make_pair(Column(),token.value));
+                    query.updateStmt->updates.back().first.name = token_src.prev(2).value;
                     new_state = State::UpdateSetExprRhs;
                 } else {
                     throw incorrect_sql_error("Expected right expression, found '" + token.value + "'");
@@ -390,9 +394,8 @@ namespace tardisParser {
                 break;
             case State::UpdateWhereExprOp:
                 if (token.type == TokenType::literal) {
-                    std::string lhs = token_src.prev(2).value;
-                    Constant rhs = token.value;
-                    query.selections.push_back(std::make_pair(BindingAttribute("", lhs), rhs));
+                    query.updateStmt->selections.push_back(std::make_pair(Column(),token.value));
+                    query.updateStmt->selections.back().first.name = token_src.prev(2).value;
                     new_state = State::UpdateWhereExprRhs;
                 } else {
                     throw incorrect_sql_error("Expected right expression, found '" + token.value + "'");
@@ -418,7 +421,7 @@ namespace tardisParser {
                 break;
             case State::InsertInto:
                 if (token.type == TokenType::identifier) {
-                    query.relation = token.value;
+                    query.insertStmt->relation.name = token.value;
                     new_state = InsertRelationName;
                 } else {
                     throw incorrect_sql_error("Expected table name, found '" + token.value + "'");
@@ -436,11 +439,11 @@ namespace tardisParser {
                 } else {
                     throw incorrect_sql_error("Expected '(', 'VERSION' or 'VALUES', found '" + token.value + "'");
                 }
-                query.versions.emplace_back("master");
+                query.insertStmt->relation.version = "master";
                 break;
             case State::InsertVersion:
                 if (token.type == TokenType::identifier) {
-                    query.versions.emplace_back(token.value);
+                    query.insertStmt->relation.version = token.value;
                     new_state = InsertTag;
                 } else {
                     throw incorrect_sql_error("Expected version name, found '" + token.value + "'");
@@ -458,7 +461,8 @@ namespace tardisParser {
             case State::InsertColumnsBegin:
             case State::InsertColumnSeperator:
                 if (token.type == TokenType::identifier) {
-                    query.columnNames.emplace_back(token.value);
+                    query.insertStmt->columns.push_back(Column());
+                    query.insertStmt->columns.back().name = token.value;
                     new_state = InsertColumnName;
                 } else {
                     throw incorrect_sql_error("Expected column name, found '" + token.value + "'");
@@ -490,7 +494,7 @@ namespace tardisParser {
             case State::InsertValuesBegin:
             case State::InsertValueSeperator:
                 if (token.type == TokenType::literal) {
-                    query.values.emplace_back(token.value);
+                    query.insertStmt->values.push_back(token.value);
                     new_state = InsertValue;
                 } else {
                     throw incorrect_sql_error("Expected constant, found '" + token.value + "'");
@@ -514,7 +518,8 @@ namespace tardisParser {
                 if (equals_controlSymbol(token,controlSymbols::star)) {
                     new_state = State::SelectProjectionStar;
                 } else if (token.type == TokenType::identifier) {
-                    query.projections.push_back(token.value);
+                    query.selectStmt->projections.push_back(Column());
+                    query.selectStmt->projections.back().name = token.value;
                     new_state = SelectProjectionAttrName;
                 } else {
                     throw incorrect_sql_error("Expected column name or star, found '" + token.value + "'");
@@ -539,8 +544,8 @@ namespace tardisParser {
             case SelectFrom:
             case SelectFromSeparator:
                 if (token.type == TokenType::identifier) {
-                    using rel_t = decltype(query.relations)::value_type;
-                    query.relations.push_back(rel_t(token.value, {}));
+                    query.selectStmt->relations.push_back(Table());
+                    query.selectStmt->relations.back().name = token.value;
                     new_state = SelectFromRelationName;
                 } else {
                     throw incorrect_sql_error("Expected table name, found '" + token.value + "'");
@@ -550,12 +555,8 @@ namespace tardisParser {
                 if (equals_keyword(token,keywords::Version)) {
                     new_state = SelectFromVersion;
                 } else if (token.type == TokenType::identifier) {
-                    using rel_t = decltype(query.relations)::value_type;
-                    auto current = query.relations.back();
-                    query.relations.pop_back();
-                    query.relations.push_back(rel_t(current.first, token.value));
-
-                    query.versions.emplace_back("master");
+                    query.selectStmt->relations.back().alias = token.value;
+                    query.selectStmt->relations.back().version = "master";
 
                     new_state = State::SelectFromBindingName;
                 } else {
@@ -564,7 +565,7 @@ namespace tardisParser {
                 break;
             case State::SelectFromVersion:
                 if (token.type == TokenType::identifier) {
-                    query.versions.emplace_back(token.value);
+                    query.selectStmt->relations.back().version = token.value;
                     new_state = SelectFromTag;
                 } else {
                     throw incorrect_sql_error("Expected version name, found '" + token.value + "'");
@@ -576,11 +577,7 @@ namespace tardisParser {
                 } else if (equals_controlSymbol(token,controlSymbols::separator)) {
                     new_state = State::SelectFromSeparator;
                 } else if (token.type == TokenType::identifier) {
-                    using rel_t = decltype(query.relations)::value_type;
-                    auto current = query.relations.back();
-                    query.relations.pop_back();
-                    query.relations.push_back(rel_t(current.first, token.value));
-
+                    query.selectStmt->relations.back().alias = token.value;
                     new_state = State::SelectFromBindingName;
                 } else {
                     throw incorrect_sql_error("Expected binding name , 'WHERE' or ',', found '" + token.value + "'");
@@ -614,10 +611,16 @@ namespace tardisParser {
                 if (token.type == TokenType::identifier) {
                     BindingAttribute lhs = parse_binding_attribute(token_src.prev(2).value);
                     BindingAttribute rhs = parse_binding_attribute(token.value);
-                    query.joinConditions.push_back(std::make_pair(lhs, rhs));
+                    query.selectStmt->joinConditions.push_back(std::make_pair(Column(),Column()));
+                    query.selectStmt->joinConditions.back().first.table = lhs.first;
+                    query.selectStmt->joinConditions.back().first.name = lhs.second;
+                    query.selectStmt->joinConditions.back().second.table = rhs.first;
+                    query.selectStmt->joinConditions.back().second.name = rhs.second;
                 } else if (token.type == TokenType::literal) {
                     BindingAttribute lhs = parse_binding_attribute(token_src.prev(2).value);
-                    query.selections.push_back(std::make_pair(lhs, token.value));
+                    query.selectStmt->selections.push_back(std::make_pair(Column(),token.value));
+                    query.selectStmt->selections.back().first.table = lhs.first;
+                    query.selectStmt->selections.back().first.name = lhs.second;
                 } else {
                     throw incorrect_sql_error("Expected right expression, found '" + token.value + "'");
                 }
@@ -637,8 +640,7 @@ namespace tardisParser {
         return new_state;
     }
 
-    SQLParserResult SQLParser::parse_sql_statement(std::string sql) {
-        SQLParserResult result;
+    void SQLParser::parse_sql_statement(ParsingContext &context, std::string sql) {
 
         std::stringstream in(sql);
         // Initialize Tokenizer
@@ -647,10 +649,8 @@ namespace tardisParser {
         // Parse the input String token by token
         state_t state = State::Init;
         while (state != State::Done) {
-            state = parse_next_token(tokenizer, state, result);
+            state = parse_next_token(tokenizer, state, context);
         }
-
-        return result;
     }
 }
 
