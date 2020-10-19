@@ -282,14 +282,6 @@ const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, Que
     }
 }
 
-std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string *binding, tid_t tid, Table & table, QueryContext & ctx) {
-    if (binding != nullptr) {
-        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
-    }
-    ctx.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
-    return std::move(get_latest_tuple(tid,table,ctx));
-}
-
 std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx) {
     const auto version_entry = get_version_entry(tid, table);
     const void * element = get_chain_element(version_entry, revision_offset, table, ctx);
@@ -312,18 +304,6 @@ bool is_visible(tid_t tid, Table & table, QueryContext & ctx) {
     const auto version_entry = get_version_entry(tid, table);
     const void * element = get_latest_chain_element(version_entry, table, ctx);
     return (element != nullptr);
-}
-
-uint8_t is_visible_with_binding(tid_t tid, std::string *binding, Table & table, QueryContext & ctx) {
-    if (binding != nullptr) {
-        ctx.executionContext.branchId = ctx.executionContext.branchIds[*binding];
-    }
-    ctx.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
-    if (is_visible(tid,table,ctx)) {
-        return 1;
-    } else {
-        return 0;
-    }
 }
 
 void destroy_chain(VersionEntry * version_entry) {

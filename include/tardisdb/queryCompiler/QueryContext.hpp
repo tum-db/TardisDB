@@ -25,7 +25,6 @@ struct ExecutionContext {
 
     bool overflowFlag = false;
     branch_id_t branchId = 0;
-    std::unordered_map<std::string,branch_id_t> branchIds;
     std::unordered_map<branch_id_t, branch_id_t> branch_lineage; // mapping: parent -> offspring
     boost::dynamic_bitset<> branch_lineage_bitset;
 };
