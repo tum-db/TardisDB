@@ -9,7 +9,7 @@
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
-#include "semanticAnalyser/InformationUnit.hpp"
+#include "semanticAnalyser/logicalAlgebra/InformationUnit.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlOperators.hpp"

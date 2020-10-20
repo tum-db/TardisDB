@@ -1,5 +1,5 @@
-
-#pragma once
+#ifndef PROTODB_QUERYCONTEXT_HPP
+#define PROTODB_QUERYCONTEXT_HPP
 
 #if USE_HYRISE
 #include "SQLParser.h"
@@ -9,8 +9,8 @@
 #include "semanticAnalyser/AnalyzingContext.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
-#include "semanticAnalyser/InformationUnit.hpp"
-#include "semanticAnalyser/IUFactory.hpp"
+#include "semanticAnalyser/logicalAlgebra/InformationUnit.hpp"
+#include "semanticAnalyser/logicalAlgebra/IUFactory.hpp"
 
 #include <unordered_map>
 
@@ -72,3 +72,5 @@ struct QueryContext {
     static void convertToParserResult(semanticalAnalysis::SQLParserResult &dest, tardisParser::ParsingContext &source);
 #endif
 };
+
+#endif // PROTODB_QUERYCONTEXT_HPP

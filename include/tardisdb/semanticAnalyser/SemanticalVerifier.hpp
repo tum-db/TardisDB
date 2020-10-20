@@ -8,6 +8,7 @@
 #include "semanticAnalyser/ParserResult.hpp"
 #include "foundations/Database.hpp"
 #include "queryCompiler/QueryContext.hpp"
+#include "algebra/logical/operators.hpp"
 
 namespace semanticalAnalysis {
     struct semantic_sql_error : std::runtime_error {
@@ -31,7 +32,5 @@ namespace semanticalAnalysis {
 
     iu_p_t lookup(QueryContext & context, const std::string & symbol);
 }
-
-
 
 #endif //PROTODB_SEMANTICALVERIFIER_HPP

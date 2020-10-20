@@ -1,4 +1,5 @@
-#pragma once
+#ifndef PROTODB_INFORMATIONUNIT_HPP
+#define PROTODB_INFORMATIONUNIT_HPP
 
 #include <cstdint>
 #include <memory>
@@ -7,11 +8,6 @@
 
 #include "foundations/Database.hpp"
 #include "sql/SqlType.hpp"
-
-namespace Algebra {
-namespace Logical {
-class TableScan;
-}}
 
 struct InformationUnit {
     enum class Type { ColumnRef, ValueRef } iuType;
@@ -41,3 +37,5 @@ inline bool isValid(iu_p_t iu)
 {
     return (iu != nullptr);
 }
+
+#endif // PROTODB_INFORMATIONUNIT_HPP

@@ -4,7 +4,7 @@
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/Vector.hpp"
-#include "semanticAnalyser/InformationUnit.hpp"
+#include "foundations/Database.hpp"
 #include "third_party/hexdump.hpp"
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlType.hpp"

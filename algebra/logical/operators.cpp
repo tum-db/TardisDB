@@ -352,13 +352,13 @@ void TableScan::computeProduced()
     // collect the produced attributes
     for (const std::string & columnName : _table.getColumnNames()) {
         auto columnInformation = _table.getCI(columnName);
-        auto iu =  _context.iuFactory.createIU(*this, columnInformation);
+        auto iu =  _context.iuFactory.createIU(getUID(), columnInformation);
         produced.insert(iu);
     }
 
     //Produce TID column
     std::unique_ptr<ColumnInformation> &columnInformation = _table.getTIDColumnInformation();
-    auto iu =  _context.iuFactory.createIU(*this, columnInformation.get());
+    auto iu =  _context.iuFactory.createIU(getUID(), columnInformation.get());
     produced.insert(iu);
 }
 
