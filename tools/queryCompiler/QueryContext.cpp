@@ -202,6 +202,8 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
 void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &dest, tardisParser::ParsingContext &source) {
     dest = std::move((semanticalAnalysis::SQLParserResult&)source);
     switch (source.opType) {
+        case tardisParser::ParsingContext::Unkown:
+            break;
         case tardisParser::ParsingContext::CreateTable:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::CreateTable;
             break;

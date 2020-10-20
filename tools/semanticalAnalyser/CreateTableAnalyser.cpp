@@ -9,7 +9,7 @@ namespace semanticalAnalysis {
     std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
         QueryPlan plan;
 
-        auto & createdTable = _context.db.createTable(_parserResult.createTableStmt->tableName);
+        auto & createdTable = _context.analyzingContext.db.createTable(_parserResult.createTableStmt->tableName);
 
         for (auto &columnSpec : _parserResult.createTableStmt->columns) {
             Sql::SqlType sqlType;

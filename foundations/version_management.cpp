@@ -264,7 +264,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
 
 const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx) {
     ctx.executionContext.branchId = branchId;
-    ctx.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
+    ctx.analyzingContext.db.constructBranchLineage(ctx.executionContext.branchId, ctx.executionContext);
 
     if (ctx.executionContext.branchId == master_branch_id) {
         return nullptr;

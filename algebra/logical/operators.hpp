@@ -26,8 +26,8 @@ public:
     Operator(QueryContext & context) :
             _context(context)
     {
-        _uid = _context.operatorUID;
-        _context.operatorUID += 1;
+        _uid = _context.analyzingContext.operatorUID;
+        _context.analyzingContext.operatorUID += 1;
     }
 
     Operator(const Operator &) = delete;

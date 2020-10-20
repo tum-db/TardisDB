@@ -22,13 +22,13 @@ namespace semanticalAnalysis {
             std::string &branchName = relation.version;
             branch_id_t branchId;
             if (branchName.compare("master") != 0) {
-                branchId = context.db._branchMapping[branchName];
+                branchId = context.analyzingContext.db._branchMapping[branchName];
             } else {
                 branchId = master_branch_id;
             }
 
             //Construct the logical TableScan operator
-            Table* table = context.db.getTable(relation.name);
+            Table* table = context.analyzingContext.db.getTable(relation.name);
             std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context, *table, branchId);
 
             //Store the ius produced by this TableScan

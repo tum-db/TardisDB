@@ -94,12 +94,12 @@ namespace semanticalAnalysis {
 
     void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol)
     {
-        context.scope.emplace(symbol, iu);
+        context.analyzingContext.scope.emplace(symbol, iu);
     }
 
     void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan)
     {
-        auto & scope = context.scope;
+        auto & scope = context.analyzingContext.scope;
         for (iu_p_t iu : scan.getProduced()) {
             ci_p_t ci = getColumnInformation(iu);
             scope.emplace(ci->columnName, iu);
@@ -108,7 +108,7 @@ namespace semanticalAnalysis {
 
     void addToScope(QueryContext & context, Algebra::Logical::TableScan & scan, const std::string & prefix)
     {
-        auto & scope = context.scope;
+        auto & scope = context.analyzingContext.scope;
         for (iu_p_t iu : scan.getProduced()) {
             ci_p_t ci = getColumnInformation(iu);
             scope.emplace(prefix + "." + ci->columnName, iu);
@@ -117,7 +117,7 @@ namespace semanticalAnalysis {
 
     iu_p_t lookup(QueryContext & context, const std::string & symbol)
     {
-        auto & scope = context.scope;
+        auto & scope = context.analyzingContext.scope;
         auto it = scope.find(symbol);
         if (it == scope.end()) {
             throw ParserException("unknown identifier: " + symbol);

@@ -16,11 +16,11 @@ namespace semanticalAnalysis {
         // Search for mapped branchId of parentBranchName
         branch_id_t _parentBranchId = 0;
         if (parentBranchName.compare("master") != 0) {
-            _parentBranchId = _context.db._branchMapping[parentBranchName];
+            _parentBranchId = _context.analyzingContext.db._branchMapping[parentBranchName];
         }
 
         // Add new branch
-        branch_id_t branchid = _context.db.createBranch(branchName, _parentBranchId);
+        branch_id_t branchid = _context.analyzingContext.db.createBranch(branchName, _parentBranchId);
 
         std::cout << "Created Branch " << branchid << "\n";
 

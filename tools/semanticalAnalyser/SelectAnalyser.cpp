@@ -16,7 +16,7 @@ namespace semanticalAnalysis {
         construct_selects(plan, stmt->selections);
         construct_joins(_context,plan, _parserResult);
 
-        auto & db = _context.db;
+        auto & db = _context.analyzingContext.db;
 
         //get projected IUs
         std::vector<iu_p_t> projectedIUs;

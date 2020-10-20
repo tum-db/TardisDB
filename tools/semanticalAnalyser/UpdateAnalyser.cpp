@@ -16,12 +16,12 @@ namespace semanticalAnalysis {
         construct_scans(_context, plan, relations);
         construct_selects(plan, stmt->selections);
 
-        Table* table = _context.db.getTable(stmt->relation.name);
+        Table* table = _context.analyzingContext.db.getTable(stmt->relation.name);
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
 
         branch_id_t branchId;
         if (stmt->relation.version.compare("master") != 0) {
-            branchId = _context.db._branchMapping[stmt->relation.version];
+            branchId = _context.analyzingContext.db._branchMapping[stmt->relation.version];
         } else {
             branchId = master_branch_id;
         }
@@ -46,7 +46,7 @@ namespace semanticalAnalysis {
 
         auto &production = plan.dangling_productions[stmt->relation.alias];
 
-        return std::make_unique<Update>( std::move(production), updateIUs, *table, _context.db._branchMapping[stmt->relation.version]);
+        return std::make_unique<Update>( std::move(production), updateIUs, *table, _context.analyzingContext.db._branchMapping[stmt->relation.version]);
     }
 
 }

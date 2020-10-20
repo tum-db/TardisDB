@@ -10,7 +10,7 @@ namespace semanticalAnalysis {
         QueryPlan plan;
         InsertStatement *stmt = _parserResult.insertStmt;
 
-        auto& db = _context.db;
+        auto& db = _context.analyzingContext.db;
         Table* table = db.getTable(stmt->relation.name);
 
         std::string &branchName = stmt->relation.version;

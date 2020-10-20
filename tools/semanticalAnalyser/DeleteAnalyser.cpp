@@ -16,7 +16,7 @@ namespace semanticalAnalysis {
         construct_selects(plan, stmt->selections);
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
-        Table* table = _context.db.getTable(stmt->relation.name);
+        Table* table = _context.analyzingContext.db.getTable(stmt->relation.name);
 
         iu_p_t tidIU;
 
