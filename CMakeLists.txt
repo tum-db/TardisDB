@@ -9,14 +9,18 @@ set(USE_DATA_VERSIONING true)
 set(USE_HYRISE false)
 set(TUPLE_STREAM_REQUIRED true)
 
-### set up boost
+##################
+### boost ########
+##################
 if(APPLE)
 	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/boost/lib/cmake/Boost-1.72.0)
 endif(APPLE)
 find_package(Boost)
 INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIRS} )
 
-### set up llvm
+##################
+### llvm #########
+##################
 if(APPLE)
 	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/llvm@7)
 	find_package(LLVM 7.1 REQUIRED CONFIG)
