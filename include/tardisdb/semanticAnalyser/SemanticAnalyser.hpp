@@ -7,11 +7,15 @@
 #include "foundations/Database.hpp"
 #include "semanticAnalyser/ParserResult.hpp"
 #include "include/tardisdb/semanticAnalyser/JoinGraph.hpp"
-#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 
 namespace semanticalAnalysis {
+    struct semantic_sql_error : std::runtime_error {
+        //semantic or syntactic errors
+        using std::runtime_error::runtime_error;
+    };
+
     struct QueryPlan {
         JoinGraph graph;
 
@@ -23,16 +27,15 @@ namespace semanticalAnalysis {
 
     class SemanticAnalyser {
     public:
-        SemanticAnalyser(QueryContext &context, SQLParserResult &parserResult) : _context(context), _parserResult(parserResult) { _verifier = std::make_unique<SemanticalVerifier>(context); }
+        SemanticAnalyser(QueryContext &context, SQLParserResult &parserResult) : _context(context), _parserResult(parserResult) {}
         virtual ~SemanticAnalyser() {};
 
-        void verify() { _verifier->analyse_sql_statement(_parserResult); }
+        virtual void verify() = 0;
         virtual std::unique_ptr<Operator> constructTree() = 0;
 
     protected:
         QueryContext &_context;
         SQLParserResult &_parserResult;
-        std::unique_ptr<SemanticalVerifier> _verifier;
 
     public:
         static std::unique_ptr<SemanticAnalyser> getSemanticAnalyser(QueryContext &context, SQLParserResult &parserResult);
@@ -54,36 +57,43 @@ namespace semanticalAnalysis {
     class SelectAnalyser : public SemanticAnalyser {
     public:
         SelectAnalyser(QueryContext &context, SQLParserResult &parserResult) : SemanticAnalyser(context,parserResult) {}
+        void verify() override;
         std::unique_ptr<Operator> constructTree() override;
+
     };
 
     class InsertAnalyser : public SemanticAnalyser {
     public:
         InsertAnalyser(QueryContext &context, SQLParserResult &parserResult) : SemanticAnalyser(context,parserResult) {}
+        void verify() override;
         std::unique_ptr<Operator> constructTree() override;
     };
 
     class UpdateAnalyser : public SemanticAnalyser {
     public:
         UpdateAnalyser(QueryContext &context, SQLParserResult &parserResult) : SemanticAnalyser(context,parserResult) {}
+        void verify() override;
         std::unique_ptr<Operator> constructTree() override;
     };
 
     class DeleteAnalyser : public SemanticAnalyser {
     public:
         DeleteAnalyser(QueryContext &context, SQLParserResult &parserResult) : SemanticAnalyser(context,parserResult) {}
+        void verify() override;
         std::unique_ptr<Operator> constructTree() override;
     };
 
     class CreateTableAnalyser : public SemanticAnalyser {
     public:
         CreateTableAnalyser(QueryContext &context, SQLParserResult &parserResult) : SemanticAnalyser(context,parserResult) {}
+        void verify() override;
         std::unique_ptr<Operator> constructTree() override;
     };
 
     class CreateBranchAnalyser : public SemanticAnalyser {
     public:
         CreateBranchAnalyser(QueryContext &context, SQLParserResult &parserResult) : SemanticAnalyser(context,parserResult) {}
+        void verify() override;
         std::unique_ptr<Operator> constructTree() override;
     };
 }

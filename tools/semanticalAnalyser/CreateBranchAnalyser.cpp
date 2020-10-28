@@ -6,6 +6,19 @@
 
 namespace semanticalAnalysis {
 
+    void CreateBranchAnalyser::verify() {
+        Database &db = _context.analyzingContext.db;
+        CreateBranchStatement* stmt = _parserResult.createBranchStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+
+        if (db._branchMapping.find(stmt->branchName) != db._branchMapping.end())
+            throw semantic_sql_error("branch '" + stmt->branchName + "' already exists");
+        if (db._branchMapping.find(stmt->parentBranchName) == db._branchMapping.end())
+            throw semantic_sql_error("parent branch '" + stmt->parentBranchName + "' does not exist");
+        // Branch already exists?
+        // Parent branch exists?
+    }
+
     std::unique_ptr<Operator> CreateBranchAnalyser::constructTree() {
         QueryPlan plan;
 

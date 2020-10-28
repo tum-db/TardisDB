@@ -6,6 +6,30 @@
 
 namespace semanticalAnalysis {
 
+    void UpdateAnalyser::verify() {
+        Database &db = _context.analyzingContext.db;
+        UpdateStatement* stmt = _parserResult.updateStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+
+        if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
+        if (db._branchMapping.find(stmt->relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + stmt->relation.version + "' does not exist");
+        Table *table = db.getTable(stmt->relation.name);
+        std::vector<std::string> columnNames = table->getColumnNames();
+        for (auto &column : stmt->updates) {
+            if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.first.name + "' does not exist");
+        }
+        for (auto &column : stmt->selections) {
+            if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.first.name + "' does not exist");
+        }
+        // Relation
+        // // Relation with name exists?
+        // // Branch exists?
+        // For each column
+        // // Column exists?
+    }
+
     //TODO: Verifier check on only one table to update
     std::unique_ptr<Operator> UpdateAnalyser::constructTree() {
         QueryPlan plan;

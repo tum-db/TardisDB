@@ -11,25 +11,7 @@
 #include "algebra/logical/operators.hpp"
 
 namespace semanticalAnalysis {
-    struct semantic_sql_error : std::runtime_error {
-        //semantic or syntactic errors
-        using std::runtime_error::runtime_error;
-    };
 
-    class SemanticalVerifier {
-    public:
-        SemanticalVerifier(QueryContext &context) : _context(context) {}
-        void analyse_sql_statement(SQLParserResult &result);
-    private:
-        QueryContext& _context;
-
-        void verifyCreateTable(SQLParserResult &result);
-        void verifyCreateBranch(SQLParserResult &result);
-        void verifyInsert(SQLParserResult &result);
-        void verifySelect(SQLParserResult &result);
-        void verifyUpdate(SQLParserResult &result);
-        void verifyDelete(SQLParserResult &result);
-    };
 
     void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol);
 
