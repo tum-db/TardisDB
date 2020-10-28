@@ -7,7 +7,7 @@
 #include <unordered_map>
 
 #include "foundations/Database.hpp"
-#include "semanticAnalyser/logicalAlgebra/InformationUnit.hpp"
+#include "foundations/InformationUnit.hpp"
 #include "sql/SqlType.hpp"
 
 class IUFactory {

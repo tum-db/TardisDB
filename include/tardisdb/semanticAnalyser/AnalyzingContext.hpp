@@ -7,7 +7,7 @@
 
 #include "foundations/Database.hpp"
 #include "semanticAnalyser/ParserResult.hpp"
-#include "semanticAnalyser/logicalAlgebra/IUFactory.hpp"
+#include "foundations/IUFactory.hpp"
 
 namespace semanticalAnalysis {
     struct AnalyzingContext {

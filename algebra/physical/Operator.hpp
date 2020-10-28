@@ -7,7 +7,7 @@
 
 #include "algebra/logical/operators.hpp"
 #include "codegen/CodeGen.hpp"
-#include "semanticAnalyser/logicalAlgebra/InformationUnit.hpp"
+#include "foundations/InformationUnit.hpp"
 #include "queryCompiler/QueryContext.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"

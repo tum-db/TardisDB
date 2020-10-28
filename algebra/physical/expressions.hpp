@@ -11,7 +11,7 @@
 #include "algebra/logical/expressions.hpp"
 #include "algebra/physical/Operator.hpp"
 #include "codegen/CodeGen.hpp"
-#include "semanticAnalyser/logicalAlgebra/InformationUnit.hpp"
+#include "foundations/InformationUnit.hpp"
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"

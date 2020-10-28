@@ -1,7 +1,4 @@
-
-#include "semanticAnalyser/logicalAlgebra/IUFactory.hpp"
-
-#include "algebra/logical/operators.hpp"
+#include "foundations/IUFactory.hpp"
 
 iu_p_t IUFactory::createIU(Sql::SqlType type)
 {
