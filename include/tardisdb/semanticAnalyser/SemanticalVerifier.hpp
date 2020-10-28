@@ -22,6 +22,13 @@ namespace semanticalAnalysis {
         void analyse_sql_statement(SQLParserResult &result);
     private:
         QueryContext& _context;
+
+        void verifyCreateTable(SQLParserResult &result);
+        void verifyCreateBranch(SQLParserResult &result);
+        void verifyInsert(SQLParserResult &result);
+        void verifySelect(SQLParserResult &result);
+        void verifyUpdate(SQLParserResult &result);
+        void verifyDelete(SQLParserResult &result);
     };
 
     void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol);

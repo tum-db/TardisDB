@@ -8,90 +8,6 @@
 
 namespace semanticalAnalysis {
 
-    // identifier -> (binding, Attribute)
-    /*using scope_t = std::unordered_map<std::string, std::pair<std::string,ci_p_t>>;
-
-    bool in_scope(const scope_t & scope, const tardisParser::BindingAttribute & binding_attr) {
-        std::string identifier = binding_attr.first + "." + binding_attr.second;
-        return scope.count(identifier) > 0;
-    }
-
-    scope_t construct_scope(Database& db, const tardisParser::SQLParserResult & result) {
-        scope_t scope;
-        for (auto & rel_pair : result.relations) {
-            if (!db.hasTable(rel_pair.first)) {
-                throw semantic_sql_error("unknown relation '" + rel_pair.first + "'");
-            }
-            auto * table = db.getTable(rel_pair.first);
-            size_t attr_cnt = table->getColumnCount();
-            for (size_t i = 0; i < attr_cnt; ++i) {
-                auto * attr = table->getCI(table->getColumnNames()[i]);
-                scope[rel_pair.second + "." + attr->columnName] = std::make_pair(rel_pair.second, attr);
-                if (scope.count(attr->columnName) > 0) {
-                    scope[attr->columnName].second = nullptr;
-                } else {
-                    scope[attr->columnName] = std::make_pair(rel_pair.second, attr);
-                }
-            }
-        }
-        return scope;
-    }
-
-    tardisParser::BindingAttribute fully_qualify(const tardisParser::BindingAttribute & current, const scope_t & scope) {
-        if (!current.first.empty()) {
-            return current;
-        }
-        auto it = scope.find(current.second);
-        if (it == scope.end()) {
-            throw semantic_sql_error("unknown column '" + current.second + "'");
-        }
-        return tardisParser::BindingAttribute(it->second.first, current.second);
-    }
-
-    void fully_qualify_names(const scope_t & scope, tardisParser::SQLParserResult & result) {
-        for (size_t i = 0; i < result.selections.size(); ++i) {
-            auto & [binding_attr, _] = result.selections[i];
-            result.selections[i].first = fully_qualify(binding_attr, scope);
-        }
-
-        for (size_t i = 0; i < result.joinConditions.size(); ++i) {
-            auto & [lhs, rhs] = result.joinConditions[i];
-            result.joinConditions[i].first = fully_qualify(lhs, scope);
-            result.joinConditions[i].second = fully_qualify(rhs, scope);
-        }
-
-        // TODO same for result.projections
-    }
-
-    void validate_sql_statement(const scope_t & scope, Database& db, const tardisParser::SQLParserResult & result) {
-        for (auto & attr_name : result.projections) {
-            auto it = scope.find(attr_name);
-            if (it == scope.end()) {
-                throw semantic_sql_error("unknown column '" + attr_name + "'");
-            } else if (it->second.second == nullptr) {
-                throw semantic_sql_error("'" + attr_name + "' is ambiguous");
-            }
-        }
-
-        for (auto & selection_pair : result.selections) {
-            auto & binding_attr = selection_pair.first;
-            if (!in_scope(scope, binding_attr)) {
-                throw semantic_sql_error("unknown column '" + binding_attr.first + "." + binding_attr.second + "'");
-            }
-        }
-
-        for (auto & join_pair : result.joinConditions) {
-            auto & lhs = join_pair.first;
-            if (!in_scope(scope, lhs)) {
-                throw semantic_sql_error("unknown column '" + lhs.first + "." + lhs.second + "'");
-            }
-            auto & rhs = join_pair.second;
-            if (!in_scope(scope, rhs)) {
-                throw semantic_sql_error("unknown column '" + rhs.first + "." + rhs.second + "'");
-            }
-        }
-    }*/
-
     void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol)
     {
         context.analyzingContext.scope.emplace(symbol, iu);
@@ -125,10 +41,203 @@ namespace semanticalAnalysis {
         return it->second;
     }
 
+    void SemanticalVerifier::verifyCreateTable(SQLParserResult &result) {
+        Database &db = _context.analyzingContext.db;
+        CreateTableStatement* stmt = result.createTableStmt;
+
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+        if (db.hasTable(stmt->tableName)) throw semantic_sql_error("table '" + stmt->tableName + "' already exists");
+        std::vector<std::string> definedColumnNames;
+        std::vector<std::string> typeNames = {"bool","date","integer","longinteger","numeric","char","varchar","timestamp","text"};
+        for (auto &column : stmt->columns) {
+            if (std::find(definedColumnNames.begin(),definedColumnNames.end(),column.name) != definedColumnNames.end())
+                throw semantic_sql_error("column '" + column.name + "' already exists");
+            definedColumnNames.push_back(column.name);
+            if (std::find(typeNames.begin(),typeNames.end(),column.type) == typeNames.end())
+                throw semantic_sql_error("type '" + column.type + "' does not exist");
+        }
+
+        // Table already exists?
+        // For each columnspec
+        // // name already exists?
+        // // type exists?
+    }
+
+    void SemanticalVerifier::verifyCreateBranch(SQLParserResult &result) {
+        Database &db = _context.analyzingContext.db;
+        CreateBranchStatement* stmt = result.createBranchStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+
+        if (db._branchMapping.find(stmt->branchName) != db._branchMapping.end())
+            throw semantic_sql_error("branch '" + stmt->branchName + "' already exists");
+        if (db._branchMapping.find(stmt->parentBranchName) == db._branchMapping.end())
+            throw semantic_sql_error("parent branch '" + stmt->parentBranchName + "' does not exist");
+        // Branch already exists?
+        // Parent branch exists?
+    }
+
+    void SemanticalVerifier::verifyInsert(SQLParserResult &result) {
+        Database &db = _context.analyzingContext.db;
+        InsertStatement* stmt = result.insertStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+
+        if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
+        if (db._branchMapping.find(stmt->relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + stmt->relation.version + "' does not exist");
+        Table *table = db.getTable(stmt->relation.name);
+        std::vector<std::string> columnNames = table->getColumnNames();
+        for (auto &column : stmt->columns) {
+            if (std::find(columnNames.begin(),columnNames.end(),column.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.name + "' does not exist");
+        }
+        // Relation
+        // // Relation with name exists?
+        // // Branch exists?
+        // For each column
+        // // Column exists?
+    }
+
+    void SemanticalVerifier::verifySelect(SQLParserResult &result) {
+        Database &db = _context.analyzingContext.db;
+        SelectStatement* stmt = result.selectStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+
+        std::set<std::string> unbindedColumns;
+        std::set<std::string> relations;
+        std::unordered_map<std::string,std::vector<std::string>> bindedColumns;
+        for (auto &relation : stmt->relations) {
+            if (!db.hasTable(relation.name)) throw semantic_sql_error("table '" + relation.name + "' does not exist");
+            if (db._branchMapping.find(relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + relation.version + "' does not exist");
+            if (relation.alias.compare("") == 0) {
+                if (relations.find(relation.name) != relations.end()) throw semantic_sql_error("relation '" + relation.name + "' is already specified - use bindings!");
+            }
+            relations.insert(relation.name);
+            Table *table = db.getTable(relation.name);
+            std::vector<std::string> columnNames = table->getColumnNames();
+            std::vector<std::string> intersectResult;
+            std::set_intersection(unbindedColumns.begin(),unbindedColumns.end(),columnNames.begin(),columnNames.end(),std::back_inserter(intersectResult));
+            if (!intersectResult.empty()) throw semantic_sql_error("columns are ambiguous - use bindings!");
+            if (relation.alias.compare("") == 0) {
+                unbindedColumns.insert(columnNames.begin(),columnNames.end());
+            } else {
+                if (bindedColumns.find(relation.alias) != bindedColumns.end()) throw semantic_sql_error("binding '" + relation.alias + "' is already specified - use bindings!");
+                bindedColumns[relation.alias] = columnNames;
+            }
+        }
+
+        for (auto &column : stmt->selections) {
+            if (column.first.table.compare("") == 0) {
+                if (unbindedColumns.find(column.first.name) == unbindedColumns.end())
+                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
+            } else {
+                if (bindedColumns.find(column.first.table) == bindedColumns.end())
+                    throw semantic_sql_error("binding '" + column.first.table + "' is not specified");
+                if (std::find(bindedColumns[column.first.table].begin(),bindedColumns[column.first.table].end(),column.first.name) == bindedColumns[column.first.table].end())
+                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
+            }
+        }
+        for (auto &column : stmt->projections) {
+            if (column.table.compare("") == 0) {
+                if (unbindedColumns.find(column.name) == unbindedColumns.end())
+                    throw semantic_sql_error("column '" + column.name + "' is not specified");
+            } else {
+                if (bindedColumns.find(column.table) == bindedColumns.end())
+                    throw semantic_sql_error("binding '" + column.table + "' is not specified");
+                if (std::find(bindedColumns[column.table].begin(),bindedColumns[column.table].end(),column.name) == bindedColumns[column.table].end())
+                    throw semantic_sql_error("column '" + column.name + "' is not specified");
+            }
+        }
+        for (auto &column : stmt->joinConditions) {
+            if (column.first.table.compare("") == 0) {
+                if (unbindedColumns.find(column.first.name) == unbindedColumns.end())
+                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
+            } else {
+                if (bindedColumns.find(column.first.table) == bindedColumns.end())
+                    throw semantic_sql_error("binding '" + column.first.table + "' is not specified");
+                if (std::find(bindedColumns[column.first.table].begin(),bindedColumns[column.first.table].end(),column.first.name) == bindedColumns[column.first.table].end())
+                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
+            }
+            if (column.second.table.compare("") == 0) {
+                if (unbindedColumns.find(column.second.name) == unbindedColumns.end())
+                    throw semantic_sql_error("column '" + column.second.name + "' is not specified");
+            } else {
+                if (bindedColumns.find(column.second.table) == bindedColumns.end())
+                    throw semantic_sql_error("binding '" + column.second.table + "' is not specified");
+                if (std::find(bindedColumns[column.second.table].begin(),bindedColumns[column.second.table].end(),column.second.name) == bindedColumns[column.second.table].end())
+                    throw semantic_sql_error("column '" + column.second.name + "' is not specified");
+            }
+        }
+        // For each relation
+        // // Relation with name exists?
+        // // Branch exists?
+        // Check equal relations
+        // Check equal columns
+    }
+
+    void SemanticalVerifier::verifyUpdate(SQLParserResult &result) {
+        Database &db = _context.analyzingContext.db;
+        UpdateStatement* stmt = result.updateStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+
+        if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
+        if (db._branchMapping.find(stmt->relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + stmt->relation.version + "' does not exist");
+        Table *table = db.getTable(stmt->relation.name);
+        std::vector<std::string> columnNames = table->getColumnNames();
+        for (auto &column : stmt->updates) {
+            if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.first.name + "' does not exist");
+        }
+        for (auto &column : stmt->selections) {
+            if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.first.name + "' does not exist");
+        }
+        // Relation
+        // // Relation with name exists?
+        // // Branch exists?
+        // For each column
+        // // Column exists?
+    }
+
+    void SemanticalVerifier::verifyDelete(SQLParserResult &result) {
+        Database &db = _context.analyzingContext.db;
+        DeleteStatement* stmt = result.deleteStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+
+        if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
+        if (db._branchMapping.find(stmt->relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + stmt->relation.version + "' does not exist");
+        Table *table = db.getTable(stmt->relation.name);
+        std::vector<std::string> columnNames = table->getColumnNames();
+        for (auto &column : stmt->selections) {
+            if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.first.name + "' does not exist");
+        }
+        // Relation
+        // // Relation with name exists?
+        // // Branch exists?
+        // For each column
+        // // Column exists?
+    }
+
     void SemanticalVerifier::analyse_sql_statement(SQLParserResult &result) {
-        /*auto scope = construct_scope(_context.db, result);
-        fully_qualify_names(scope, result);
-        validate_sql_statement(scope, _context.db, result);*/
+        switch (result.opType) {
+            case SQLParserResult::OpType::CreateTable:
+                verifyCreateTable(result);
+                break;
+            case SQLParserResult::OpType::CreateBranch:
+                verifyCreateBranch(result);
+                break;
+            case SQLParserResult::OpType::Insert:
+                verifyInsert(result);
+                break;
+            case SQLParserResult::OpType::Select:
+                verifySelect(result);
+                break;
+            case SQLParserResult::OpType::Update:
+                verifyUpdate(result);
+                break;
+            case SQLParserResult::OpType::Delete:
+                verifyDelete(result);
+                break;
+        }
     }
 
 }
