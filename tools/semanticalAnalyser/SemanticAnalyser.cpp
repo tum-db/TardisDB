@@ -87,6 +87,27 @@ namespace semanticalAnalysis {
 
         // create edges
         for (auto &[vNode,uNode] : stmt->joinConditions) {
+            if (vNode.table.length() == 0) {
+                for (auto& production : plan.ius) {
+                    for (auto& iu : production.second) {
+                        if (iu.first.compare(vNode.name) == 0) {
+                            vNode.table = production.first;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (uNode.table.length() == 0) {
+                for (auto& production : plan.ius) {
+                    for (auto& iu : production.second) {
+                        if (iu.first.compare(uNode.name) == 0) {
+                            uNode.table = production.first;
+                            break;
+                        }
+                    }
+                }
+            }
+
             //If edge does not already exist add it
             if (!graph.hasEdge(vNode.table,uNode.table)) {
                 std::vector<Expressions::exp_op_t> expressions;
