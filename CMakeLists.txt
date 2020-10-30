@@ -7,6 +7,10 @@ set(LIBXML_AVAILABLE false)
 set(ENABLE_PERFBENCHMARKING false)
 set(USE_DATA_VERSIONING true)
 
+### common flags
+# TODO add -Wall -Wextra
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -rdynamic -fno-omit-frame-pointer -march=native -Wno-unknown-pragmas")
+
 ### set up boost
 if(APPLE)
 	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/boost/lib/cmake/Boost-1.72.0)
@@ -146,7 +150,7 @@ endif(TUPLE_STREAM_REQUIRED)
 if(USE_DATA_VERSIONING)
 	target_compile_definitions(dblib PUBLIC -D USE_DATA_VERSIONING=true)
 endif(USE_DATA_VERSIONING)
-target_link_libraries(dblib semanticalAnalyser sqlparser LLVM)
+target_link_libraries(dblib semanticalAnalyser sqlparser LLVM dl)
 
 ### main application
 add_executable(protodb main.cpp ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})

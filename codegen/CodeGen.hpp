@@ -12,6 +12,7 @@
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 
 #include "codegen/TypeCache.hpp"
+#include "utils/general.hpp"
 
 class CodeGen;
 class ModuleGen;
@@ -58,6 +59,9 @@ public:
             llvm::ArrayRef<llvm::Value *> Args,
             const llvm::Twine & Name = "",
             llvm::MDNode * FPMathTag = nullptr);
+
+    template<typename Func, class... Args>
+    llvm::Value* genCall(Func f, Args... args);
 
     void setCurrentModuleGen(ModuleGen & moduleGen);
     ModuleGen & getCurrentModuleGen();
@@ -820,6 +824,16 @@ void genFreeCall(cg_voidptr_t ptr);
 
 template<typename T>
 llvm::Value * createPointerValue(T * ptr, llvm::Type * elementTy);
+
+//-----------------------------------------------------------------------------
+
+template<class T>
+struct TypeTranslator;
+
+//-----------------------------------------------------------------------------
+
+template<class T>
+struct ConstantTranslator;
 
 //-----------------------------------------------------------------------------
 

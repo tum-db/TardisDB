@@ -1,6 +1,7 @@
 #include <sstream>
 #include <cstdio>
 #include <cstdlib>
+#include <dlfcn.h>
 
 #include "utils/general.hpp"
 
@@ -28,4 +29,12 @@ std::string readline()
     std::free(line);
 
     return result;
+}
+
+std::string getFunctionName(void* funcPtr) {
+    Dl_info info;
+    if (dladdr(funcPtr, &info) && info.dli_sname) {
+        return info.dli_sname;
+    }
+    return std::string("func_") + std::to_string(reinterpret_cast<intptr_t>(funcPtr));
 }

@@ -34,3 +34,5 @@ bool is_subset(std::set<T> subset, std::set<T> superset)
 std::vector<std::string> split(const std::string & str, char delim);
 
 std::string readline();
+
+std::string getFunctionName(void* funcPtr);
