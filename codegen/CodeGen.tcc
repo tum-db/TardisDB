@@ -104,6 +104,17 @@ constexpr auto translateTypes(llvm::LLVMContext& ctx, Ts&&... ts)
 }
 
 template<class R, class... Args>
+struct TypeTranslator<R(Args...)> {
+    static llvm::FunctionType* get(llvm::LLVMContext& ctx) {
+        // construct llvm function type
+        auto returnType = TypeTranslator<R>::get(ctx);
+        auto argumentTypes = translateTypes<Args...>(ctx);
+        auto functionType = llvm::FunctionType::get(returnType, argumentTypes, false);
+        return functionType;
+    }
+};
+
+template<class R, class... Args>
 struct TypeTranslator<R(*)(Args...)> {
     static llvm::FunctionType* get(llvm::LLVMContext& ctx) {
         // construct llvm function type
