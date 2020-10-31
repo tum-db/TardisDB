@@ -34,9 +34,7 @@ namespace semanticalAnalysis {
     void UpdateAnalyser::constructTree() {
         UpdateStatement *stmt = _context.parserResult.updateStmt;
 
-        std::vector<Relation> relations;
-        relations.push_back(stmt->relation);
-        construct_scans(_context, relations);
+        construct_scans(_context, stmt->relation);
         construct_selects(_context, stmt->selections);
 
         Table* table = _context.db.getTable(stmt->relation.name);

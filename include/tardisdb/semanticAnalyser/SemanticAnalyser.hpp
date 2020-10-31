@@ -32,6 +32,11 @@ namespace semanticalAnalysis {
         static std::unique_ptr<SemanticAnalyser> getSemanticAnalyser(AnalyzingContext &context);
 
     protected:
+        static void construct_scans(AnalyzingContext& context, Relation &relation) {
+            std::vector<Relation> relations;
+            relations.push_back(relation);
+            construct_scans(context,relations);
+        }
         static void construct_scans(AnalyzingContext& context, std::vector<Relation> &relations);
         static void construct_selects(AnalyzingContext& context, std::vector<std::pair<Column,std::string>> &selections);
     };

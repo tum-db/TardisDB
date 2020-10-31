@@ -29,9 +29,7 @@ namespace semanticalAnalysis {
     void DeleteAnalyser::constructTree() {
         DeleteStatement *stmt = _context.parserResult.deleteStmt;
 
-        std::vector<Relation> relations;
-        relations.push_back(stmt->relation);
-        construct_scans(_context, relations);
+        construct_scans(_context, stmt->relation);
         construct_selects(_context, stmt->selections);
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
