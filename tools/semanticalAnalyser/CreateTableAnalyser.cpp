@@ -28,7 +28,7 @@ namespace semanticalAnalysis {
         // // type exists?
     }
 
-    std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
+    void CreateTableAnalyser::constructTree() {
         auto & createdTable = _context.db.createTable(_context.parserResult.createTableStmt->tableName);
 
         for (auto &columnSpec : _context.parserResult.createTableStmt->columns) {
@@ -56,7 +56,7 @@ namespace semanticalAnalysis {
             createdTable.addColumn(columnSpec.name, sqlType);
         }
 
-        return nullptr;
+        _context.joinedTree = nullptr;
     }
 
 }

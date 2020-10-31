@@ -71,7 +71,8 @@ namespace QueryCompiler {
 
         std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
         analyser->verify();
-        auto queryTree = analyser->constructTree();
+        analyser->constructTree();
+        auto &queryTree = queryContext.analyzingContext.joinedTree;
         if (queryTree == nullptr) return;
 
         auto queryFunc = compileQuery(query, queryTree,queryContext);
@@ -102,7 +103,8 @@ namespace QueryCompiler {
         const auto analysingStart = std::chrono::high_resolution_clock::now();
         std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
         analyser->verify();
-        auto queryTree = analyser->constructTree();
+        analyser->constructTree();
+        auto &queryTree = queryContext.analyzingContext.joinedTree;
         const auto analysingDuration = std::chrono::high_resolution_clock::now() - analysingStart;
         if (queryTree == nullptr) return BenchmarkResult();
 

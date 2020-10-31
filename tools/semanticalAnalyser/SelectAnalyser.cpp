@@ -85,7 +85,7 @@ namespace semanticalAnalysis {
 
     //TODO: Make projections available to every node in the tree
 //TODO: Check physical tree projections do not work after joining
-    std::unique_ptr<Operator> SelectAnalyser::constructTree() {
+    void SelectAnalyser::constructTree() {
         SelectStatement *stmt = _context.parserResult.selectStmt;
 
         construct_scans(_context, stmt->relations);
@@ -112,7 +112,7 @@ namespace semanticalAnalysis {
 
         if (_context.joinedTree != nullptr) {
             // Construct Result and store it in the query plan struct
-            return std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
+            _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
         } else {
             throw std::runtime_error("no or more than one root found: Table joining has failed");
         }
@@ -175,7 +175,7 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SelectAnalyser::construct_join(std::string &vertexName, AnalyzingContext &context) {
+    void SelectAnalyser::construct_join(AnalyzingContext &context, std::string &vertexName) {
         // Get the vertex struct from the join graph
         JoinGraph::Vertex *vertex = context.graph.getVertex(vertexName);
 
@@ -221,7 +221,7 @@ namespace semanticalAnalysis {
             }
 
             //Construct join for the neighboring node
-            construct_join(neighboringVertexName, context);
+            construct_join(context, neighboringVertexName);
         }
     }
 
@@ -233,7 +233,7 @@ namespace semanticalAnalysis {
         std::string firstVertexName = context.graph.getFirstVertexName();
 
         //Construct join the first vertex
-        construct_join(firstVertexName, context);
+        construct_join(context, firstVertexName);
     }
 
 }

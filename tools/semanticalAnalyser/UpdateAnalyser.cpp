@@ -31,7 +31,7 @@ namespace semanticalAnalysis {
     }
 
     //TODO: Verifier check on only one table to update
-    std::unique_ptr<Operator> UpdateAnalyser::constructTree() {
+    void UpdateAnalyser::constructTree() {
         UpdateStatement *stmt = _context.parserResult.updateStmt;
 
         std::vector<Relation> relations;
@@ -69,7 +69,7 @@ namespace semanticalAnalysis {
 
         auto &production = _context.dangling_productions[stmt->relation.alias];
 
-        return std::make_unique<Update>( std::move(production), updateIUs, *table, _context.db._branchMapping[stmt->relation.version]);
+        _context.joinedTree = std::make_unique<Update>( std::move(production), updateIUs, *table, _context.db._branchMapping[stmt->relation.version]);
     }
 
 }

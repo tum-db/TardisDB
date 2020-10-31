@@ -26,7 +26,7 @@ namespace semanticalAnalysis {
         // // Column exists?
     }
 
-    std::unique_ptr<Operator> DeleteAnalyser::constructTree() {
+    void DeleteAnalyser::constructTree() {
         DeleteStatement *stmt = _context.parserResult.deleteStmt;
 
         std::vector<Relation> relations;
@@ -50,7 +50,7 @@ namespace semanticalAnalysis {
 
         auto &production = _context.dangling_productions[stmt->relation.alias];
 
-        return std::make_unique<Delete>( std::move(production), tidIU, *table);
+        _context.joinedTree = std::make_unique<Delete>( std::move(production), tidIU, *table);
     }
 
 }

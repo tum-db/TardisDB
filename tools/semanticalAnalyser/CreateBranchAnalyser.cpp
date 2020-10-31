@@ -19,7 +19,7 @@ namespace semanticalAnalysis {
         // Parent branch exists?
     }
 
-    std::unique_ptr<Operator> CreateBranchAnalyser::constructTree() {
+    void CreateBranchAnalyser::constructTree() {
         // Get branchName and parentBranchId from statement
         std::string &branchName = _context.parserResult.createBranchStmt->branchName;
         std::string &parentBranchName = _context.parserResult.createBranchStmt->parentBranchName;
@@ -35,7 +35,7 @@ namespace semanticalAnalysis {
 
         std::cout << "Created Branch " << branchid << "\n";
 
-        return nullptr;
+        _context.joinedTree = nullptr;
     }
 
 }

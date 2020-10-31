@@ -26,7 +26,7 @@ namespace semanticalAnalysis {
         // // Column exists?
     }
 
-    std::unique_ptr<Operator> InsertAnalyser::constructTree() {
+    void InsertAnalyser::constructTree() {
         InsertStatement *stmt = _context.parserResult.insertStmt;
 
         auto& db = _context.db;
@@ -52,7 +52,7 @@ namespace semanticalAnalysis {
 
         Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
 
-        return std::make_unique<Insert>(_context.iuFactory,*table,tuple,branchId);
+        _context.joinedTree = std::make_unique<Insert>(_context.iuFactory,*table,tuple,branchId);
     }
 
 }
