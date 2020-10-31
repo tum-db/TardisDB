@@ -43,11 +43,6 @@ namespace semanticalAnalysis {
     protected:
         static void construct_scans(QueryContext& context, QueryPlan & plan, std::vector<Relation> &relations);
         static void construct_selects(QueryPlan & plan, std::vector<std::pair<Column,std::string>> &selections);
-        static void construct_joins(QueryContext & context, QueryPlan & plan, SQLParserResult &parserResult);
-
-    private:
-        static void construct_join_graph(QueryContext & context, QueryPlan & plan, SelectStatement *stmt);
-        static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
     };
 
     //
@@ -59,7 +54,10 @@ namespace semanticalAnalysis {
         SelectAnalyser(QueryContext &context, SQLParserResult &parserResult) : SemanticAnalyser(context,parserResult) {}
         void verify() override;
         std::unique_ptr<Operator> constructTree() override;
-
+    private:
+        static void construct_joins(QueryContext & context, QueryPlan & plan, SQLParserResult &parserResult);
+        static void construct_join_graph(QueryContext & context, QueryPlan & plan, SelectStatement *stmt);
+        static void construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan);
     };
 
     class InsertAnalyser : public SemanticAnalyser {
