@@ -9,7 +9,7 @@ namespace Physical {
 /// The print operator
 class Print : public UnaryOperator {
 public:
-    Print(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input);
+    Print(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext &queryContext);
 
     virtual ~Print();
 

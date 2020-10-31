@@ -320,8 +320,8 @@ llvm::Type * Min::getEntryType()
 using namespace Aggregations;
 
 GroupBy::GroupBy(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input,
-                 std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations) :
-        UnaryOperator(std::move(logicalOperator), std::move(input)),
+                 std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations, QueryContext &queryContext) :
+        UnaryOperator(std::move(logicalOperator), std::move(input), queryContext),
         _aggregations(std::move(aggregations))
 {
     createGroupType();

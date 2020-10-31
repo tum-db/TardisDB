@@ -14,6 +14,8 @@ class IUFactory {
 public:
     IUFactory() = default;
 
+    uint32_t getUID() { return operatorUID++; }
+
     /// \brief Create an iu for a temporary
     iu_p_t createIU(Sql::SqlType type);
 
@@ -23,6 +25,7 @@ public:
 private:
     using iu_op_t = std::unique_ptr<InformationUnit>;
 
+    uint32_t operatorUID = 0;
     std::vector<iu_op_t> iu_vec;
 };
 

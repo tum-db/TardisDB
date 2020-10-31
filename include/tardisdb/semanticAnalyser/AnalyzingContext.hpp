@@ -14,7 +14,6 @@ namespace semanticalAnalysis {
         SQLParserResult parserResult;
         Database & db;
         IUFactory iuFactory;
-        uint32_t operatorUID = 0;
 
         using scope_op_t = std::unique_ptr<std::unordered_map<std::string, iu_p_t>>;
         std::unordered_map<std::string, iu_p_t> scope;

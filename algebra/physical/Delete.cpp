@@ -10,8 +10,8 @@ using namespace Sql;
 namespace Algebra {
     namespace Physical {
 
-        Delete::Delete(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, iu_p_t &tidIU, Table & table)  :
-                UnaryOperator(std::move(logicalOperator), std::move(input)), table(table), tidIU(std::move(tidIU)) { }
+        Delete::Delete(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, iu_p_t &tidIU, Table & table, QueryContext &queryContext)  :
+                UnaryOperator(std::move(logicalOperator), std::move(input), queryContext), table(table), tidIU(std::move(tidIU)) { }
 
         Delete::~Delete()
         { }

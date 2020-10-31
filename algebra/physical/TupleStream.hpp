@@ -13,7 +13,7 @@ namespace Algebra {
 /// The print operator
         class TupleStream : public UnaryOperator {
         public:
-            TupleStream(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input);
+            TupleStream(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext &queryContext);
 
             virtual ~TupleStream();
 

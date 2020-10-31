@@ -7,8 +7,8 @@
 namespace semanticalAnalysis {
 
     void SelectAnalyser::verify() {
-        Database &db = _context.analyzingContext.db;
-        SelectStatement* stmt = _parserResult.selectStmt;
+        Database &db = _context.db;
+        SelectStatement* stmt = _context.parserResult.selectStmt;
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
 
         std::set<std::string> unbindedColumns;
@@ -87,13 +87,13 @@ namespace semanticalAnalysis {
 //TODO: Check physical tree projections do not work after joining
     std::unique_ptr<Operator> SelectAnalyser::constructTree() {
         QueryPlan plan;
-        SelectStatement *stmt = _parserResult.selectStmt;
+        SelectStatement *stmt = _context.parserResult.selectStmt;
 
         construct_scans(_context, plan, stmt->relations);
         construct_selects(plan, stmt->selections);
-        construct_joins(_context,plan, _parserResult);
+        construct_joins(_context,plan, _context.parserResult);
 
-        auto & db = _context.analyzingContext.db;
+        auto & db = _context.db;
 
         //get projected IUs
         std::vector<iu_p_t> projectedIUs;
@@ -119,7 +119,7 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SelectAnalyser::construct_join_graph(QueryContext & context, QueryPlan & plan, SelectStatement *stmt) {
+    void SelectAnalyser::construct_join_graph(AnalyzingContext & context, QueryPlan & plan, SelectStatement *stmt) {
         JoinGraph &graph = plan.graph;
 
         // create and add vertices to join graph
@@ -176,7 +176,7 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SelectAnalyser::construct_join(std::string &vertexName, QueryContext &context, QueryPlan &plan) {
+    void SelectAnalyser::construct_join(std::string &vertexName, AnalyzingContext &context, QueryPlan &plan) {
         // Get the vertex struct from the join graph
         JoinGraph::Vertex *vertex = plan.graph.getVertex(vertexName);
 
@@ -226,7 +226,7 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SelectAnalyser::construct_joins(QueryContext & context, QueryPlan & plan, SQLParserResult &parserResult) {
+    void SelectAnalyser::construct_joins(AnalyzingContext & context, QueryPlan & plan, SQLParserResult &parserResult) {
         // Construct the join graph
         construct_join_graph(context,plan,parserResult.selectStmt);
 

@@ -10,7 +10,7 @@ namespace Algebra {
         class Update : public UnaryOperator {
         public:
             Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,
-                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId);
+                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId, QueryContext &queryContext);
 
             virtual ~Update();
 

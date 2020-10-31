@@ -35,7 +35,7 @@
 
 namespace QueryCompiler {
 
-    static llvm::Function *compileQuery(const std::string &query, std::unique_ptr<Operator> &queryTree) {
+    static llvm::Function *compileQuery(const std::string &query, std::unique_ptr<Operator> &queryTree, QueryContext &queryContext) {
         auto &codeGen = getThreadLocalCodeGen();
         auto &llvmContext = codeGen.getLLVMContext();
         auto &moduleGen = codeGen.getCurrentModuleGen();
@@ -47,7 +47,7 @@ namespace QueryCompiler {
         {
             FunctionGen funcGen(moduleGen, "query", funcTy);
 
-            auto physicalTree = Algebra::translateToPhysicalTree(*queryTree);
+            auto physicalTree = Algebra::translateToPhysicalTree(*queryTree,queryContext);
             physicalTree->produce();
 
             queryFunc = funcGen.getFunction();
@@ -69,12 +69,12 @@ namespace QueryCompiler {
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
 #endif
 
-        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,queryContext.analyzingContext.parserResult);
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
         analyser->verify();
         auto queryTree = analyser->constructTree();
         if (queryTree == nullptr) return;
 
-        auto queryFunc = compileQuery(query, queryTree);
+        auto queryFunc = compileQuery(query, queryTree,queryContext);
         if (queryFunc == nullptr) return;
 
         std::vector<llvm::GenericValue> args(2);
@@ -100,14 +100,14 @@ namespace QueryCompiler {
         const auto parsingDuration = std::chrono::high_resolution_clock::now() - parsingStart;
 
         const auto analysingStart = std::chrono::high_resolution_clock::now();
-        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,queryContext.analyzingContext.parserResult);
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
         analyser->verify();
         auto queryTree = analyser->constructTree();
         const auto analysingDuration = std::chrono::high_resolution_clock::now() - analysingStart;
         if (queryTree == nullptr) return BenchmarkResult();
 
         const auto translationStart = std::chrono::high_resolution_clock::now();
-        auto queryFunc = compileQuery(query, queryTree);
+        auto queryFunc = compileQuery(query, queryTree, queryContext);
         const auto translationDuration = std::chrono::high_resolution_clock::now() - translationStart;
         if (queryFunc == nullptr) unreachable();
 

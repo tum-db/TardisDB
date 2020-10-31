@@ -14,7 +14,7 @@
 
 namespace semanticalAnalysis {
 
-    void SemanticAnalyser::construct_scans(QueryContext& context, QueryPlan & plan, std::vector<Relation> &relations) {
+    void SemanticAnalyser::construct_scans(AnalyzingContext& context, QueryPlan & plan, std::vector<Relation> &relations) {
         for (auto &relation : relations) {
             if (relation.alias.compare("") == 0) relation.alias = relation.name;
 
@@ -22,14 +22,14 @@ namespace semanticalAnalysis {
             std::string &branchName = relation.version;
             branch_id_t branchId;
             if (branchName.compare("master") != 0) {
-                branchId = context.analyzingContext.db._branchMapping[branchName];
+                branchId = context.db._branchMapping[branchName];
             } else {
                 branchId = master_branch_id;
             }
 
             //Construct the logical TableScan operator
-            Table* table = context.analyzingContext.db.getTable(relation.name);
-            std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context, *table, branchId);
+            Table* table = context.db.getTable(relation.name);
+            std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context.iuFactory, *table, branchId);
 
             //Store the ius produced by this TableScan
             for (iu_p_t iu : scan->getProduced()) {
@@ -74,21 +74,20 @@ namespace semanticalAnalysis {
         }
     }
 
-    std::unique_ptr<SemanticAnalyser> SemanticAnalyser::getSemanticAnalyser(QueryContext &context,
-                                                                            SQLParserResult &parserResult) {
-        switch (parserResult.opType) {
+    std::unique_ptr<SemanticAnalyser> SemanticAnalyser::getSemanticAnalyser(AnalyzingContext &context) {
+        switch (context.parserResult.opType) {
             case SQLParserResult::OpType::Select:
-                return std::make_unique<SelectAnalyser>(context,parserResult);
+                return std::make_unique<SelectAnalyser>(context);
             case SQLParserResult::OpType::Insert:
-                return std::make_unique<InsertAnalyser>(context,parserResult);
+                return std::make_unique<InsertAnalyser>(context);
             case SQLParserResult::OpType::Update:
-                return std::make_unique<UpdateAnalyser>(context,parserResult);
+                return std::make_unique<UpdateAnalyser>(context);
             case SQLParserResult::OpType::Delete:
-                return std::make_unique<DeleteAnalyser>(context,parserResult);
+                return std::make_unique<DeleteAnalyser>(context);
             case SQLParserResult::OpType::CreateTable:
-                return std::make_unique<CreateTableAnalyser>(context,parserResult);
+                return std::make_unique<CreateTableAnalyser>(context);
             case SQLParserResult::OpType::CreateBranch:
-                return std::make_unique<CreateBranchAnalyser>(context,parserResult);
+                return std::make_unique<CreateBranchAnalyser>(context);
         }
 
         return nullptr;

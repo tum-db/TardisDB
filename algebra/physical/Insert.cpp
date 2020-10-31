@@ -12,7 +12,7 @@ namespace Algebra {
     namespace Physical {
 
         Insert::Insert(const logical_operator_t & logicalOperator, Table & table, Native::Sql::SqlTuple *tuple, QueryContext &context, branch_id_t branchId) :
-                NullaryOperator(std::move(logicalOperator)) , table(table), tuple(tuple), context(context), branchId(branchId)
+                NullaryOperator(std::move(logicalOperator),context) , table(table), tuple(tuple), context(context), branchId(branchId)
         {
 
         }

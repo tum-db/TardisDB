@@ -7,8 +7,8 @@
 namespace semanticalAnalysis {
 
     void CreateBranchAnalyser::verify() {
-        Database &db = _context.analyzingContext.db;
-        CreateBranchStatement* stmt = _parserResult.createBranchStmt;
+        Database &db = _context.db;
+        CreateBranchStatement* stmt = _context.parserResult.createBranchStmt;
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
 
         if (db._branchMapping.find(stmt->branchName) != db._branchMapping.end())
@@ -23,17 +23,17 @@ namespace semanticalAnalysis {
         QueryPlan plan;
 
         // Get branchName and parentBranchId from statement
-        std::string &branchName = _parserResult.createBranchStmt->branchName;
-        std::string &parentBranchName = _parserResult.createBranchStmt->parentBranchName;
+        std::string &branchName = _context.parserResult.createBranchStmt->branchName;
+        std::string &parentBranchName = _context.parserResult.createBranchStmt->parentBranchName;
 
         // Search for mapped branchId of parentBranchName
         branch_id_t _parentBranchId = 0;
         if (parentBranchName.compare("master") != 0) {
-            _parentBranchId = _context.analyzingContext.db._branchMapping[parentBranchName];
+            _parentBranchId = _context.db._branchMapping[parentBranchName];
         }
 
         // Add new branch
-        branch_id_t branchid = _context.analyzingContext.db.createBranch(branchName, _parentBranchId);
+        branch_id_t branchid = _context.db.createBranch(branchName, _parentBranchId);
 
         std::cout << "Created Branch " << branchid << "\n";
 

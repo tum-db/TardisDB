@@ -13,8 +13,8 @@ using namespace Sql;
 namespace Algebra {
     namespace Physical {
 
-        TupleStream::TupleStream(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input) :
-                UnaryOperator(std::move(logicalOperator), std::move(input))
+        TupleStream::TupleStream(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext &queryContext) :
+                UnaryOperator(std::move(logicalOperator), std::move(input), queryContext)
         {
             for (auto &iu : _logicalOperator.getRequired()) {
                 auto ci = getColumnInformation(iu);

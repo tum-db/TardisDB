@@ -11,7 +11,7 @@ namespace Physical {
 /// The table scan operator
 class TableScan : public NullaryOperator {
 public:
-    TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId);
+    TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId, QueryContext &queryContext);
 
     virtual ~TableScan();
 

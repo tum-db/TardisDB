@@ -15,8 +15,8 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId) :
-        NullaryOperator(std::move(logicalOperator)),
+TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId, QueryContext &queryContext) :
+        NullaryOperator(std::move(logicalOperator), queryContext),
         table(table),
         branchId(branchId)
 {

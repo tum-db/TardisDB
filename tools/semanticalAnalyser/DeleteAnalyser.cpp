@@ -7,8 +7,8 @@
 namespace semanticalAnalysis {
 
     void DeleteAnalyser::verify() {
-        Database &db = _context.analyzingContext.db;
-        DeleteStatement* stmt = _parserResult.deleteStmt;
+        Database &db = _context.db;
+        DeleteStatement* stmt = _context.parserResult.deleteStmt;
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
 
         if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
@@ -28,7 +28,7 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> DeleteAnalyser::constructTree() {
         QueryPlan plan;
-        DeleteStatement *stmt = _parserResult.deleteStmt;
+        DeleteStatement *stmt = _context.parserResult.deleteStmt;
 
         std::vector<Relation> relations;
         relations.push_back(stmt->relation);
@@ -36,7 +36,7 @@ namespace semanticalAnalysis {
         construct_selects(plan, stmt->selections);
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
-        Table* table = _context.analyzingContext.db.getTable(stmt->relation.name);
+        Table* table = _context.db.getTable(stmt->relation.name);
 
         iu_p_t tidIU;
 

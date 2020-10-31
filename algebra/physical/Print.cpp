@@ -10,8 +10,8 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-Print::Print(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input) :
-        UnaryOperator(std::move(logicalOperator), std::move(input))
+Print::Print(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext &queryContext) :
+        UnaryOperator(std::move(logicalOperator), std::move(input), queryContext)
 { }
 
 Print::~Print()

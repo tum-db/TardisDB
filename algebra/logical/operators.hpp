@@ -7,7 +7,7 @@
 
 #include "algebra/logical/expressions.hpp"
 #include "foundations/InformationUnit.hpp"
-#include "queryCompiler/QueryContext.hpp"
+#include "foundations/IUFactory.hpp"
 
 namespace Algebra {
 namespace Logical {
@@ -23,11 +23,10 @@ class Operator {
 public:
     size_t cardinality;
 
-    Operator(QueryContext & context) :
-            _context(context)
+    Operator(IUFactory &iuFactory) :
+            _iuFactory(iuFactory)
     {
-        _uid = _context.analyzingContext.operatorUID;
-        _context.analyzingContext.operatorUID += 1;
+        _uid = _iuFactory.getUID();
     }
 
     Operator(const Operator &) = delete;
@@ -38,7 +37,7 @@ public:
 
     virtual void accept(OperatorVisitor & visitor) = 0;
 
-    QueryContext & getContext() const { return _context; }
+    IUFactory & getIUFactory() const { return _iuFactory; }
 
     Operator * getParent() const { return parent; }
 
@@ -70,7 +69,7 @@ protected:
     virtual void updateRequiredSetsTraverser() = 0;
 
     Operator * parent = nullptr;
-    QueryContext & _context;
+    IUFactory &_iuFactory;
 
     iu_set_t produced;
     iu_set_t required;
@@ -116,7 +115,7 @@ struct OperatorVisitor {
 
 class NullaryOperator : public Operator {
 public:
-    NullaryOperator(QueryContext & context);
+    NullaryOperator(IUFactory &iuFactory);
 
     ~NullaryOperator() override;
 
@@ -263,16 +262,15 @@ struct AggregatorVisitor;
 
 class Aggregator {
 public:
-    Aggregator(QueryContext & context) :
-            _context(context)
+    Aggregator(IUFactory &iuFactory) :
+            _iuFactory(iuFactory)
     { }
 
     virtual ~Aggregator() { }
 
     virtual void accept(AggregatorVisitor & visitor) = 0;
 
-    QueryContext & getContext() const { return _context; }
-
+    IUFactory & getIUFactory() const { return _iuFactory; }
     iu_p_t getProduced();
 
     // the expression could contain multiple iu references
@@ -286,7 +284,7 @@ protected:
     virtual void computeProduced();
     virtual void computeRequired() = 0;
 
-    QueryContext & _context;
+    IUFactory & _iuFactory;
     Operator * parent = nullptr;
 
     iu_p_t _produced;
@@ -316,8 +314,8 @@ struct AggregatorVisitor {
 
 class Keep : public Aggregator {
 public:
-    Keep(QueryContext & context, iu_p_t keep) :
-            Aggregator(context),
+    Keep(IUFactory &iuFactory, iu_p_t keep) :
+            Aggregator(iuFactory),
             _keep(keep)
     { }
 
@@ -335,8 +333,8 @@ protected:
 
 class Sum : public Aggregator {
 public:
-    Sum(QueryContext & context, logical_exp_op_t exp) :
-            Aggregator(context),
+    Sum(IUFactory &iuFactory, logical_exp_op_t exp) :
+            Aggregator(iuFactory),
             _expression(std::move(exp))
     { }
 
@@ -356,7 +354,7 @@ private:
 
 class Avg : public Aggregator {
 public:
-    Avg(QueryContext & context, logical_exp_op_t exp);
+    Avg(IUFactory &iuFactory, logical_exp_op_t exp);
 
     ~Avg() override { }
 
@@ -374,8 +372,8 @@ private:
 
 class CountAll : public Aggregator {
 public:
-    CountAll(QueryContext & context) :
-            Aggregator(context)
+    CountAll(IUFactory &iuFactory) :
+            Aggregator(iuFactory)
     { }
 
     ~CountAll() override { }
@@ -390,8 +388,8 @@ protected:
 
 class Min : public Aggregator {
 public:
-    Min(QueryContext & context, logical_exp_op_t exp) :
-            Aggregator(context),
+    Min(IUFactory &iuFactory, logical_exp_op_t exp) :
+            Aggregator(iuFactory),
             _expression(std::move(exp))
     { }
 
@@ -456,7 +454,7 @@ protected:
 
 class Insert : public NullaryOperator {
 public:
-    Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple, branch_id_t branchId);
+    Insert(IUFactory &iuFactory, Table & table, Native::Sql::SqlTuple *tuple, branch_id_t branchId);
 
     ~Insert() override;
 
@@ -535,14 +533,14 @@ protected:
 
 class TableScan : public NullaryOperator {
 public:
-    TableScan(QueryContext & context, Table & table, branch_id_t branchId) :
-            NullaryOperator(context),
+    TableScan(IUFactory &iuFactory, Table & table, branch_id_t branchId) :
+            NullaryOperator(iuFactory),
             _table(table),
             branchId(branchId)
     { }
 
-    TableScan(QueryContext & context, Table & table) :
-            NullaryOperator(context),
+    TableScan(IUFactory &iuFactory, Table & table) :
+            NullaryOperator(iuFactory),
             _table(table)
     { }
 

@@ -15,7 +15,7 @@ public:
     /// \param pairs: vector of (left expr, right expr) pairs
     HashJoin(const logical_operator_t & logicalOperator,
             std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
-            join_pair_vec_t pairs);
+            join_pair_vec_t pairs, QueryContext &queryContext);
 
     virtual ~HashJoin();
 

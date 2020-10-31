@@ -7,8 +7,8 @@
 namespace semanticalAnalysis {
 
     void CreateTableAnalyser::verify() {
-        Database &db = _context.analyzingContext.db;
-        CreateTableStatement* stmt = _parserResult.createTableStmt;
+        Database &db = _context.db;
+        CreateTableStatement* stmt = _context.parserResult.createTableStmt;
 
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
         if (db.hasTable(stmt->tableName)) throw semantic_sql_error("table '" + stmt->tableName + "' already exists");
@@ -31,9 +31,9 @@ namespace semanticalAnalysis {
     std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
         QueryPlan plan;
 
-        auto & createdTable = _context.analyzingContext.db.createTable(_parserResult.createTableStmt->tableName);
+        auto & createdTable = _context.db.createTable(_context.parserResult.createTableStmt->tableName);
 
-        for (auto &columnSpec : _parserResult.createTableStmt->columns) {
+        for (auto &columnSpec : _context.parserResult.createTableStmt->columns) {
             Sql::SqlType sqlType;
             if (columnSpec.type.compare("bool") == 0) {
                 sqlType = Sql::getBoolTy(columnSpec.nullable);

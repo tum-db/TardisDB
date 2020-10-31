@@ -12,9 +12,9 @@ namespace Physical {
 //-----------------------------------------------------------------------------
 // Operator
 
-Operator::Operator(const logical_operator_t & logicalOperator) :
-        _codeGen(logicalOperator.getContext().codeGen),
-        _context(logicalOperator.getContext()),
+Operator::Operator(const logical_operator_t & logicalOperator, QueryContext &queryContext) :
+        _codeGen(queryContext.codeGen),
+        _context(queryContext),
         _logicalOperator(std::move(logicalOperator))
 { }
 
@@ -44,8 +44,8 @@ const iu_set_t & Operator::getRequired()
 //-----------------------------------------------------------------------------
 // NullaryOperator
 
-NullaryOperator::NullaryOperator(const logical_operator_t & logicalOperator) :
-        Operator(std::move(logicalOperator))
+NullaryOperator::NullaryOperator(const logical_operator_t & logicalOperator, QueryContext &queryContext) :
+        Operator(std::move(logicalOperator),queryContext)
 { }
 
 NullaryOperator::~NullaryOperator()
@@ -63,8 +63,8 @@ size_t NullaryOperator::arity() const
 
 //-----------------------------------------------------------------------------
 // UnaryOperator
-UnaryOperator::UnaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input) :
-        Operator(std::move(logicalOperator)),
+UnaryOperator::UnaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext &queryContext) :
+        Operator(std::move(logicalOperator),queryContext),
         child(std::move(input))
 {
     child->setParent(this);
@@ -81,8 +81,8 @@ size_t UnaryOperator::arity() const
 //-----------------------------------------------------------------------------
 // BinaryOperator
 BinaryOperator::BinaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> leftInput,
-                               std::unique_ptr<Operator> rightInput) :
-        Operator(std::move(logicalOperator)),
+                               std::unique_ptr<Operator> rightInput, QueryContext &queryContext) :
+        Operator(std::move(logicalOperator), queryContext),
         _leftChild(std::move(leftInput)),
         _rightChild(std::move(rightInput))
 {

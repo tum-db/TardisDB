@@ -7,8 +7,8 @@
 namespace semanticalAnalysis {
 
     void InsertAnalyser::verify() {
-        Database &db = _context.analyzingContext.db;
-        InsertStatement* stmt = _parserResult.insertStmt;
+        Database &db = _context.db;
+        InsertStatement* stmt = _context.parserResult.insertStmt;
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
 
         if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
@@ -28,9 +28,9 @@ namespace semanticalAnalysis {
 
     std::unique_ptr<Operator> InsertAnalyser::constructTree() {
         QueryPlan plan;
-        InsertStatement *stmt = _parserResult.insertStmt;
+        InsertStatement *stmt = _context.parserResult.insertStmt;
 
-        auto& db = _context.analyzingContext.db;
+        auto& db = _context.db;
         Table* table = db.getTable(stmt->relation.name);
 
         std::string &branchName = stmt->relation.version;
@@ -53,7 +53,7 @@ namespace semanticalAnalysis {
 
         Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
 
-        return std::make_unique<Insert>(_context,*table,tuple,branchId);
+        return std::make_unique<Insert>(_context.iuFactory,*table,tuple,branchId);
     }
 
 }

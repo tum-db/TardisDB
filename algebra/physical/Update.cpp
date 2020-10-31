@@ -17,8 +17,8 @@ namespace Algebra {
     namespace Physical {
 
         Update::Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,
-                std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId) :
-                UnaryOperator(std::move(logicalOperator), std::move(input)) , table(table),
+                std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId, QueryContext &queryContext) :
+                UnaryOperator(std::move(logicalOperator), std::move(input), queryContext) , table(table),
                 _updateIUs(std::move(updateIUs)), branchId(branchId)
         {
             // collect all information which is necessary to access the columns
