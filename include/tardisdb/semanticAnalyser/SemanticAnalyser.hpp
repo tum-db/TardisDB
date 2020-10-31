@@ -17,15 +17,6 @@ namespace semanticalAnalysis {
         using std::runtime_error::runtime_error;
     };
 
-    struct QueryPlan {
-        JoinGraph graph;
-
-        std::unordered_map<std::string,std::unordered_map<std::string, iu_p_t>> ius;
-        std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
-
-        std::unique_ptr<Operator> joinedTree;
-    };
-
     class SemanticAnalyser {
     public:
         SemanticAnalyser(AnalyzingContext &context) : _context(context) {}
@@ -41,8 +32,8 @@ namespace semanticalAnalysis {
         static std::unique_ptr<SemanticAnalyser> getSemanticAnalyser(AnalyzingContext &context);
 
     protected:
-        static void construct_scans(AnalyzingContext& context, QueryPlan & plan, std::vector<Relation> &relations);
-        static void construct_selects(QueryPlan & plan, std::vector<std::pair<Column,std::string>> &selections);
+        static void construct_scans(AnalyzingContext& context, std::vector<Relation> &relations);
+        static void construct_selects(AnalyzingContext& context, std::vector<std::pair<Column,std::string>> &selections);
     };
 
     //
@@ -55,9 +46,9 @@ namespace semanticalAnalysis {
         void verify() override;
         std::unique_ptr<Operator> constructTree() override;
     private:
-        static void construct_joins(AnalyzingContext & context, QueryPlan & plan, SQLParserResult &parserResult);
-        static void construct_join_graph(AnalyzingContext & context, QueryPlan & plan, SelectStatement *stmt);
-        static void construct_join(std::string &vertexName, AnalyzingContext &context, QueryPlan &plan);
+        static void construct_joins(AnalyzingContext & context, SQLParserResult &parserResult);
+        static void construct_join_graph(AnalyzingContext & context, SelectStatement *stmt);
+        static void construct_join(std::string &vertexName, AnalyzingContext &context);
     };
 
     class InsertAnalyser : public SemanticAnalyser {

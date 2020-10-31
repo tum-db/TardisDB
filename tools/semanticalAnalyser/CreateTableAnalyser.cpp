@@ -29,8 +29,6 @@ namespace semanticalAnalysis {
     }
 
     std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
-        QueryPlan plan;
-
         auto & createdTable = _context.db.createTable(_context.parserResult.createTableStmt->tableName);
 
         for (auto &columnSpec : _context.parserResult.createTableStmt->columns) {

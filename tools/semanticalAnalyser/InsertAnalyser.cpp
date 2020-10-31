@@ -27,7 +27,6 @@ namespace semanticalAnalysis {
     }
 
     std::unique_ptr<Operator> InsertAnalyser::constructTree() {
-        QueryPlan plan;
         InsertStatement *stmt = _context.parserResult.insertStmt;
 
         auto& db = _context.db;

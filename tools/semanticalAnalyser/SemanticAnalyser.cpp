@@ -14,7 +14,7 @@
 
 namespace semanticalAnalysis {
 
-    void SemanticAnalyser::construct_scans(AnalyzingContext& context, QueryPlan & plan, std::vector<Relation> &relations) {
+    void SemanticAnalyser::construct_scans(AnalyzingContext& context, std::vector<Relation> &relations) {
         for (auto &relation : relations) {
             if (relation.alias.compare("") == 0) relation.alias = relation.name;
 
@@ -33,21 +33,21 @@ namespace semanticalAnalysis {
 
             //Store the ius produced by this TableScan
             for (iu_p_t iu : scan->getProduced()) {
-                plan.ius[relation.alias][iu->columnInformation->columnName] = iu;
+                context.ius[relation.alias][iu->columnInformation->columnName] = iu;
             }
 
             //Add a new production with TableScan as root node
-            plan.dangling_productions.insert({relation.alias, std::move(scan)});
+            context.dangling_productions.insert({relation.alias, std::move(scan)});
         }
     }
 
     // TODO: Implement nullable
-    void SemanticAnalyser::construct_selects(QueryPlan& plan, std::vector<std::pair<Column,std::string>> &selections) {
+    void SemanticAnalyser::construct_selects(AnalyzingContext& context, std::vector<std::pair<Column,std::string>> &selections) {
         for (auto &[column,valueString] : selections) {
             // Construct Expression
             iu_p_t iu;
             if (column.table.compare("") == 0) {
-                for (auto &[productionName,production] : plan.ius) {
+                for (auto &[productionName,production] : context.ius) {
                     for (auto &[key,value] : production) {
                         if (key.compare(column.name) == 0) {
                             column.table = productionName;
@@ -56,7 +56,7 @@ namespace semanticalAnalysis {
                     }
                 }
             } else {
-                iu = plan.ius[column.table][column.name];
+                iu = context.ius[column.table][column.name];
             }
             auto constExp = std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type);
             auto identifier = std::make_unique<Expressions::Identifier>(iu);
@@ -67,10 +67,10 @@ namespace semanticalAnalysis {
             );
 
             //Construct the logical Select operator
-            std::unique_ptr<Select> select = std::make_unique<Select>(std::move(plan.dangling_productions[column.table]), std::move(exp));
+            std::unique_ptr<Select> select = std::make_unique<Select>(std::move(context.dangling_productions[column.table]), std::move(exp));
 
             //Update corresponding production by setting the Select operator as new root node
-            plan.dangling_productions[column.table] = std::move(select);
+            context.dangling_productions[column.table] = std::move(select);
         }
     }
 

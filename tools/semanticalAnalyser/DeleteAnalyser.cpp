@@ -27,20 +27,19 @@ namespace semanticalAnalysis {
     }
 
     std::unique_ptr<Operator> DeleteAnalyser::constructTree() {
-        QueryPlan plan;
         DeleteStatement *stmt = _context.parserResult.deleteStmt;
 
         std::vector<Relation> relations;
         relations.push_back(stmt->relation);
-        construct_scans(_context, plan, relations);
-        construct_selects(plan, stmt->selections);
+        construct_scans(_context, relations);
+        construct_selects(_context, stmt->selections);
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
         Table* table = _context.db.getTable(stmt->relation.name);
 
         iu_p_t tidIU;
 
-        for (auto& production : plan.ius) {
+        for (auto& production : _context.ius) {
             for (auto &iu : production.second) {
                 if (iu.first.compare("tid") == 0) {
                     tidIU = iu.second;
@@ -49,7 +48,7 @@ namespace semanticalAnalysis {
             }
         }
 
-        auto &production = plan.dangling_productions[stmt->relation.alias];
+        auto &production = _context.dangling_productions[stmt->relation.alias];
 
         return std::make_unique<Delete>( std::move(production), tidIU, *table);
     }

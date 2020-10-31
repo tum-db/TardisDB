@@ -86,12 +86,11 @@ namespace semanticalAnalysis {
     //TODO: Make projections available to every node in the tree
 //TODO: Check physical tree projections do not work after joining
     std::unique_ptr<Operator> SelectAnalyser::constructTree() {
-        QueryPlan plan;
         SelectStatement *stmt = _context.parserResult.selectStmt;
 
-        construct_scans(_context, plan, stmt->relations);
-        construct_selects(plan, stmt->selections);
-        construct_joins(_context,plan, _context.parserResult);
+        construct_scans(_context, stmt->relations);
+        construct_selects(_context, stmt->selections);
+        construct_joins(_context, _context.parserResult);
 
         auto & db = _context.db;
 
@@ -99,7 +98,7 @@ namespace semanticalAnalysis {
         std::vector<iu_p_t> projectedIUs;
         for (auto &column : stmt->projections) {
             if (column.table.length() == 0) {
-                for (auto& production : plan.ius) {
+                for (auto& production : _context.ius) {
                     for (auto& iu : production.second) {
                         if (iu.first.compare(column.name) == 0) {
                             projectedIUs.push_back( iu.second );
@@ -107,33 +106,33 @@ namespace semanticalAnalysis {
                     }
                 }
             } else {
-                projectedIUs.push_back(plan.ius[column.table][column.name]);
+                projectedIUs.push_back(_context.ius[column.table][column.name]);
             }
         }
 
-        if (plan.joinedTree != nullptr) {
+        if (_context.joinedTree != nullptr) {
             // Construct Result and store it in the query plan struct
-            return std::make_unique<Result>( std::move(plan.joinedTree), projectedIUs );
+            return std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
         } else {
             throw std::runtime_error("no or more than one root found: Table joining has failed");
         }
     }
 
-    void SelectAnalyser::construct_join_graph(AnalyzingContext & context, QueryPlan & plan, SelectStatement *stmt) {
-        JoinGraph &graph = plan.graph;
+    void SelectAnalyser::construct_join_graph(AnalyzingContext & context, SelectStatement *stmt) {
+        JoinGraph &graph = context.graph;
 
         // create and add vertices to join graph
         for (auto & rel : stmt->relations) {
             std::string &tableAlias = rel.alias;
             if (rel.alias.length() == 0) tableAlias = rel.name;
-            JoinGraph::Vertex v = JoinGraph::Vertex(plan.dangling_productions[tableAlias]);
+            JoinGraph::Vertex v = JoinGraph::Vertex(context.dangling_productions[tableAlias]);
             graph.addVertex(tableAlias,v);
         }
 
         // create edges
         for (auto &[vNode,uNode] : stmt->joinConditions) {
             if (vNode.table.length() == 0) {
-                for (auto& production : plan.ius) {
+                for (auto& production : context.ius) {
                     for (auto& iu : production.second) {
                         if (iu.first.compare(vNode.name) == 0) {
                             vNode.table = production.first;
@@ -143,7 +142,7 @@ namespace semanticalAnalysis {
                 }
             }
             if (uNode.table.length() == 0) {
-                for (auto& production : plan.ius) {
+                for (auto& production : context.ius) {
                     for (auto& iu : production.second) {
                         if (iu.first.compare(uNode.name) == 0) {
                             uNode.table = production.first;
@@ -161,8 +160,8 @@ namespace semanticalAnalysis {
             }
 
             //Get InformationUnits for both attributes
-            iu_p_t iuV = plan.ius[vNode.table][vNode.name];
-            iu_p_t iuU = plan.ius[uNode.table][uNode.name];
+            iu_p_t iuV = context.ius[vNode.table][vNode.name];
+            iu_p_t iuU = context.ius[uNode.table][uNode.name];
 
             //Create new compare expression as join condition
             std::vector<Expressions::exp_op_t> joinExprVec;
@@ -176,20 +175,20 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SelectAnalyser::construct_join(std::string &vertexName, AnalyzingContext &context, QueryPlan &plan) {
+    void SelectAnalyser::construct_join(std::string &vertexName, AnalyzingContext &context) {
         // Get the vertex struct from the join graph
-        JoinGraph::Vertex *vertex = plan.graph.getVertex(vertexName);
+        JoinGraph::Vertex *vertex = context.graph.getVertex(vertexName);
 
         // Get edges connected to the vertex
         std::vector<JoinGraph::Edge*> edges(0);
-        plan.graph.getConnectedEdges(vertexName,edges);
+        context.graph.getConnectedEdges(vertexName,edges);
 
         // Mark vertex as visited
         vertex->visited = true;
 
         // If the vertex is the first join component add it as new root node of the join graph
-        if (plan.joinedTree == nullptr) {
-            plan.joinedTree = std::move(vertex->production);
+        if (context.joinedTree == nullptr) {
+            context.joinedTree = std::move(vertex->production);
         }
 
         for (auto& edge : edges) {
@@ -199,22 +198,22 @@ namespace semanticalAnalysis {
             if (vertexName.compare(edge->vID) != 0) {
                 neighboringVertexName = edge->vID;
             }
-            JoinGraph::Vertex *neighboringVertex = plan.graph.getVertex(neighboringVertexName);
+            JoinGraph::Vertex *neighboringVertex = context.graph.getVertex(neighboringVertexName);
 
             // If neighboring vertex has already been visited => discard edge
             if (neighboringVertex->visited) continue;
 
             // If the edge is directed from the neighboring node to the current node also change the order of the join leafs
             if (vertexName.compare(edge->vID) != 0) {
-                plan.joinedTree = std::make_unique<Join>(
+                context.joinedTree = std::make_unique<Join>(
                         std::move(neighboringVertex->production),
-                        std::move(plan.joinedTree),
+                        std::move(context.joinedTree),
                         std::move(edge->expressions),
                         Join::Method::Hash
                 );
             } else {
-                plan.joinedTree = std::make_unique<Join>(
-                        std::move(plan.joinedTree),
+                context.joinedTree = std::make_unique<Join>(
+                        std::move(context.joinedTree),
                         std::move(neighboringVertex->production),
                         std::move(edge->expressions),
                         Join::Method::Hash
@@ -222,19 +221,19 @@ namespace semanticalAnalysis {
             }
 
             //Construct join for the neighboring node
-            construct_join(neighboringVertexName, context, plan);
+            construct_join(neighboringVertexName, context);
         }
     }
 
-    void SelectAnalyser::construct_joins(AnalyzingContext & context, QueryPlan & plan, SQLParserResult &parserResult) {
+    void SelectAnalyser::construct_joins(AnalyzingContext & context, SQLParserResult &parserResult) {
         // Construct the join graph
-        construct_join_graph(context,plan,parserResult.selectStmt);
+        construct_join_graph(context,parserResult.selectStmt);
 
         //Start with the first vertex in the vector of vertices of the join graph
-        std::string firstVertexName = plan.graph.getFirstVertexName();
+        std::string firstVertexName = context.graph.getFirstVertexName();
 
         //Construct join the first vertex
-        construct_join(firstVertexName, context, plan);
+        construct_join(firstVertexName, context);
     }
 
 }

@@ -8,6 +8,8 @@
 #include "foundations/Database.hpp"
 #include "semanticAnalyser/ParserResult.hpp"
 #include "foundations/IUFactory.hpp"
+#include "semanticAnalyser/JoinGraph.hpp"
+#include "algebra/logical/operators.hpp"
 
 namespace semanticalAnalysis {
     struct AnalyzingContext {
@@ -17,6 +19,13 @@ namespace semanticalAnalysis {
 
         using scope_op_t = std::unique_ptr<std::unordered_map<std::string, iu_p_t>>;
         std::unordered_map<std::string, iu_p_t> scope;
+
+        JoinGraph graph;
+
+        std::unordered_map<std::string,std::unordered_map<std::string, iu_p_t>> ius;
+        std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
+
+        std::unique_ptr<Operator> joinedTree;
 
         AnalyzingContext(Database &db) : db(db) {}
     };
