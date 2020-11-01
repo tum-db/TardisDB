@@ -110,12 +110,7 @@ namespace semanticalAnalysis {
             }
         }
 
-        if (_context.joinedTree != nullptr) {
-            // Construct Result and store it in the query plan struct
-            _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
-        } else {
-            throw std::runtime_error("no or more than one root found: Table joining has failed");
-        }
+        _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
     }
 
     void SelectAnalyser::construct_join_graph(AnalyzingContext & context, SelectStatement *stmt) {
@@ -234,6 +229,9 @@ namespace semanticalAnalysis {
 
         //Construct join the first vertex
         construct_join(context, firstVertexName);
+
+        if (context.joinedTree == nullptr)
+            throw std::runtime_error("no or more than one root found: Table joining has failed");
     }
 
 }

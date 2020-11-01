@@ -40,34 +40,23 @@ namespace semanticalAnalysis {
         Table* table = _context.db.getTable(stmt->relation.name);
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
 
-        branch_id_t branchId;
-        if (stmt->relation.version.compare("master") != 0) {
-            branchId = _context.db._branchMapping[stmt->relation.version];
-        } else {
-            branchId = master_branch_id;
-        }
+        branch_id_t branchId = (stmt->relation.version.compare("master") != 0) ?
+            _context.db._branchMapping[stmt->relation.version] :
+            master_branch_id;
 
+        //Check for every IU if an update is specified and set the update value to an empty string if not
         std::vector<std::pair<iu_p_t,std::string>> updateIUs;
-
-        //Get all ius of the tuple to update
         for (auto& production : _context.ius) {
             for (auto &iu : production.second) {
-                updateIUs.emplace_back( iu.second, "" );
-            }
-        }
-
-        //Map values to be updated to the corresponding ius
-        for (auto &[column,value] : stmt->updates) {
-            for (auto &iuPair : updateIUs) {
-                if (iuPair.first->columnInformation->columnName.compare(column.name) == 0) {
-                    iuPair.second = value;
+                for (auto &[column,value] : stmt->updates) {
+                    bool shouldBeUpdated = iu.second->columnInformation->columnName.compare(column.name) == 0;
+                    updateIUs.emplace_back( iu.second,shouldBeUpdated ? value : "");
                 }
             }
         }
 
         auto &production = _context.dangling_productions[stmt->relation.alias];
-
-        _context.joinedTree = std::make_unique<Update>( std::move(production), updateIUs, *table, _context.db._branchMapping[stmt->relation.version]);
+        _context.joinedTree = std::make_unique<Update>( std::move(production), updateIUs, *table, branchId);
     }
 
 }

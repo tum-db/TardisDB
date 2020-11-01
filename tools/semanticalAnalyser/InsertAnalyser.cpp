@@ -33,15 +33,11 @@ namespace semanticalAnalysis {
         Table* table = db.getTable(stmt->relation.name);
 
         std::string &branchName = stmt->relation.version;
-        branch_id_t branchId;
-        if (branchName.compare("master") != 0) {
-            branchId = db._branchMapping[branchName];
-        } else {
-            branchId = master_branch_id;
-        }
+        branch_id_t branchId = (branchName.compare("master") != 0) ?
+                db._branchMapping[branchName]:
+                master_branch_id;
 
         std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;
-
         for (int i=0; i<stmt->columns.size(); i++) {
             Native::Sql::SqlType type = table->getCI(stmt->columns[i].name)->type;
             std::string &value = stmt->values[i];

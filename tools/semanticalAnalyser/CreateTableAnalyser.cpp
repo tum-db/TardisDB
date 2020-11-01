@@ -29,9 +29,10 @@ namespace semanticalAnalysis {
     }
 
     void CreateTableAnalyser::constructTree() {
-        auto & createdTable = _context.db.createTable(_context.parserResult.createTableStmt->tableName);
+        CreateTableStatement *stmt = _context.parserResult.createTableStmt;
+        auto & createdTable = _context.db.createTable(stmt->tableName);
 
-        for (auto &columnSpec : _context.parserResult.createTableStmt->columns) {
+        for (auto &columnSpec : stmt->columns) {
             Sql::SqlType sqlType;
             if (columnSpec.type.compare("bool") == 0) {
                 sqlType = Sql::getBoolTy(columnSpec.nullable);
