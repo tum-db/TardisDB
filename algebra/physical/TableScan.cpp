@@ -97,11 +97,7 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
     cg_voidptr_t resultPtr;
     cg_bool_t ptrIsNotNull(false);
     if (branchId != master_branch_id) {
-        llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_entry", funcTy) );
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
-        llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
-        resultPtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+        resultPtr = genGetLatestEntryCall(tid,branchId);
 #ifdef __APPLE__
         ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));
 #else
@@ -234,6 +230,15 @@ llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voi
     }
     check.EndIf();
     return check.getResult(0);
+}
+
+cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId) {
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
+    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_entry", funcTy) );
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
+    llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
+
+    return cg_voidptr_t( llvm::cast<llvm::Value>(result) );
 }
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)

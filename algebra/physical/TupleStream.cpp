@@ -58,13 +58,17 @@ namespace Algebra {
             Native::Sql::SqlTuple* nativetuple = new Native::Sql::SqlTuple(std::move(nativeValues));
 
             // Call the update_tuple function in version_management.hpp
-            llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(_codeGen.getLLVMContext());
-            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
-            llvm::CallInst * result = _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(nativetuple)});
+            genCallbackCall(nativetuple);
 
             // increment tuple counter
             cg_size_t prevCnt(_codeGen->CreateLoad(tupleCountPtr));
             _codeGen->CreateStore(prevCnt + 1ul, tupleCountPtr);
+        }
+
+        void TupleStream::genCallbackCall(Native::Sql::SqlTuple* nativetuple) {
+            llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(_codeGen.getLLVMContext());
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
+            _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(nativetuple)});
         }
 
     } // end namespace Physical

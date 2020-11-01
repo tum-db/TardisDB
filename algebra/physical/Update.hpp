@@ -29,6 +29,8 @@ namespace Algebra {
             static bool sortColumns(column_t& a, column_t& b) {
                 return (std::get<3>(a) < std::get<3>(b));
             }
+
+            void genUpdateCall(cg_size_t tid, Native::Sql::SqlTuple* nativetuple);
         };
 
     } // end namespace Physical

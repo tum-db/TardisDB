@@ -23,6 +23,7 @@ namespace Algebra {
         private:
             std::vector<iu_p_t> selection;
 
+            void genCallbackCall(Native::Sql::SqlTuple* nativetuple);
 
             using column_t = std::tuple<iu_p_t>;
             std::vector<column_t> columns;

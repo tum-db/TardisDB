@@ -24,6 +24,8 @@ namespace Algebra {
             llvm::Value * tupleCountPtr;
 
             iu_p_t tidIU;
+
+            void genDeleteCall(void* funcPtr, cg_size_t tid);
         };
     } // end namespace Physical
 } // end namespace Algebra

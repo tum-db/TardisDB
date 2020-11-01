@@ -49,18 +49,23 @@ namespace Algebra {
             }
 
             // Call the delete_tuple function in version_management.hpp
-            llvm::FunctionType * funcDeleteTupleTy = llvm::TypeBuilder<void (size_t, void *, void *), false>::get(_codeGen.getLLVMContext());
-            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("delete_tuple", funcDeleteTupleTy) );
 #if USE_DATA_VERSIONING
-            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&delete_tuple);
+            genDeleteCall((void *)&delete_tuple, tid);
 #else
-            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&delete_tuple_without_versioning);
+            genDeleteCall((void *)&delete_tuple_without_versioning, tid);
 #endif
-            llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
 
             // increment tuple counter
             cg_size_t prevCnt(_codeGen->CreateLoad(tupleCountPtr));
             _codeGen->CreateStore(prevCnt + 1ul, tupleCountPtr);
+        }
+
+        void Delete::genDeleteCall(void* funcPtr, cg_size_t tid) {
+            llvm::FunctionType * funcDeleteTupleTy = llvm::TypeBuilder<void (size_t, void *, void *), false>::get(_codeGen.getLLVMContext());
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("delete_tuple", funcDeleteTupleTy) );
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,funcPtr);
+            _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+
         }
 
     } // end namespace Physical
