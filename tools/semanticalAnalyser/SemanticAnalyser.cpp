@@ -44,7 +44,7 @@ namespace semanticalAnalysis {
     // TODO: Implement nullable
     void SemanticAnalyser::construct_selects(AnalyzingContext& context, std::vector<std::pair<Column,std::string>> &selections) {
         for (auto &[column,valueString] : selections) {
-            // Construct Expression
+            // Get iu
             iu_p_t iu;
             if (column.table.compare("") == 0) {
                 for (auto &[productionName,production] : context.ius) {
@@ -58,6 +58,8 @@ namespace semanticalAnalysis {
             } else {
                 iu = context.ius[column.table][column.name];
             }
+
+            // Construct Expression
             auto constExp = std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type);
             auto identifier = std::make_unique<Expressions::Identifier>(iu);
             std::unique_ptr<Expressions::Comparison> exp = std::make_unique<Expressions::Comparison>(

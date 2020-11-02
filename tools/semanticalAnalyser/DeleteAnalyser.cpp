@@ -33,19 +33,9 @@ namespace semanticalAnalysis {
         construct_selects(_context, stmt->selections);
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
+
         Table* table = _context.db.getTable(stmt->relation.name);
-
-        iu_p_t tidIU;
-
-        for (auto& production : _context.ius) {
-            for (auto &iu : production.second) {
-                if (iu.first.compare("tid") == 0) {
-                    tidIU = iu.second;
-                    break;
-                }
-            }
-        }
-
+        iu_p_t tidIU = _context.getUniqueColumnIU("tid");
         auto &production = _context.dangling_productions[stmt->relation.alias];
 
         _context.joinedTree = std::make_unique<Delete>( std::move(production), tidIU, *table);

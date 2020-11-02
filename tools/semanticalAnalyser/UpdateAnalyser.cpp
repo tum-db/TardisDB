@@ -46,13 +46,14 @@ namespace semanticalAnalysis {
 
         //Check for every IU if an update is specified and set the update value to an empty string if not
         std::vector<std::pair<iu_p_t,std::string>> updateIUs;
-        for (auto& production : _context.ius) {
-            for (auto &iu : production.second) {
-                for (auto &[column,value] : stmt->updates) {
-                    bool shouldBeUpdated = iu.second->columnInformation->columnName.compare(column.name) == 0;
-                    updateIUs.emplace_back( iu.second,shouldBeUpdated ? value : "");
-                }
+        for (auto &iu : _context.ius[stmt->relation.alias]) {
+            bool shouldBeUpdated = false;
+            for (auto &[column,value] : stmt->updates) {
+                shouldBeUpdated = iu.first.compare(column.name) == 0;
+                if (shouldBeUpdated) updateIUs.emplace_back( iu.second,value);
+                break;
             }
+            if (!shouldBeUpdated) updateIUs.emplace_back( iu.second,"");
         }
 
         auto &production = _context.dangling_productions[stmt->relation.alias];

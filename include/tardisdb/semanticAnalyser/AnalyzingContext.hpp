@@ -28,6 +28,17 @@ namespace semanticalAnalysis {
         std::unique_ptr<Operator> joinedTree;
 
         AnalyzingContext(Database &db) : db(db) {}
+
+        iu_p_t getUniqueColumnIU(std::string columnName) {
+            for (auto& production : ius) {
+                for (auto &iu : production.second) {
+                    if (iu.first.compare(columnName) == 0) {
+                        return iu.second;
+                    }
+                }
+            }
+            return nullptr;
+        }
     };
 }
 

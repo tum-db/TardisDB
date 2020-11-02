@@ -20,9 +20,11 @@ namespace semanticalAnalysis {
     }
 
     void CreateBranchAnalyser::constructTree() {
+        CreateBranchStatement* stmt = _context.parserResult.createBranchStmt;
+
         // Get branchName and parentBranchId from statement
-        std::string &branchName = _context.parserResult.createBranchStmt->branchName;
-        std::string &parentBranchName = _context.parserResult.createBranchStmt->parentBranchName;
+        std::string &branchName = stmt->branchName;
+        std::string &parentBranchName = stmt->parentBranchName;
 
         // Search for mapped branchId of parentBranchName
         branch_id_t _parentBranchId = 0;

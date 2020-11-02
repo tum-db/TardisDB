@@ -98,13 +98,7 @@ namespace semanticalAnalysis {
         std::vector<iu_p_t> projectedIUs;
         for (auto &column : stmt->projections) {
             if (column.table.length() == 0) {
-                for (auto& production : _context.ius) {
-                    for (auto& iu : production.second) {
-                        if (iu.first.compare(column.name) == 0) {
-                            projectedIUs.push_back( iu.second );
-                        }
-                    }
-                }
+                projectedIUs.push_back(_context.getUniqueColumnIU(column.name));
             } else {
                 projectedIUs.push_back(_context.ius[column.table][column.name]);
             }

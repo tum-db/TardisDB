@@ -27,6 +27,8 @@ private:
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, Sql::value_op_t>;
 
     cg_voidptr_t genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId);
+    cg_bool_t nullPointerCheck(cg_voidptr_t &pointer);
+    llvm::Value *tupleToElemPtr(cg_voidptr_t &ptr, column_t &column);
 
     cg_bool_t isVisible(cg_tid_t tid, cg_branch_id_t branchId);
     llvm::Value *getMasterElemPtr(cg_tid_t &tid, column_t &column);

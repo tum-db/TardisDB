@@ -98,11 +98,7 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
     cg_bool_t ptrIsNotNull(false);
     if (branchId != master_branch_id) {
         resultPtr = genGetLatestEntryCall(tid,branchId);
-#ifdef __APPLE__
-        ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));
-#else
-        ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ul));
-#endif
+        ptrIsNotNull = nullPointerCheck(resultPtr);
     }
 
 
@@ -215,12 +211,7 @@ llvm::Value *TableScan::getMasterElemPtr(cg_tid_t &tid, column_t &column) {
 llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voidptr_t &resultPtr, cg_bool_t &ptrIsNotNull) {
     IfGen check( _codeGen.getCurrentFunctionGen(), ptrIsNotNull, {{"elemPtr", cg_int_t(0)}} );
     {
-        llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
-        llvm::Type * tuplePtrTy = llvm::PointerType::getUnqual(tupleTy);
-        llvm::Value * tuplePtr = _codeGen->CreatePointerCast(resultPtr, tuplePtrTy);
-
-        cg_size_t index_gen = cg_size_t(std::get<3>(column));
-        llvm::Value * valuePtr = _codeGen->CreateStructGEP(tupleTy, tuplePtr, std::get<3>(column));
+        llvm::Value * valuePtr = tupleToElemPtr(resultPtr,column);
         check.setVar(0, valuePtr);
     }
     check.Else();
@@ -239,6 +230,22 @@ cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId
     llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
 
     return cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+}
+
+cg_bool_t TableScan::nullPointerCheck(cg_voidptr_t &ptr) {
+#ifdef __APPLE__
+    return cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(ptr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));
+#else
+    return cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(ptr, _codeGen->getIntNTy(64))) != cg_size_t(0ul));
+#endif
+}
+
+llvm::Value *TableScan::tupleToElemPtr(cg_voidptr_t &ptr, column_t &column) {
+    llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
+    llvm::Type * tuplePtrTy = llvm::PointerType::getUnqual(tupleTy);
+    llvm::Value * tuplePtr = _codeGen->CreatePointerCast(ptr, tuplePtrTy);
+
+    return _codeGen->CreateStructGEP(tupleTy, tuplePtr, std::get<3>(column));
 }
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)
