@@ -51,7 +51,7 @@ namespace semanticalAnalysis {
         void verify() override;
         void constructTree() override;
     private:
-        static void construct_joins(AnalyzingContext & context, SQLParserResult &parserResult);
+        static void construct_joins(AnalyzingContext & context);
         static void construct_join_graph(AnalyzingContext & context, SelectStatement *stmt);
         static void construct_join(AnalyzingContext &context, std::string &vertexName);
     };

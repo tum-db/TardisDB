@@ -90,7 +90,7 @@ namespace semanticalAnalysis {
 
         construct_scans(_context, stmt->relations);
         construct_selects(_context, stmt->selections);
-        construct_joins(_context, _context.parserResult);
+        construct_joins(_context);
 
         auto & db = _context.db;
 
@@ -220,9 +220,9 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SelectAnalyser::construct_joins(AnalyzingContext & context, SQLParserResult &parserResult) {
+    void SelectAnalyser::construct_joins(AnalyzingContext & context) {
         // Construct the join graph
-        construct_join_graph(context,parserResult.selectStmt);
+        construct_join_graph(context,context.parserResult.selectStmt);
 
         //Start with the first vertex in the vector of vertices of the join graph
         std::string firstVertexName = context.graph.getFirstVertexName();

@@ -15,9 +15,7 @@ namespace {
             db = std::make_unique<Database>();
         }
 
-        void TearDown() override {
-
-        }
+        void TearDown() override {}
 
         static void stateProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
