@@ -138,6 +138,9 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
                 dest.createBranchStmt->branchName = _createbranch->name;
                 dest.createBranchStmt->parentBranchName = _createbranch->parent;
                 break;
+            case hsql::kStmtBranch:
+                dest.opType = semanticalAnalysis::SQLParserResult::OpType::Branch;
+                break;
             case hsql::kStmtSelect:
                 dest.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
                 dest.selectStmt = new semanticalAnalysis::SelectStatement();
@@ -209,6 +212,9 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
             break;
         case tardisParser::ParsingContext::CreateBranch:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::CreateBranch;
+            break;
+        case tardisParser::ParsingContext::Branch:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Branch;
             break;
         case tardisParser::ParsingContext::Insert:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::Insert;

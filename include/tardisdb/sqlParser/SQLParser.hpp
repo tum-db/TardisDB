@@ -93,6 +93,8 @@ namespace tardisParser {
         CreateBranchFrom,
         CreateBranchParent,
 
+        Branch,
+
         Done
     } state_t;
 

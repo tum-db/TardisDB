@@ -90,6 +90,8 @@ namespace semanticalAnalysis {
                 return std::make_unique<CreateTableAnalyser>(context);
             case SQLParserResult::OpType::CreateBranch:
                 return std::make_unique<CreateBranchAnalyser>(context);
+            case SQLParserResult::OpType::Branch:
+                return std::make_unique<BranchAnalyser>(context);
         }
 
         return nullptr;

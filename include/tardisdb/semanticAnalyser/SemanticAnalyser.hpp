@@ -90,6 +90,13 @@ namespace semanticalAnalysis {
         void verify() override;
         void constructTree() override;
     };
+
+    class BranchAnalyser : public SemanticAnalyser {
+    public:
+        BranchAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
+        void verify() override;
+        void constructTree() override;
+    };
 }
 
 

@@ -43,7 +43,8 @@ namespace tardisParser {
                 state != State::DeleteWhereExprRhs &&
                 state != State::CreateTableRelationName &&
                 state != State::CreateTableColumnsEnd &&
-                state != State::CreateBranchParent) {
+                state != State::CreateBranchParent &&
+                state != State::Branch) {
                 throw incorrect_sql_error("unexpected end of input");
             }
             return State::Done;
@@ -71,8 +72,11 @@ namespace tardisParser {
                     new_state = State::Delete;
                 } else if (equals_keyword(token,keywords::Create)) {
                     new_state = State::Create;
+                } else if (equals_keyword(token,keywords::Branch)) {
+                    query.opType = ParsingContext::OpType::Branch;
+                    new_state = State::Branch;
                 } else {
-                    throw incorrect_sql_error("Expected 'Select', 'Insert', 'Update', 'Delete' or 'Create', found '" + token.value + "'");
+                    throw incorrect_sql_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH' or 'Create', found '" + token.value + "'");
                 }
                 break;
 
