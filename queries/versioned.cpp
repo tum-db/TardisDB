@@ -37,12 +37,12 @@ static llvm::Function * genFunc(Database & db)
 
     Table * versiontable = db.getTable("Versiontable");
     assert(versiontable != nullptr);
-    auto versiontableScan = std::make_unique<TableScan>(context, *versiontable);
+    auto versiontableScan = std::make_unique<TableScan>(context.analyzingContext.iuFactory, *versiontable);
     semanticalAnalysis::addToScope(context, *versiontableScan, "u");
 
     Table * usertable = db.getTable("users");
     assert(usertable != nullptr);
-    auto usertableScan = std::make_unique<TableScan>(context, *usertable);
+    auto usertableScan = std::make_unique<TableScan>(context.analyzingContext.iuFactory, *usertable);
     semanticalAnalysis::addToScope(context, *usertableScan, "v");
 
     // collect ius
@@ -91,7 +91,7 @@ static llvm::Function * genFunc(Database & db)
     auto result = std::make_unique<Result>(std::move(join), selection);
     verifyDependencies(*result);
 
-    auto physicalTree = Algebra::translateToPhysicalTree(*result);
+    auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
     physicalTree->produce();
 
     return funcGen.getFunction();

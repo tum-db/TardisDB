@@ -75,10 +75,8 @@ tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, Que
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
 const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx);
-std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string *binding, tid_t tid, Table & table, QueryContext & ctx);
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
-uint8_t is_visible_with_binding(tid_t tid, std::string *binding, Table & table, QueryContext & ctx);
 
 void destroy_chain(VersionEntry * version_entry);
 

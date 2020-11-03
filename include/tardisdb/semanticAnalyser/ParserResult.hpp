@@ -61,7 +61,7 @@ namespace semanticalAnalysis {
     struct SQLParserResult {
 
         enum OpType : unsigned int {
-            Select, Insert, Update, Delete, CreateTable, CreateBranch
+            Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch
         } opType;
 
         CreateTableStatement *createTableStmt;
@@ -91,6 +91,8 @@ namespace semanticalAnalysis {
                     break;
                 case CreateBranch:
                     delete createBranchStmt;
+                    break;
+                case Branch:
                     break;
             }
         }

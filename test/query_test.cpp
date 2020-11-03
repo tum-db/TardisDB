@@ -15,9 +15,7 @@ namespace {
             db = std::make_unique<Database>();
         }
 
-        void TearDown() override {
-
-        }
+        void TearDown() override {}
 
         static void stateProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
@@ -99,7 +97,7 @@ namespace {
         QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
 #endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperCallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateKemperCallbackHandler);
     }
 
     TEST_F(QueryTest, SelectJoin) {
@@ -109,7 +107,7 @@ namespace {
         QueryCompiler::compileAndExecute("create table professoren ( id INTEGER NOT NULL, name VARCHAR ( 15 ) NOT NULL , rang NUMERIC ( 32 , 8 ) NOT NULL );",*db);
 #endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperCallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateKemperCallbackHandler);
     }
 
     TEST_F(QueryTest, InsertIntoVersion) {
@@ -121,8 +119,8 @@ namespace {
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("INSERT INTO professoren VERSION hello ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
-        QueryCompiler::compileAndExecute("select id , rang from professoren version hello p;",*db, (void*) &stateKemperProfessor2CallbackHandler);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperCallbackHandler);
+        QueryCompiler::compileAndExecute("select id , rang from professoren version hello;",*db, (void*) &stateKemperProfessor2CallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateKemperCallbackHandler);
     }
 
     TEST_F(QueryTest, Update) {
@@ -133,7 +131,7 @@ namespace {
 #endif
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("UPDATE professoren SET rang = 5 WHERE id = 1 ;",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperUpdatedCallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateKemperUpdatedCallbackHandler);
     }
 
     TEST_F(QueryTest, UpdateBranchVersion) {
@@ -145,8 +143,8 @@ namespace {
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("UPDATE professoren VERSION hello SET rang = 5 WHERE id = 1 ;",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperCallbackHandler);
-        QueryCompiler::compileAndExecute("select id, rang from professoren VERSION hello p;",*db, (void*) &stateKemperUpdatedCallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateKemperCallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren VERSION hello;",*db, (void*) &stateKemperUpdatedCallbackHandler);
     }
 
     TEST_F(QueryTest, UpdateMasterVersion) {
@@ -158,8 +156,8 @@ namespace {
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("UPDATE professoren SET rang = 5 WHERE id = 1 ;",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperUpdatedCallbackHandler);
-        QueryCompiler::compileAndExecute("select id, rang from professoren VERSION hello p;",*db, (void*) &stateKemperCallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateKemperUpdatedCallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren VERSION hello;",*db, (void*) &stateKemperCallbackHandler);
     }
 
     TEST_F(QueryTest, Delete) {
@@ -171,7 +169,7 @@ namespace {
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 1, 'kemper' , 4 );",*db);
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
         QueryCompiler::compileAndExecute("DELETE FROM professoren WHERE id = 1 ;",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateProfessor2CallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateProfessor2CallbackHandler);
     }
 
     TEST_F(QueryTest, DeleteBranchVisisbleVersion) {
@@ -184,8 +182,8 @@ namespace {
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("DELETE FROM professoren WHERE id = 1 ;",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren version hello p;",*db, (void*) &stateKemperProfessor2CallbackHandler);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateProfessor2CallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren version hello;",*db, (void*) &stateKemperProfessor2CallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateProfessor2CallbackHandler);
     }
 
     TEST_F(QueryTest, DeleteInBranchVersion) {
@@ -198,8 +196,8 @@ namespace {
         QueryCompiler::compileAndExecute("INSERT INTO professoren ( id, name , rang ) VALUES ( 2, 'professor2' , 3 );",*db);
         QueryCompiler::compileAndExecute("create branch hello from master;",*db);
         QueryCompiler::compileAndExecute("DELETE FROM professoren version hello WHERE id = 1 ;",*db);
-        QueryCompiler::compileAndExecute("select id, rang from professoren version hello p;",*db, (void*) &stateProfessor2CallbackHandler);
-        QueryCompiler::compileAndExecute("select id, rang from professoren p;",*db, (void*) &stateKemperProfessor2CallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren version hello;",*db, (void*) &stateProfessor2CallbackHandler);
+        QueryCompiler::compileAndExecute("select id, rang from professoren;",*db, (void*) &stateKemperProfessor2CallbackHandler);
     }
 }
 

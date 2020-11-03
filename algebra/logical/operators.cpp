@@ -54,8 +54,8 @@ void Operator::updateRequiredSets()
 //-----------------------------------------------------------------------------
 // NullaryOperator
 
-NullaryOperator::NullaryOperator(QueryContext & context) :
-        Operator(context)
+NullaryOperator::NullaryOperator(IUFactory & iuFactory) :
+        Operator(iuFactory)
 { }
 
 NullaryOperator::~NullaryOperator()
@@ -81,7 +81,7 @@ void NullaryOperator::updateRequiredSetsTraverser()
 //-----------------------------------------------------------------------------
 // UnaryOperator
 UnaryOperator::UnaryOperator(std::unique_ptr<Operator> input) :
-        Operator(input->getContext()),
+        Operator(input->getIUFactory()),
         child(std::move(input))
 {
     child->parent = this;
@@ -113,7 +113,7 @@ void UnaryOperator::updateRequiredSetsTraverser()
 // BinaryOperator
 
 BinaryOperator::BinaryOperator(std::unique_ptr<Operator> leftInput, std::unique_ptr<Operator> rightInput) :
-        Operator(leftInput->getContext()),
+        Operator(leftInput->getIUFactory()),
         leftChild(std::move(leftInput)),
         rightChild(std::move(rightInput))
 {
@@ -191,7 +191,7 @@ const iu_set_t & Aggregator::getRequired()
 
 void Aggregator::computeProduced()
 {
-    _produced = _context.iuFactory.createIU(getResultType());
+    _produced = _iuFactory.createIU(getResultType());
 }
 
 void Keep::computeRequired()
@@ -205,8 +205,8 @@ void Sum::computeRequired()
     _required = collectRequired(*_expression);
 }
 
-Avg::Avg(QueryContext & context, logical_exp_op_t exp) :
-        Aggregator(context),
+Avg::Avg(IUFactory & iuFactory, logical_exp_op_t exp) :
+        Aggregator(iuFactory),
         _expression(std::move(exp))
 {
     Sql::SqlType type = _expression->getType();
@@ -352,13 +352,13 @@ void TableScan::computeProduced()
     // collect the produced attributes
     for (const std::string & columnName : _table.getColumnNames()) {
         auto columnInformation = _table.getCI(columnName);
-        auto iu =  _context.iuFactory.createIU(*this, columnInformation);
+        auto iu =  _iuFactory.createIU(getUID(), columnInformation);
         produced.insert(iu);
     }
 
     //Produce TID column
     std::unique_ptr<ColumnInformation> &columnInformation = _table.getTIDColumnInformation();
-    auto iu =  _context.iuFactory.createIU(*this, columnInformation.get());
+    auto iu =  _iuFactory.createIU(getUID(), columnInformation.get());
     produced.insert(iu);
 }
 
@@ -393,8 +393,8 @@ void Delete::computeRequired() {
 //-----------------------------------------------------------------------------
 // Insert operator
 
-Insert::Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple, branch_id_t branchId) :
-NullaryOperator(context), _table(table), sqlTuple(tuple), branchId(branchId) { }
+Insert::Insert(IUFactory &iuFactory, Table & table, Native::Sql::SqlTuple *tuple, branch_id_t branchId) :
+NullaryOperator(iuFactory), _table(table), sqlTuple(tuple), branchId(branchId) { }
 
 Insert::~Insert() { }
 

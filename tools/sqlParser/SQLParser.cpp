@@ -32,7 +32,9 @@ namespace tardisParser {
 
         // When the token is a delimiter check if the parser is in a valid final state
         if (token.type == TokenType::delimiter) {
-            if (state != State::SelectFromBindingName &&
+            if (state != State::SelectFromRelationName &&
+                state != State::SelectFromTag &&
+                state != State::SelectFromBindingName &&
                 state != State::SelectWhereExprRhs &&
                 state != State::InsertValuesEnd &&
                 state != State::UpdateSetExprRhs &&
@@ -41,7 +43,8 @@ namespace tardisParser {
                 state != State::DeleteWhereExprRhs &&
                 state != State::CreateTableRelationName &&
                 state != State::CreateTableColumnsEnd &&
-                state != State::CreateBranchParent) {
+                state != State::CreateBranchParent &&
+                state != State::Branch) {
                 throw incorrect_sql_error("unexpected end of input");
             }
             return State::Done;
@@ -69,8 +72,11 @@ namespace tardisParser {
                     new_state = State::Delete;
                 } else if (equals_keyword(token,keywords::Create)) {
                     new_state = State::Create;
+                } else if (equals_keyword(token,keywords::Branch)) {
+                    query.opType = ParsingContext::OpType::Branch;
+                    new_state = State::Branch;
                 } else {
-                    throw incorrect_sql_error("Expected 'Select', 'Insert', 'Update', 'Delete' or 'Create', found '" + token.value + "'");
+                    throw incorrect_sql_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH' or 'Create', found '" + token.value + "'");
                 }
                 break;
 
@@ -518,8 +524,10 @@ namespace tardisParser {
                 if (equals_controlSymbol(token,controlSymbols::star)) {
                     new_state = State::SelectProjectionStar;
                 } else if (token.type == TokenType::identifier) {
+                    BindingAttribute columnBinding = parse_binding_attribute(token.value);
                     query.selectStmt->projections.push_back(Column());
-                    query.selectStmt->projections.back().name = token.value;
+                    query.selectStmt->projections.back().name = columnBinding.second;
+                    query.selectStmt->projections.back().table = columnBinding.first;
                     new_state = SelectProjectionAttrName;
                 } else {
                     throw incorrect_sql_error("Expected column name or star, found '" + token.value + "'");
@@ -546,6 +554,8 @@ namespace tardisParser {
                 if (token.type == TokenType::identifier) {
                     query.selectStmt->relations.push_back(Table());
                     query.selectStmt->relations.back().name = token.value;
+                    query.selectStmt->relations.back().alias = "";
+                    query.selectStmt->relations.back().version = "master";
                     new_state = SelectFromRelationName;
                 } else {
                     throw incorrect_sql_error("Expected table name, found '" + token.value + "'");
@@ -559,8 +569,12 @@ namespace tardisParser {
                     query.selectStmt->relations.back().version = "master";
 
                     new_state = State::SelectFromBindingName;
+                } else if (equals_keyword(token, keywords::Where)) {
+                    new_state = State::SelectWhere;
+                } else if (equals_controlSymbol(token,controlSymbols::separator)) {
+                    new_state = State::SelectFromSeparator;
                 } else {
-                    throw incorrect_sql_error("Expected binding name or 'VERSION', found '" + token.value + "'");
+                    throw incorrect_sql_error("Expected binding name, 'VERSION', 'WHERE' or ',' found '" + token.value + "'");
                 }
                 break;
             case State::SelectFromVersion:

@@ -6,12 +6,33 @@
 
 namespace semanticalAnalysis {
 
-    std::unique_ptr<Operator> CreateTableAnalyser::constructTree() {
-        QueryPlan plan;
+    void CreateTableAnalyser::verify() {
+        Database &db = _context.db;
+        CreateTableStatement* stmt = _context.parserResult.createTableStmt;
 
-        auto & createdTable = _context.db.createTable(_parserResult.createTableStmt->tableName);
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+        if (db.hasTable(stmt->tableName)) throw semantic_sql_error("table '" + stmt->tableName + "' already exists");
+        std::vector<std::string> definedColumnNames;
+        std::vector<std::string> typeNames = {"bool","date","integer","longinteger","numeric","char","varchar","timestamp","text"};
+        for (auto &column : stmt->columns) {
+            if (std::find(definedColumnNames.begin(),definedColumnNames.end(),column.name) != definedColumnNames.end())
+                throw semantic_sql_error("column '" + column.name + "' already exists");
+            definedColumnNames.push_back(column.name);
+            if (std::find(typeNames.begin(),typeNames.end(),column.type) == typeNames.end())
+                throw semantic_sql_error("type '" + column.type + "' does not exist");
+        }
 
-        for (auto &columnSpec : _parserResult.createTableStmt->columns) {
+        // Table already exists?
+        // For each columnspec
+        // // name already exists?
+        // // type exists?
+    }
+
+    void CreateTableAnalyser::constructTree() {
+        CreateTableStatement *stmt = _context.parserResult.createTableStmt;
+        auto & createdTable = _context.db.createTable(stmt->tableName);
+
+        for (auto &columnSpec : stmt->columns) {
             Sql::SqlType sqlType;
             if (columnSpec.type.compare("bool") == 0) {
                 sqlType = Sql::getBoolTy(columnSpec.nullable);
@@ -36,7 +57,7 @@ namespace semanticalAnalysis {
             createdTable.addColumn(columnSpec.name, sqlType);
         }
 
-        return nullptr;
+        _context.joinedTree = nullptr;
     }
 
 }

@@ -20,7 +20,7 @@ using iu_value_mapping_t = std::unordered_map<iu_p_t, Sql::Value *>;
 
 class Operator {
 public:
-    Operator(const logical_operator_t & logicalOperator);
+    Operator(const logical_operator_t & logicalOperator, QueryContext &queryContext);
 
     virtual ~Operator();
 
@@ -57,7 +57,7 @@ protected:
 
 class NullaryOperator : public Operator {
 public:
-    NullaryOperator(const logical_operator_t & logicalOperator);
+    NullaryOperator(const logical_operator_t & logicalOperator, QueryContext &queryContext);
 
     virtual ~NullaryOperator();
 
@@ -68,7 +68,7 @@ public:
 
 class UnaryOperator : public Operator {
 public:
-    UnaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input);
+    UnaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext &queryContext);
 
     virtual ~UnaryOperator();
 
@@ -81,7 +81,7 @@ protected:
 class BinaryOperator : public Operator {
 public:
     BinaryOperator(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> leftInput,
-                   std::unique_ptr<Operator> rightInput);
+                   std::unique_ptr<Operator> rightInput, QueryContext &queryContext);
 
     virtual ~BinaryOperator();
 

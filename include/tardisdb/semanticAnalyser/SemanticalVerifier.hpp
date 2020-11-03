@@ -8,20 +8,10 @@
 #include "semanticAnalyser/ParserResult.hpp"
 #include "foundations/Database.hpp"
 #include "queryCompiler/QueryContext.hpp"
+#include "algebra/logical/operators.hpp"
 
 namespace semanticalAnalysis {
-    struct semantic_sql_error : std::runtime_error {
-        //semantic or syntactic errors
-        using std::runtime_error::runtime_error;
-    };
 
-    class SemanticalVerifier {
-    public:
-        SemanticalVerifier(QueryContext &context) : _context(context) {}
-        void analyse_sql_statement(SQLParserResult &result);
-    private:
-        QueryContext& _context;
-    };
 
     void addToScope(QueryContext & context, iu_p_t iu, const std::string & symbol);
 
@@ -31,7 +21,5 @@ namespace semanticalAnalysis {
 
     iu_p_t lookup(QueryContext & context, const std::string & symbol);
 }
-
-
 
 #endif //PROTODB_SEMANTICALVERIFIER_HPP

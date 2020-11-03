@@ -10,7 +10,7 @@ namespace Algebra {
         class Update : public UnaryOperator {
         public:
             Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,
-                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId);
+                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId, QueryContext &queryContext);
 
             virtual ~Update();
 
@@ -29,6 +29,8 @@ namespace Algebra {
             static bool sortColumns(column_t& a, column_t& b) {
                 return (std::get<3>(a) < std::get<3>(b));
             }
+
+            void genUpdateCall(cg_size_t tid, Native::Sql::SqlTuple* nativetuple);
         };
 
     } // end namespace Physical

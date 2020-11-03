@@ -22,6 +22,8 @@ namespace Algebra {
             Table & table;
             QueryContext &context;
             branch_id_t branchId;
+
+            void genInsertCall(void *funcPtr);
         };
 
     } // end namespace Physical
