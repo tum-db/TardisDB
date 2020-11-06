@@ -15,6 +15,8 @@ namespace semanticalAnalysis {
         std::vector<std::string> definedColumnNames;
         std::vector<std::string> typeNames = {"bool","date","integer","longinteger","numeric","char","varchar","timestamp","text"};
         for (auto &column : stmt->columns) {
+            if (column.nullable) throw semantic_sql_error("not supported nullable option at column '" + column.name + "'");
+
             if (std::find(definedColumnNames.begin(),definedColumnNames.end(),column.name) != definedColumnNames.end())
                 throw semantic_sql_error("column '" + column.name + "' already exists");
             definedColumnNames.push_back(column.name);
