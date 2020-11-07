@@ -103,6 +103,15 @@ namespace semanticalAnalysis {
                 projectedIUs.push_back(_context.ius[column.table][column.name]);
             }
         }
+        if (stmt->projections.empty()) {
+            for (auto &relation : stmt->relations) {
+                std::string &productionName = relation.alias.empty() ? relation.name : relation.alias;
+                for (auto &iu : _context.ius[productionName]) {
+                    if (iu.second->columnInformation->columnName == "tid") continue;
+                    projectedIUs.push_back(iu.second);
+                }
+            }
+        }
 
         _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
     }

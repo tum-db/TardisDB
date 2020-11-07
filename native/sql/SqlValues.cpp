@@ -28,7 +28,7 @@ Value::~Value()
 
 value_op_t Value::castString(const std::string & str, SqlType type)
 {
-    //assert(!type.nullable);
+    assert(!type.nullable);
 
     switch (type.typeID) {
         case SqlType::TypeID::UnknownID:
@@ -58,7 +58,7 @@ value_op_t Value::load(const void * ptr, SqlType type)
 {
     if (type.nullable) {
 //        return NullableValue::load(ptr, type);
- //       throw NotImplementedException();
+        throw NotImplementedException();
     }
 
     switch (type.typeID) {
