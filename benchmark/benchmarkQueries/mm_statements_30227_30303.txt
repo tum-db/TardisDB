@@ -1,0 +1,26 @@
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30263;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30253;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30237;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30257;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30272;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30263;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30247;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30269;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30280;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30291;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30238;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30251;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30231;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30277;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30269;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30259;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30288;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30264;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30268;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30272;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30261;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30288;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30278;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30295;
+SELECT content FROM page p , content c WHERE p.textId = c.id AND p.id = 30272;
+quit

@@ -1,0 +1,26 @@
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1684;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 614;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1455;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1064;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 960;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 986;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1143;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 833;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1208;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1557;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 521;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1276;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1070;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1925;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1249;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1453;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1647;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1077;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 657;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 878;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 767;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1726;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1536;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 1731;
+SELECT name FROM user u , page p WHERE p.userId = u.id AND p.id = 144;
+quit

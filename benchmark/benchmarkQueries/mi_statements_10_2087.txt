@@ -1,0 +1,26 @@
+INSERT INTO user ( id , name ) VALUES ( 640 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 743 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 604 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1364 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1391 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1199 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1687 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1756 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 833 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1593 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1710 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 64 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1290 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 314 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 431 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 741 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1835 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 884 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1831 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 793 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1710 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1210 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1938 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 134 , 'John_Doe' );
+INSERT INTO user ( id , name ) VALUES ( 1736 , 'John_Doe' );
+quit
