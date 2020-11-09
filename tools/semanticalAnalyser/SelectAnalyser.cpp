@@ -234,7 +234,7 @@ namespace semanticalAnalysis {
         construct_join(context, firstVertexName);
 
         if (context.joinedTree == nullptr)
-            throw std::runtime_error("no or more than one root found: Table joining has failed");
+            throw semantic_sql_error("no or more than one root found: Table joining has failed");
     }
 
 }

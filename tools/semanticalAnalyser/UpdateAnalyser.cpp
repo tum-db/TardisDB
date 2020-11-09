@@ -50,8 +50,10 @@ namespace semanticalAnalysis {
             bool shouldBeUpdated = false;
             for (auto &[column,value] : stmt->updates) {
                 shouldBeUpdated = iu.first.compare(column.name) == 0;
-                if (shouldBeUpdated) updateIUs.emplace_back( iu.second,value);
-                break;
+                if (shouldBeUpdated) {
+                    updateIUs.emplace_back( iu.second,value);
+                    break;
+                }
             }
             if (!shouldBeUpdated) updateIUs.emplace_back( iu.second,"");
         }
