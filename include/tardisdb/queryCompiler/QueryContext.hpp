@@ -1,6 +1,7 @@
 #ifndef PROTODB_QUERYCONTEXT_HPP
 #define PROTODB_QUERYCONTEXT_HPP
 
+#include "queryExecutor/ExecutionContext.hpp"
 #if USE_HYRISE
 #include "SQLParser.h"
 #else
@@ -17,6 +18,8 @@ struct QueryContext {
             codeGen(getThreadLocalCodeGen()) {}
 
     CodeGen & codeGen;
+
+    static void constructBranchLineages(std::set<branch_id_t> &branches, QueryContext &context);
 
     ExecutionContext executionContext;
     semanticalAnalysis::AnalyzingContext analyzingContext;

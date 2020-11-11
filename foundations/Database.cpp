@@ -358,6 +358,9 @@ branch_id_t Database::createBranch(const std::string & name, branch_id_t parent)
 void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx) {
     assert(branch != invalid_branch_id);
 
+    if (dstCtx.branch_lineages.find(branch) == dstCtx.branch_lineages.end()) {
+        dstCtx.branch_lineages[branch] = std::unordered_map<branch_id_t, branch_id_t>();
+    }
     dstCtx.branch_lineage.clear();
     dstCtx.branch_lineage_bitset.clear();
     dstCtx.branch_lineage_bitset.resize(_next_branch_id);
@@ -369,6 +372,7 @@ void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dst
         if (branch_obj->parent_id == invalid_branch_id) {
             break;
         }
+        dstCtx.branch_lineages[branch].insert({branch_obj->parent_id, current});
         dstCtx.branch_lineage.insert({branch_obj->parent_id, current});
         current = branch_obj->parent_id;
     }

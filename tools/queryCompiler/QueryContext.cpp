@@ -5,6 +5,12 @@ void ExecutionContext::acquireResource(std::unique_ptr<ExecutionResource> && res
     resources.push_back(std::move(resource));
 }
 
+void QueryContext::constructBranchLineages(std::set<branch_id_t> &branches, QueryContext &context) {
+    for (auto &branch : branches) {
+        context.analyzingContext.db.constructBranchLineage(branch,context.executionContext);
+    }
+}
+
 #if USE_HYRISE
 
 std::tuple<std::string,int,int> QueryContext::convertDataType(hsql::ColumnType type) {

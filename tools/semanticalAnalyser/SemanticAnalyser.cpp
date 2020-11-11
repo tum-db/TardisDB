@@ -26,6 +26,7 @@ namespace semanticalAnalysis {
             } else {
                 branchId = master_branch_id;
             }
+            context.branchIds.insert(branchId);
 
             //Construct the logical TableScan operator
             Table* table = context.db.getTable(relation.name);

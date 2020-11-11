@@ -78,6 +78,8 @@ namespace QueryCompiler {
         auto queryFunc = compileQuery(query, queryTree,queryContext);
         if (queryFunc == nullptr) return;
 
+        QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds,queryContext);
+
         std::vector<llvm::GenericValue> args(2);
         args[0].IntVal = llvm::APInt(64, 5);
         args[1].PointerVal = (void *) &queryContext;
@@ -112,6 +114,8 @@ namespace QueryCompiler {
         auto queryFunc = compileQuery(query, queryTree, queryContext);
         const auto translationDuration = std::chrono::high_resolution_clock::now() - translationStart;
         if (queryFunc == nullptr) unreachable();
+
+        QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds,queryContext);
 
         std::vector<llvm::GenericValue> args(2);
         args[0].IntVal = llvm::APInt(64, 5);

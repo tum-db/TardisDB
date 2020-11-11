@@ -21,6 +21,7 @@ namespace semanticalAnalysis {
         std::unordered_map<std::string, iu_p_t> scope;
 
         JoinGraph graph;
+        std::set<branch_id_t> branchIds;
 
         std::unordered_map<std::string,std::unordered_map<std::string, iu_p_t>> ius;
         std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
