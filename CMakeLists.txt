@@ -78,6 +78,13 @@ if(LIBXML_AVAILABLE)
 	include(tools/wikiParser/local.cmake)
 endif(LIBXML_AVAILABLE)
 
+if (DEFINED PISTACHE_INCLUDE)
+    include_directories("${PISTACHE_INCLUDE}")
+endif()
+
+if (DEFINED PISTACHE_LIBRARY_PATH)
+    link_directories("${PISTACHE_LIBRARY_PATH}")
+endif()
 ##################
 ### tests ########
 ##################
@@ -88,6 +95,9 @@ include("${CMAKE_SOURCE_DIR}/test/local.cmake")
 ##################
 add_executable(sql sql.cpp)
 target_link_libraries(sql readline dblib queryCompiler queryExecutor)
+
+add_executable(server server.cpp)
+target_link_libraries(server dblib queryCompiler queryExecutor pistache pthread)
 
 ##################
 ### benchmark ####

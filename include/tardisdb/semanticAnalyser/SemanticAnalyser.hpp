@@ -96,6 +96,7 @@ namespace semanticalAnalysis {
         BranchAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
         void verify() override;
         void constructTree() override;
+        std::string returnJSON();
     };
 
     class CopyTableAnalyser : public SemanticAnalyser {
