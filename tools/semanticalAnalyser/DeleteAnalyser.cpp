@@ -33,12 +33,15 @@ namespace semanticalAnalysis {
         construct_selects(_context, stmt->selections);
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
+        branch_id_t branchId = (stmt->relation.version.compare("master") != 0) ?
+                               _context.db._branchMapping[stmt->relation.version] :
+                               master_branch_id;
 
         Table* table = _context.db.getTable(stmt->relation.name);
         iu_p_t tidIU = _context.getUniqueColumnIU("tid");
         auto &production = _context.dangling_productions[stmt->relation.alias];
 
-        _context.joinedTree = std::make_unique<Delete>( std::move(production), tidIU, *table);
+        _context.joinedTree = std::make_unique<Delete>( std::move(production), tidIU, *table, branchId);
     }
 
 }

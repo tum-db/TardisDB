@@ -12,7 +12,7 @@ namespace Algebra {
 
         class Delete : public UnaryOperator {
         public:
-            Delete(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, iu_p_t &tidIU, Table & table, QueryContext &queryContext);
+            Delete(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, iu_p_t &tidIU, Table & table, QueryContext &queryContext, branch_id_t branchId);
 
             virtual ~Delete();
 
@@ -24,6 +24,7 @@ namespace Algebra {
             llvm::Value * tupleCountPtr;
 
             iu_p_t tidIU;
+            branch_id_t branchId;
 
             void genDeleteCall(void* funcPtr, cg_size_t tid);
         };

@@ -40,7 +40,7 @@ namespace Algebra {
         void Insert::produce()
         {
 #if USE_DATA_VERSIONING
-            genInsertCall((void *)&insert_tuple_with_binding);
+            genInsertCall((void *)&insert_tuple_with_branchId);
 #else
             genInsertCall((void *)&insert_tuple_without_versioning);
 #endif

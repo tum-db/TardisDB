@@ -430,7 +430,7 @@ protected:
 
 class Delete : public UnaryOperator {
 public:
-    Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table);
+    Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table, branch_id_t branchId);
 
     ~Delete() override;
 
@@ -440,6 +440,7 @@ public:
 
     iu_p_t &getTIDIU() { return tidIU; }
 
+    branch_id_t getBranchId() { return branchId; }
 protected:
     void computeProduced() override;
     void computeRequired() override;
@@ -447,6 +448,7 @@ protected:
     Table & _table;
 
     iu_p_t tidIU;
+    branch_id_t branchId;
 };
 
 //-----------------------------------------------------------------------------

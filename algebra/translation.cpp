@@ -414,7 +414,8 @@ public:
                 std::move(child),
                 op.getTIDIU(),
                 op.getTable(),
-                _queryContext
+                _queryContext,
+                op.getBranchId()
         ));
     }
 

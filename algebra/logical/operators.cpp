@@ -372,8 +372,8 @@ void TableScan::computeRequired()
 //-----------------------------------------------------------------------------
 // Delete operator
 
-Delete::Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table) :
-    UnaryOperator(std::move(child)), _table(table), tidIU(std::move(tidIU)) { }
+Delete::Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table, branch_id_t branchId) :
+    UnaryOperator(std::move(child)), _table(table), tidIU(std::move(tidIU)), branchId(branchId) { }
 
 Delete::~Delete() { }
 

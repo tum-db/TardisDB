@@ -61,15 +61,15 @@ const void * get_chain_element(const VersionEntry * version_entry, unsigned revi
 
 // FIXME tuple has to exist in the master branch!
 tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
-tid_t insert_tuple_with_binding(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx, branch_id_t branchId);
+tid_t insert_tuple_with_branchId(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx, branch_id_t branchId);
 
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
-
-void update_tuple_with_binding(tid_t tid, branch_id_t branchId, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
+void update_tuple_with_branchId(tid_t tid, branch_id_t branchId, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
 
 // the entire version chain has to be deleted
 // the tuple has to be relocated iff branch==master
 void delete_tuple(tid_t tid, Table & table, QueryContext & ctx);
+void delete_tuple_with_branchId(tid_t tid, branch_id_t branchId, Table & table, QueryContext & ctx);
 
 tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, QueryContext ctx);
 

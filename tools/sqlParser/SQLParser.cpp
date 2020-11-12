@@ -40,6 +40,7 @@ namespace tardisParser {
                 state != State::UpdateSetExprRhs &&
                 state != State::UpdateWhereExprRhs &&
                 state != State::DeleteRelationName &&
+                state != State::DeleteTag &&
                 state != State::DeleteWhereExprRhs &&
                 state != State::CreateTableRelationName &&
                 state != State::CreateTableColumnsEnd &&
@@ -252,6 +253,7 @@ namespace tardisParser {
             case State::DeleteFrom:
                 if (token.type == TokenType::identifier) {
                     query.deleteStmt->relation.name = token.value;
+                    query.deleteStmt->relation.version = "master";
                     new_state = DeleteRelationName;
                 } else {
                     throw incorrect_sql_error("Expected table name, found '" + token.value + "'");
@@ -261,7 +263,6 @@ namespace tardisParser {
                 if (equals_keyword(token, keywords::Version)) {
                     new_state = State::DeleteVersion;
                 } else if (equals_keyword(token, keywords::Where)) {
-                    query.deleteStmt->relation.version = "master";
                     new_state = State::DeleteWhere;
                 } else {
                     throw incorrect_sql_error("Expected 'VERSION' or 'WHERE', found '" + token.value + "'");

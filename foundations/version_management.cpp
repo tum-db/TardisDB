@@ -66,7 +66,7 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
     return tid;
 }
 
-tid_t insert_tuple_with_binding(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx, branch_id_t branchId) {
+tid_t insert_tuple_with_branchId(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx, branch_id_t branchId) {
     ctx.executionContext.branchId = branchId;
     return insert_tuple(tuple,table,ctx);
 }
@@ -170,7 +170,7 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
     }
 }
 
-void update_tuple_with_binding(tid_t tid, branch_id_t branchId, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
+void update_tuple_with_branchId(tid_t tid, branch_id_t branchId, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
     ctx.executionContext.branchId = branchId;
     return update_tuple(tid,tuple,table,ctx);
 }
@@ -179,6 +179,12 @@ void delete_tuple(tid_t tid, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
 
     table.removeRowForBranch(tid,branch);
+}
+
+void delete_tuple_with_branchId(tid_t tid, branch_id_t branchId, Table & table, QueryContext & ctx) {
+    ctx.executionContext.branchId = branchId;
+
+    delete_tuple(tid,table,ctx);
 }
 
 const void * get_latest_chain_element(const VersionEntry * version_entry, Table & table, QueryContext & ctx) {

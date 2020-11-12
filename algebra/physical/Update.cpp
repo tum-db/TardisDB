@@ -146,7 +146,7 @@ namespace Algebra {
         void Update::genUpdateCall(cg_size_t tid, Native::Sql::SqlTuple* nativetuple) {
             llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void * (size_t, void *, void * , void *, void *), false>::get(_codeGen.getLLVMContext());
             llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("update_tuple_with_binding", funcUpdateTupleTy) );
-            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&update_tuple_with_binding);
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&update_tuple_with_branchId);
             _codeGen->CreateCall(func, {tid, cg_u32_t(branchId), cg_ptr8_t::fromRawPointer(nativetuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
         }
 
