@@ -29,4 +29,25 @@ namespace semanticalAnalysis {
         _context.joinedTree = nullptr;
     }
 
+    std::string BranchAnalyser::returnJSON() {
+        std::string nodes="\"nodes\": [", links ="\"links\": [";
+        bool firstnode=true, firstlink=true;
+        for(branch_id_t i=0; i<_context.db._next_branch_id; i++){
+            auto &branch = _context.db._branches[i];
+            if (branch->id != 0){
+               if (!firstlink)
+                  links +=", ";
+               firstlink=false;
+               links += "{\"source\":" + std::to_string(branch->parent_id) + ", \"target\":" + std::to_string(branch->id) + ", \"weight\": 1}";
+            }
+            if (!firstnode)
+               nodes += ", ";
+            firstnode=false;
+            nodes += "{\"name\": \"" + branch->name + "\", \"id\":" + std::to_string(branch->id) +  ", \"tuples\": 10}";
+        }
+        nodes += "]";
+        links+= "]";
+        return "{" + nodes + "," + links + "}";
+    }
+
 }
