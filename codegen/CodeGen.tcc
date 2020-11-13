@@ -233,7 +233,7 @@ llvm::Value* CodeGen::genCall(Func f, Args... args) {
     // check if there is already a mapping for the given function
     llvm::Function * functionObj = getCurrentModuleGen().getModule().getFunction(functionName);
     if (!functionObj) {
-        functionObj = llvm::cast<llvm::Function>(getCurrentModuleGen().getModule().getOrInsertFunction("test_fun", functionType));
+        functionObj = llvm::cast<llvm::Function>(getCurrentModuleGen().getModule().getOrInsertFunction(functionName, functionType));
         getCurrentModuleGen().addFunctionMapping(functionObj, funcPtr);
     }
 
