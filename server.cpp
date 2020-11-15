@@ -18,7 +18,6 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include "picojson.h"
 #include <unistd.h>
 #include <iostream>
 #include <string>
@@ -29,19 +28,6 @@
 #include "pistache/http_header.h"
 #include "pistache/http_headers.h"
 using namespace Pistache;
-
-static std::string escapeDollar(const std::string& in) {
-    std::stringstream ss;
-    size_t idx = 0;
-    while (idx < in.size()) {
-        if (in[idx] == '$') {
-            ss << '\\';
-        }
-        ss << in[idx];
-        ++idx;
-    }
-    return ss.str();
-}
 
 static std::string escapeEscapes(const std::string& in) {
     std::stringstream ss;
@@ -58,7 +44,6 @@ static std::string escapeEscapes(const std::string& in) {
 }
 
 std::vector<std::unique_ptr<Database>> dbs;
-std::unique_ptr<Database> currentdb;
 std::atomic<uint64_t> dbcounter = 0;
 char lectures[] = "{\"content\": [{\"No\": 4052, \"title\": \"logic\", \"ECTS\": 4}]}";
 char branches[] = "{\"nodes\": [{\"name\": \"master\", \"id\": 0, \"tuples\": 4}, {\"name\": \"mybranch1\",\"id\": 1,\"tuples\": 15}, {\"name\": \"mybranch2\",\"id\": 2, \"tuples\": 15}, {\"name\": \"mybranch3\",\"id\": 3,\"tuples\": 5}], \"links\": [{\"source\": 0,\"target\": 2,\"weight\": 1},{\"source\": 0,\"target\": 1,\"weight\": 1},{\"source\": 1,\"target\": 3,\"weight\": 1} ]}";
@@ -127,6 +112,7 @@ public:
     std::string input = request.body(), error="";
     std::vector<std::string> inputs;
     boost::split(inputs, input, boost::is_any_of(";"));
+    struct QueryCompiler::BenchmarkResult result;
     for(auto& s: inputs){
       try {
         if(s.size()==0) continue; // no input
@@ -134,17 +120,24 @@ public:
         // reset json printers
         ss.str("");
         first=true;
-        QueryCompiler::compileAndExecute(s,*dbs[dbindex], (void*) jsonStreamingCallback);
+        result += QueryCompiler::compileAndBenchmark(s,*dbs[dbindex], (void*) jsonStreamingCallback);
       } catch (const std::exception & e) {
         fprintf(stderr, "Exception: %s\n", e.what());
         error += e.what();
         error += "; ";
       }
     }
-    std::string output = "{\"content\": [" + ss.str() + "]";
+    std::string output = "{\"columns\": [";
+    int column=0;
+    for (auto& i: result.columns){
+       if(column>0) output += ", ";
+       output+= "{\"" + std::to_string(column++) + "\": \"" + i->columnInformation->columnName + "\"}";
+    }
+    output += "], \"content\": [" + ss.str() + "]";
     if(error.size()>0)
        output +=", \"errormsg\": \"" + error + "\"";
-    output+= ", \"compilationtime\": 1, \"executiontime\": 2}";
+    output+= ", \"compilationtime\": " + std::to_string(result.llvmCompilationTime/1000) + ", \"executiontime\": " + std::to_string(result.executionTime/1000) +
+        ", \"parsingtime\": " + std::to_string(result.parsingTime/1000) + ", \"analysingtime\": " + std::to_string(result.analysingTime/1000) + ", \"translationtime\": "+ std::to_string(result.translationTime/1000) + "}";
     fprintf(stderr, "response: %s\n", output.c_str());
     response.send(Http::Code::Ok, output.c_str());
   }
@@ -166,8 +159,7 @@ int main(int argc, char **argv) {
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   llvm::InitializeNativeTargetAsmParser();
-  currentdb = std::make_unique<Database>();
-  dbs.push_back(std::make_unique<Database>());
+  dbs.push_back(std::make_unique<Database>()); // add a default db
 
   Pistache::Address addr(Pistache::Ipv4::any(), Pistache::Port(port));
   auto opts = Pistache::Http::Endpoint::options().threads(1).maxRequestSize(1024 * 1024);

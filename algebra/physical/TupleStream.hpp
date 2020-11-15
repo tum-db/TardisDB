@@ -21,8 +21,6 @@ namespace Algebra {
             void consume(const iu_value_mapping_t & values, const Operator & src) override;
 
         private:
-            std::vector<iu_p_t> selection;
-
             void genCallbackCall(Native::Sql::SqlTuple* nativetuple);
 
             using column_t = std::tuple<iu_p_t>;

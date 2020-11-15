@@ -93,7 +93,7 @@ namespace QueryCompiler {
         QueryExecutor::executeFunction(queryFunc, args, callbackFunction);
     }
 
-    BenchmarkResult compileAndBenchmark(const std::string &query, Database &db) {
+    BenchmarkResult compileAndBenchmark(const std::string &query, Database &db, void *callbackFunction) {
         QueryContext queryContext(db);
 
         ModuleGen moduleGen("QueryModule");
@@ -115,6 +115,10 @@ namespace QueryCompiler {
         auto &queryTree = queryContext.analyzingContext.joinedTree;
         const auto analysingDuration = std::chrono::high_resolution_clock::now() - analysingStart;
         if (queryTree == nullptr) return BenchmarkResult();
+        
+        // return columns
+        BenchmarkResult result;
+        result.columns = queryTree->getRoot()->getRequired();
 
         const auto translationStart = std::chrono::high_resolution_clock::now();
         auto queryFunc = compileQuery(query, queryTree, queryContext);
@@ -127,9 +131,8 @@ namespace QueryCompiler {
         args[0].IntVal = llvm::APInt(64, 5);
         args[1].PointerVal = (void *) &queryContext;
 
-        QueryExecutor::BenchmarkResult llvmresult = QueryExecutor::executeBenchmarkFunction(queryFunc, args);
+        QueryExecutor::BenchmarkResult llvmresult = QueryExecutor::executeBenchmarkFunction(queryFunc, args, 1, callbackFunction);
 
-        BenchmarkResult result;
         result.parsingTime = std::chrono::duration_cast<std::chrono::microseconds>(parsingDuration).count();
         result.analysingTime = std::chrono::duration_cast<std::chrono::microseconds>(analysingDuration).count();
         result.translationTime = std::chrono::duration_cast<std::chrono::microseconds>(translationDuration).count();
