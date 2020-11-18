@@ -170,12 +170,16 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
                 _insert = (hsql::InsertStatement*)stmt;
                 dest.insertStmt->relation.name = _insert->tableName;
                 dest.insertStmt->relation.version = (_insert->version != nullptr) ? _insert->version->name : "master";
-                for (auto column : *_insert->columns) {
-                    dest.insertStmt->columns.push_back(semanticalAnalysis::Column());
-                    dest.insertStmt->columns.back().name = column;
+                if (_insert->columns != nullptr) {
+                    for (auto column : *_insert->columns) {
+                        dest.insertStmt->columns.push_back(semanticalAnalysis::Column());
+                        dest.insertStmt->columns.back().name = column;
+                    }
                 }
-                for (auto value : *_insert->values) {
-                    dest.insertStmt->values.push_back(expressionValueToString(value));
+                if (_insert->values != nullptr) {
+                    for (auto value : *_insert->values) {
+                        dest.insertStmt->values.push_back(expressionValueToString(value));
+                    }
                 }
                 break;
             case hsql::kStmtUpdate:
