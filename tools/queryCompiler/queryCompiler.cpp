@@ -63,6 +63,7 @@ namespace QueryCompiler {
 
 #if USE_HYRISE
         hsql::SQLParser::parse(query, &queryContext.hyriseResult);
+        if (!queryContext.hyriseResult.isValid()) throw std::runtime_error("invalid statement");
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
 #else
         tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
