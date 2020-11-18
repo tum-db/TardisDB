@@ -20,6 +20,9 @@ namespace QueryCompiler {
         double llvmCompilationTime;
         double executionTime;
         iu_set_t columns;
+
+        BenchmarkResult () : parsingTime(0), analysingTime(0), translationTime(0), llvmCompilationTime(0), executionTime(0) {}
+
         BenchmarkResult& operator+=(const BenchmarkResult& rhs) {
           parsingTime += rhs.parsingTime;
           analysingTime += rhs.analysingTime;
