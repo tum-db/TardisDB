@@ -1355,8 +1355,23 @@ std::string toString(const Value & sqlValue)
             throw NotImplementedException();
         case SqlType::TypeID::CharID:
             throw NotImplementedException();
-        case SqlType::TypeID::NumericID:
-            throw NotImplementedException();
+        case SqlType::TypeID::NumericID: {
+            std::string ret = "";
+            long v = dynamic_cast<const Numeric *>(&sqlValue)->value;
+            if (v<0) { ret += "-"; v=-v; }
+            long sep=1;
+            for (unsigned index=0,limit=sqlValue.type.numericLayout.precision;index<limit;index++)
+                sep*=10;
+            ret+=std::to_string(v/sep);
+            if(sqlValue.type.numericLayout.precision){
+                v=v%sep;
+                ret+=".";
+                for (unsigned index=1,limit=sqlValue.type.numericLayout.precision;index++<limit && sep>(10*v); sep/=10)
+                    ret+="0";
+                ret+=std::to_string(v);
+            }
+            return ret;
+        }
         case SqlType::TypeID::DateID:
             throw NotImplementedException();
         case SqlType::TypeID::TimestampID:
