@@ -10,6 +10,91 @@
 
 namespace tardisParser {
 
+    typedef enum State : unsigned int {
+        Init,
+
+        Select,
+        SelectProjectionStar,
+        SelectProjectionAttrName,
+        SelectProjectionAttrSeparator,
+        SelectFrom,
+        SelectFromRelationName,
+        SelectFromVersion,
+        SelectFromTag,
+        SelectFromBindingName,
+        SelectFromSeparator,
+        SelectWhere,
+        SelectWhereExprLhs,
+        SelectWhereExprOp,
+        SelectWhereExprRhs,
+        SelectWhereAnd,
+
+        Insert,
+        InsertInto,
+        InsertRelationName,
+        InsertVersion,
+        InsertTag,
+        InsertColumnsBegin,
+        InsertColumnsEnd,
+        InsertColumnName,
+        InsertColumnSeperator,
+        InsertValues,
+        InsertValuesBegin,
+        InsertValuesEnd,
+        InsertValue,
+        InsertValueSeperator,
+
+        Update,
+        UpdateRelationName,
+        UpdateVersion,
+        UpdateTag,
+        UpdateSet,
+        UpdateSetExprLhs,
+        UpdateSetExprOp,
+        UpdateSetExprRhs,
+        UpdateSetSeperator,
+        UpdateWhere,
+        UpdateWhereExprLhs,
+        UpdateWhereExprOp,
+        UpdateWhereExprRhs,
+        UpdateWhereAnd,
+
+        Delete,
+        DeleteFrom,
+        DeleteRelationName,
+        DeleteVersion,
+        DeleteTag,
+        DeleteWhere,
+        DeleteWhereExprLhs,
+        DeleteWhereExprOp,
+        DeleteWhereExprRhs,
+        DeleteWhereAnd,
+
+        Create,
+        CreateTable,
+        CreateTableRelationName,
+        CreateTableColumnsBegin,
+        CreateTableColumnsEnd,
+        CreateTableColumnName,
+        CreateTableColumnType,
+        CreateTableTypeDetailBegin,
+        CreateTableTypeDetailEnd,
+        CreateTableTypeDetailSeperator,
+        CreateTableTypeDetailLength,
+        CreateTableTypeDetailPrecision,
+        CreateTableTypeNot,
+        CreateTableTypeNotNull,
+        CreateTableColumnSeperator,
+        CreateBranch,
+        CreateBranchTag,
+        CreateBranchFrom,
+        CreateBranchParent,
+
+        Branch,
+
+        Done
+    } state_t;
+
     struct ColumnSpec {
         std::string name;
         std::string type;
@@ -60,6 +145,8 @@ namespace tardisParser {
 
     struct ParsingContext {
 
+        State state;
+
         enum OpType : unsigned int {
             Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch
         } opType;
@@ -99,6 +186,25 @@ namespace tardisParser {
                 case Branch:
                     break;
             }
+        }
+
+        bool stateIsFinal() {
+            std::set<State> finalStates = { State::SelectFromRelationName,
+                                            State::SelectFromTag,
+                                            State::SelectFromBindingName,
+                                            State::SelectWhereExprRhs,
+                                            State::InsertValuesEnd,
+                                            State::UpdateSetExprRhs,
+                                            State::UpdateWhereExprRhs,
+                                            State::DeleteRelationName,
+                                            State::DeleteTag,
+                                            State::DeleteWhereExprRhs,
+                                            State::CreateTableRelationName,
+                                            State::CreateTableColumnsEnd,
+                                            State::CreateBranchParent,
+                                            State::Branch };
+
+            return finalStates.count(state);
         }
     };
 }

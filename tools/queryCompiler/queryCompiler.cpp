@@ -65,7 +65,7 @@ namespace QueryCompiler {
         hsql::SQLParser::parse(query, &queryContext.hyriseResult);
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
 #else
-        tardisParser::SQLParser::parse_sql_statement(queryContext.parsingContext,query);
+        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
 #endif
 
@@ -97,7 +97,7 @@ namespace QueryCompiler {
         hsql::SQLParser::parse(query, &queryContext.hyriseResult);
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
 #else
-        tardisParser::SQLParser::parse_sql_statement(queryContext.parsingContext,query);
+        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
 #endif
         const auto parsingDuration = std::chrono::high_resolution_clock::now() - parsingStart;

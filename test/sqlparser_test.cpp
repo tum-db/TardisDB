@@ -20,7 +20,7 @@ namespace {
         std::string projection = "name";
 
         tardisParser::ParsingContext result;
-        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SQLParser::parseStatement(result, statement);
         tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(stmt->relations[0].name, relationName);
@@ -39,7 +39,7 @@ namespace {
         std::set<std::string> projections = { "persnr", "name", "rang", "raum" };
 
         tardisParser::ParsingContext result;
-        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SQLParser::parseStatement(result, statement);
         tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(stmt->relations[0].name, relationName);
@@ -60,7 +60,7 @@ namespace {
         std::string version = "master";
 
         tardisParser::ParsingContext result;
-        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SQLParser::parseStatement(result, statement);
         tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(stmt->relations[0].name, relationName);
@@ -78,7 +78,7 @@ namespace {
         std::string version = "master";
 
         tardisParser::ParsingContext result;
-        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SQLParser::parseStatement(result, statement);
         tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
         for (auto &relation : stmt->relations) {
@@ -100,7 +100,7 @@ namespace {
         std::string whereValue = "4";
 
         tardisParser::ParsingContext result;
-        tardisParser::SQLParser::parse_sql_statement(result,statement);
+        tardisParser::SQLParser::parseStatement(result, statement);
         tardisParser::SelectStatement* stmt = result.selectStmt;
         ASSERT_EQ(result.opType, opType);
         ASSERT_EQ(stmt->relations[0].name, relationName);
