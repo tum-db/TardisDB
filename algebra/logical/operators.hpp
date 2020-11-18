@@ -511,11 +511,7 @@ protected:
 
 class Result : public UnaryOperator {
 public:
-#if TUPLE_STREAM_REQUIRED
-    enum class Type { PrintToStdOut, TupleStreamHandler } _type = Type::TupleStreamHandler;
-#else
-    enum class Type { PrintToStdOut, TupleStreamHandler } _type = Type::PrintToStdOut;
-#endif
+    static enum class Type { PrintToStdOut, TupleStreamHandler } _type;
 
     std::vector<iu_p_t> selection;
 

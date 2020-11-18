@@ -439,6 +439,13 @@ void Update::computeRequired() {
 //-----------------------------------------------------------------------------
 // Result operator
 
+
+#if TUPLE_STREAM_REQUIRED
+        Result::Type Result::_type = Type::TupleStreamHandler;
+#else
+        Result::Type Result::_type = Type::PrintToStdOut;
+#endif
+
 Result::Result(std::unique_ptr<Operator> child, const std::vector<iu_p_t> & selection) :
         UnaryOperator(std::move(child)),
         selection(selection)
