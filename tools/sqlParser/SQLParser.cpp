@@ -51,8 +51,61 @@ namespace tardisParser {
                 } else if (token.equalsKeyword(Keyword::Branch)) {
                     context.opType = ParsingContext::OpType::Branch;
                     context.state = State::Branch;
+                } else if (token.equalsKeyword(Keyword::Copy)) {
+                    context.opType = ParsingContext::OpType::Copy;
+                    context.copyStmt = new CopyStatement();
+                    context.state = State::Copy;
                 } else {
-                    throw syntactical_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH' or 'Create', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH', 'COPY' or 'Create', found '" + token.value + "'");
+                }
+                break;
+
+                //
+                //  Copy
+                //
+            case State::Copy:
+                if (token.hasType(Type::identifier)) {
+                    context.copyStmt->relation.name = token.value;
+                    context.state = State::CopyTable;
+                } else {
+                    throw syntactical_error("Expected table name, found '" + token.value + "'");
+                }
+                break;
+            case State::CopyTable:
+                if (token.equalsKeyword(Keyword::From)) {
+                    context.state = State::CopyFrom;
+                } else {
+                    throw syntactical_error("Expected 'FROM', found '" + token.value + "'");
+                }
+                break;
+            case State::CopyFrom:
+                if (token.hasType(Type::identifier)) {
+                    context.copyStmt->filePath = token.value;
+                    context.state = State::CopyPath;
+                } else {
+                    throw syntactical_error("Expected file path, found '" + token.value + "'");
+                }
+                break;
+            case State::CopyPath:
+                if (token.equalsKeyword(Keyword::With)) {
+                    context.state = State::CopyWith;
+                } else {
+                    throw syntactical_error("Expected 'WITH', found '" + token.value + "'");
+                }
+                break;
+            case State::CopyWith:
+                if (token.equalsKeyword(Keyword::Format)) {
+                    context.state = State::CopyFormat;
+                } else {
+                    throw syntactical_error("Expected 'FORMAT', found '" + token.value + "'");
+                }
+                break;
+            case State::CopyFormat:
+                if (token.hasType(Type::identifier)) {
+                    context.copyStmt->format = token.value;
+                    context.state = State::CopyType;
+                } else {
+                    throw syntactical_error("Expected format name, found '" + token.value + "'");
                 }
                 break;
 
