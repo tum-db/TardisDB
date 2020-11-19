@@ -109,7 +109,7 @@ public:
         response.send(Http::Code::Bad_Request, "not supported method");
     }
 
-    std::string input = request.body(), error="";
+    std::string input = request.body(), error="", columnsstring;
     std::vector<std::string> inputs;
     boost::split(inputs, input, boost::is_any_of(";"));
     struct QueryCompiler::BenchmarkResult result;
@@ -121,19 +121,21 @@ public:
         ss.str("");
         first=true;
         result += QueryCompiler::compileAndBenchmark(s,*dbs[dbindex], (void*) jsonStreamingCallback);
+        // print result
+        columnsstring="";
+        int column=0;
+        for (auto& i: result.columns){
+           if(column>0) columnsstring += ", ";
+           columnsstring+= "{\"" + std::to_string(column++) + "\": \"" + i->columnInformation->columnName + "\"}";
+        }
       } catch (const std::exception & e) {
         fprintf(stderr, "Exception: %s\n", e.what());
         error += e.what();
         error += "; ";
+      } catch (...) {
       }
     }
-    std::string output = "{\"columns\": [";
-    int column=0;
-    for (auto& i: result.columns){
-       if(column>0) output += ", ";
-       output+= "{\"" + std::to_string(column++) + "\": \"" + i->columnInformation->columnName + "\"}";
-    }
-    output += "], \"content\": [" + ss.str() + "]";
+    std::string output = "{\"columns\": [" + columnsstring + "], \"content\": [" + ss.str() + "]";
     if(error.size()>0)
        output +=", \"errormsg\": \"" + error + "\"";
     output+= ", \"compilationtime\": " + std::to_string(result.llvmCompilationTime/1000) + ", \"executiontime\": " + std::to_string(result.executionTime/1000) +
