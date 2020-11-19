@@ -260,6 +260,9 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
         case tardisParser::ParsingContext::Copy:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::Copy;
             break;
+        case tardisParser::ParsingContext::Dump:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Dump;
+            break;
     }
     source = tardisParser::ParsingContext();
 }
