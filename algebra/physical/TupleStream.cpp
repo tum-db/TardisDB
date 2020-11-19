@@ -68,7 +68,7 @@ namespace Algebra {
         void TupleStream::genCallbackCall(Native::Sql::SqlTuple* nativetuple) {
             llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(_codeGen.getLLVMContext());
             llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
-            _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(nativetuple)});
+            _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(nativetuple),_codeGen.getCurrentFunctionGen().getArg(1)});
         }
 
     } // end namespace Physical

@@ -17,26 +17,26 @@ namespace {
 
         void TearDown() override {}
 
-        static void stateProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple) {
+        static void stateProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple, QueryContext &context) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(2)));
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),300000000)));
         }
 
 
-        static void stateKemperCallbackHandler(Native::Sql::SqlTuple *tuple) {
+        static void stateKemperCallbackHandler(Native::Sql::SqlTuple *tuple, QueryContext &context) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(1)));
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),400000000)));
         }
 
-        static void stateKemperUpdatedCallbackHandler(Native::Sql::SqlTuple *tuple) {
+        static void stateKemperUpdatedCallbackHandler(Native::Sql::SqlTuple *tuple, QueryContext &context) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(1)));
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 1 : 0]->equals(Native::Sql::Numeric(Sql::getNumericTy(32,8,false),500000000)));
         }
 
-        static void stateKemperProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple) {
+        static void stateKemperProfessor2CallbackHandler(Native::Sql::SqlTuple *tuple, QueryContext &context) {
             bool isIntegerFirstOrder = tuple->values[0]->type.typeID == Sql::SqlType::TypeID::IntegerID;
             ASSERT_TRUE(tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(1)) || tuple->values[isIntegerFirstOrder ? 0 : 1]->equals(Native::Sql::Integer(2)));
 
