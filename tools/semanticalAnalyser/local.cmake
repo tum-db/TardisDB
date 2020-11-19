@@ -13,3 +13,4 @@ file(GLOB_RECURSE SRC_CC "tools/semanticalAnalyser/*.cpp")
 # ---------------------------------------------------------------------------
 
 add_library(semanticalAnalyser STATIC ${SRC_CC})
+target_link_libraries(semanticalAnalyser dblib)
