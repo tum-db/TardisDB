@@ -119,6 +119,7 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
         const hsql::InsertStatement *_insert;
         const hsql::UpdateStatement *_update;
         const hsql::DeleteStatement *_delete;
+        const hsql::ImportStatement *_import;
         switch (stmt->type()) {
             case hsql::kStmtCreate:
                 dest.opType = semanticalAnalysis::SQLParserResult::OpType::CreateTable;
@@ -203,6 +204,24 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
                 dest.deleteStmt->relation.name = _delete->tableName;
                 dest.deleteStmt->relation.version = (_delete->version != nullptr) ? _delete->version->name : "master";
                 if (_delete->expr != nullptr) collectSelections(dest.deleteStmt->selections,_delete->expr);
+                break;
+            case hsql::kStmtImport:
+                dest.opType = semanticalAnalysis::SQLParserResult::OpType::Copy;
+                dest.copyStmt = new semanticalAnalysis::CopyStatement();
+
+                _import = (hsql::ImportStatement*)stmt;
+                dest.copyStmt->relation.name = _import->tableName;
+                dest.copyStmt->filePath = _import->filePath;
+                switch (_import->type) {
+                    case hsql::ImportType::kImportCSV:
+                        dest.copyStmt->format = "csv";
+                        break;
+                    case hsql::ImportType::kImportTbl:
+                        dest.copyStmt->format = "tbl";
+                        break;
+                    default:
+                        break;
+                }
                 break;
             default:
                 break;
