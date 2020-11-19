@@ -79,7 +79,7 @@ namespace tardisParser {
                 }
                 break;
             case State::CopyFrom:
-                if (token.hasType(Type::identifier)) {
+                if (token.hasType(Type::literal)) {
                     context.copyStmt->filePath = token.value;
                     context.state = State::CopyPath;
                 } else {
@@ -101,8 +101,11 @@ namespace tardisParser {
                 }
                 break;
             case State::CopyFormat:
-                if (token.hasType(Type::identifier)) {
-                    context.copyStmt->format = token.value;
+                if (token.equalsKeyword(Keyword::CSV)) {
+                    context.copyStmt->format = "csv";
+                    context.state = State::CopyType;
+                } else if (token.equalsKeyword(Keyword::TBL)) {
+                    context.copyStmt->format = "tbl";
                     context.state = State::CopyType;
                 } else {
                     throw syntactical_error("Expected format name, found '" + token.value + "'");
