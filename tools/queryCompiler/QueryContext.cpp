@@ -238,6 +238,9 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
         case tardisParser::ParsingContext::Delete:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::Delete;
             break;
+        case tardisParser::ParsingContext::Copy:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Copy;
+            break;
     }
     source = tardisParser::ParsingContext();
 }
