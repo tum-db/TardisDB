@@ -23,6 +23,7 @@
 #include <string>
 #include <cstdlib>
 #include <atomic>
+#include <unordered_map>
 // pistache
 #include "pistache/endpoint.h"
 #include "pistache/http_header.h"
@@ -43,7 +44,7 @@ static std::string escapeEscapes(const std::string& in) {
     return ss.str();
 }
 
-std::vector<std::unique_ptr<Database>> dbs;
+std::unordered_map<uint64_t, std::unique_ptr<Database>> dbs;
 std::atomic<uint64_t> dbcounter = 0;
 char lectures[] = "{\"content\": [{\"No\": 4052, \"title\": \"logic\", \"ECTS\": 4}]}";
 char branches[] = "{\"nodes\": [{\"name\": \"master\", \"id\": 0, \"tuples\": 4}, {\"name\": \"mybranch1\",\"id\": 1,\"tuples\": 15}, {\"name\": \"mybranch2\",\"id\": 2, \"tuples\": 15}, {\"name\": \"mybranch3\",\"id\": 3,\"tuples\": 5}], \"links\": [{\"source\": 0,\"target\": 2,\"weight\": 1},{\"source\": 0,\"target\": 1,\"weight\": 1},{\"source\": 1,\"target\": 3,\"weight\": 1} ]}";
@@ -76,7 +77,7 @@ public:
   void onRequest(const Http::Request &request, Http::ResponseWriter response) {
     response.headers()
         .add<Http::Header::AccessControlAllowOrigin>("*")
-        .add<Http::Header::AccessControlAllowMethods>("GET, POST, PUT")
+        .add<Http::Header::AccessControlAllowMethods>("GET, POST, PUT, DELETE")
         .add<Http::Header::AccessControlAllowHeaders>("content-type")
         .add<Http::Header::ContentType>(MIME(Application, Json));
 
@@ -86,7 +87,7 @@ public:
     boost::split(resources, request.resource(), boost::is_any_of("/"));
     if (resources.size()>=2)
       dbindex=std::atoi(resources[1].c_str());
-    if(dbindex >= dbs.size())
+    if(dbs.find(dbindex) == dbs.end())
       dbindex=0; //fallback to standard
 
     // switch over request method
@@ -99,14 +100,20 @@ public:
         response.send(Http::Code::Ok, printLineage(dbs[dbindex]).c_str());
         return;
       case Http::Method::Put:
-        dbs.push_back(std::make_unique<Database>());
         dbindex = ++dbcounter;
+        dbs.emplace(dbindex,std::make_unique<Database>());
         response.send(Http::Code::Ok,std::to_string(dbindex).c_str());
         return;
       case Http::Method::Post:
         break;
+      case Http::Method::Delete:
+        fprintf(stderr, "delete: %ld\n", dbindex);
+        if(dbindex > 0) dbs.erase(dbindex);
+        response.send(Http::Code::Ok);
+        return;
       default:
         response.send(Http::Code::Bad_Request, "not supported method");
+        return;
     }
 
     std::string input = request.body(), error="", columnsstring;
@@ -161,7 +168,7 @@ int main(int argc, char **argv) {
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   llvm::InitializeNativeTargetAsmParser();
-  dbs.push_back(std::make_unique<Database>()); // add a default db
+  dbs.emplace(0,std::make_unique<Database>()); // add a default db
 
   Pistache::Address addr(Pistache::Ipv4::any(), Pistache::Port(port));
   auto opts = Pistache::Http::Endpoint::options().threads(1).maxRequestSize(1024 * 1024);
