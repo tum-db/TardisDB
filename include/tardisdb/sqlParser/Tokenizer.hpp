@@ -42,8 +42,11 @@ namespace tardisParser {
         const std::string CSV = "csv";
         const std::string TBL = "tbl";
 
+        const std::string Dump = "dump";
+        const std::string To = "to";
+
         static std::set<std::string> keywordset = {Version, Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create,
-                                            Table, Not, Null, Branch, Copy, With, Format, CSV, TBL};
+                                            Table, Not, Null, Branch, Copy, With, Format, CSV, TBL, Dump, To};
     }
 
     // Define all control symbols
