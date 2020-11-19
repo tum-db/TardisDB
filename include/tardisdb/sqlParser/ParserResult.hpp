@@ -92,6 +92,14 @@ namespace tardisParser {
 
         Branch,
 
+        Copy,
+        CopyTable,
+        CopyFrom,
+        CopyPath,
+        CopyWith,
+        CopyFormat,
+        CopyType,
+
         Done
     } state_t;
 
@@ -140,6 +148,11 @@ namespace tardisParser {
         Table relation;
         std::vector<std::pair<Column,std::string>> selections;
     };
+    struct CopyStatement {
+        Table relation;
+        std::string filePath;
+        std::string format;
+    };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
 
@@ -148,7 +161,7 @@ namespace tardisParser {
         State state;
 
         enum OpType : unsigned int {
-            Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch
+            Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy
         } opType;
 
         CreateTableStatement *createTableStmt;
@@ -157,6 +170,7 @@ namespace tardisParser {
         SelectStatement *selectStmt;
         UpdateStatement *updateStmt;
         DeleteStatement *deleteStmt;
+        CopyStatement *copyStmt;
 
         ParsingContext() {
             opType = Unkown;
@@ -185,6 +199,9 @@ namespace tardisParser {
                     break;
                 case Branch:
                     break;
+                case Copy:
+                    delete copyStmt;
+                    break;
             }
         }
 
@@ -202,7 +219,8 @@ namespace tardisParser {
                                             State::CreateTableRelationName,
                                             State::CreateTableColumnsEnd,
                                             State::CreateBranchParent,
-                                            State::Branch };
+                                            State::Branch,
+                                            State::CopyType };
 
             return finalStates.count(state);
         }

@@ -13,7 +13,7 @@ namespace semanticalAnalysis {
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
         if (db.hasTable(stmt->tableName)) throw semantic_sql_error("table '" + stmt->tableName + "' already exists");
         std::vector<std::string> definedColumnNames;
-        std::vector<std::string> typeNames = {"bool","date","integer","longinteger","numeric","char","varchar","timestamp","text"};
+        std::vector<std::string> typeNames = {"bool","date","integer","int","longinteger","numeric","char","varchar","timestamp","text"};
         for (auto &column : stmt->columns) {
             if (column.nullable) throw semantic_sql_error("not supported nullable option for column '" + column.name + "'");
 
@@ -41,6 +41,8 @@ namespace semanticalAnalysis {
             } else if (columnSpec.type.compare("date") == 0) {
                 sqlType = Sql::getDateTy(columnSpec.nullable);
             } else if (columnSpec.type.compare("integer") == 0) {
+                sqlType = Sql::getIntegerTy(columnSpec.nullable);
+            } else if (columnSpec.type.compare("int") == 0) {
                 sqlType = Sql::getIntegerTy(columnSpec.nullable);
             } else if (columnSpec.type.compare("longinteger") == 0) {
                 sqlType = Sql::getLongIntegerTy(columnSpec.nullable);

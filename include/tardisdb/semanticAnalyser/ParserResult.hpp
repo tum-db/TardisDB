@@ -55,13 +55,18 @@ namespace semanticalAnalysis {
         Relation relation;
         std::vector<std::pair<Column,std::string>> selections;
     };
+    struct CopyStatement {
+        Relation relation;
+        std::string filePath;
+        std::string format;
+    };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
 
     struct SQLParserResult {
 
         enum OpType : unsigned int {
-            Unknown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch
+            Unknown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy
         } opType = Unknown;
 
         CreateTableStatement *createTableStmt;
@@ -70,6 +75,7 @@ namespace semanticalAnalysis {
         SelectStatement *selectStmt;
         UpdateStatement *updateStmt;
         DeleteStatement *deleteStmt;
+        CopyStatement *copyStmt;
 
         SQLParserResult() {}
         ~SQLParserResult() {
@@ -93,6 +99,9 @@ namespace semanticalAnalysis {
                     delete createBranchStmt;
                     break;
                 case Branch:
+                    break;
+                case Copy:
+                    delete copyStmt;
                     break;
                 case Unknown:
                     break;

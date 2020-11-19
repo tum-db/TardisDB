@@ -102,7 +102,7 @@ llvm::Function * genLoadRowFunction(Table & table)
     return funcGen.getFunction();
 }
 
-void loadTable(std::istream & stream, Table & table)
+void loadTable(std::istream & stream, Table & table, char delimiter)
 {
     auto & codeGen = getThreadLocalCodeGen();
     auto & moduleGen = codeGen.getCurrentModuleGen();
@@ -124,7 +124,7 @@ void loadTable(std::istream & stream, Table & table)
     while (std::getline(stream, rowStr)) {
         table.addRow(0);
 
-        std::vector<std::string> items = split(rowStr, '|');
+        std::vector<std::string> items = split(rowStr, delimiter);
         assert(row.size() == items.size());
 
         size_t i = 0;
