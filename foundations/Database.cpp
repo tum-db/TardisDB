@@ -323,7 +323,7 @@ Database::Database() :
 Table & Database::createTable(const std::string & name) {
     auto [it, ok] = _tables.emplace(name, std::make_unique<Table>(*this));
     assert(ok);
-    for (int i=0; i<_branches.size(); i++) {
+    for (int i=0; i<_branches.size() - 1; i++) {
         it->second->createBranch(invalid_branch_id);
     }
     return *it->second;
