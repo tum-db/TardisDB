@@ -104,6 +104,13 @@ namespace semanticalAnalysis {
         void verify() override;
         void constructTree() override;
     };
+
+    class DumpTableAnalyser : public SemanticAnalyser {
+    public:
+        DumpTableAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
+        void verify() override;
+        void constructTree() override;
+    };
 }
 
 

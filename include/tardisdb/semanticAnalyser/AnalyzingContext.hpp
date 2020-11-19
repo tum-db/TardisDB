@@ -20,6 +20,8 @@ namespace semanticalAnalysis {
         using scope_op_t = std::unique_ptr<std::unordered_map<std::string, iu_p_t>>;
         std::unordered_map<std::string, iu_p_t> scope;
 
+        std::function<void(Native::Sql::SqlTuple *)>* callback = nullptr;
+
         JoinGraph graph;
         std::set<branch_id_t> branchIds;
 
