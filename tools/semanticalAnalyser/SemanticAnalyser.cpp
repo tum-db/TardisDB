@@ -95,8 +95,6 @@ namespace semanticalAnalysis {
                 return std::make_unique<BranchAnalyser>(context);
             case SQLParserResult::OpType::Copy:
                 return std::make_unique<CopyTableAnalyser>(context);
-            case SQLParserResult::OpType::Dump:
-                return std::make_unique<DumpTableAnalyser>(context);
             case SQLParserResult::OpType::Unknown:
                 return nullptr;
         }

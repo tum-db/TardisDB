@@ -55,57 +55,8 @@ namespace tardisParser {
                     context.opType = ParsingContext::OpType::Copy;
                     context.copyStmt = new CopyStatement();
                     context.state = State::Copy;
-                } else if (token.equalsKeyword(Keyword::Dump)) {
-                    context.opType = ParsingContext::OpType::Dump;
-                    context.dumpStmt = new DumpStatement();
-                    context.state = State::Dump;
                 } else {
                     throw syntactical_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH', 'COPY' or 'Create', found '" + token.value + "'");
-                }
-                break;
-
-                //
-                // Dump
-                //
-            case State::Dump:
-                if (token.hasType(Type::identifier)) {
-                    context.dumpStmt->relation.name = token.value;
-                    context.state = State::DumpTable;
-                } else {
-                    throw syntactical_error("Expected table name, found '" + token.value + "'");
-                }
-                break;
-            case State::DumpTable:
-                if (token.equalsKeyword(Keyword::Version)) {
-                    context.state = State::DumpTableVersion;
-                } else if (token.equalsKeyword(Keyword::To)) {
-                    context.state = State::DumpTo;
-                    context.dumpStmt->relation.version = "master";
-                } else {
-                    throw syntactical_error("Expected 'VERSION' or 'TO', found '" + token.value + "'");
-                }
-                break;
-            case State::DumpTableVersion:
-                if (token.hasType(Type::identifier)) {
-                    context.dumpStmt->relation.version = token.value;
-                    context.state = State::DumpTableTag;
-                } else {
-                    throw syntactical_error("Expected branch name, found '" + token.value + "'");
-                }
-                break;
-            case State::DumpTableTag:
-                if (token.equalsKeyword(Keyword::To)) {
-                    context.state = State::DumpTo;
-                } else {
-                    throw syntactical_error("Expected 'TO', found '" + token.value + "'");
-                }
-                break;
-            case State::DumpTo:
-                if (token.hasType(Type::literal)) {
-                    context.dumpStmt->filePath = token.value;
-                    context.state = State::DumpFile;
-                } else {
-                    throw syntactical_error("Expected file path, found '" + token.value + "'");
                 }
                 break;
 
@@ -122,12 +73,36 @@ namespace tardisParser {
                 break;
             case State::CopyTable:
                 if (token.equalsKeyword(Keyword::From)) {
-                    context.state = State::CopyFrom;
+                    context.copyStmt->directionFrom = true;
+                    context.copyStmt->relation.version = "master";
+                    context.state = State::CopyDirection;
+                } else if (token.equalsKeyword(Keyword::To)) {
+                    context.copyStmt->directionFrom = false;
+                    context.copyStmt->relation.version = "master";
+                    context.state = State::CopyDirection;
+                } else if (token.equalsKeyword(Keyword::Version)) {
+                    context.state = State::CopyVersion;
                 } else {
-                    throw syntactical_error("Expected 'FROM', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'FROM','VERSION' OR 'TO', found '" + token.value + "'");
                 }
                 break;
-            case State::CopyFrom:
+            case State::CopyVersion:
+                if (token.hasType(Type::identifier)) {
+                    context.copyStmt->relation.version = token.value;
+                    context.state = State::CopyTag;
+                } else {
+                    throw syntactical_error("Expected branch name, found '" + token.value + "'");
+                }
+                break;
+            case State::CopyTag:
+                if (token.equalsKeyword(Keyword::To)) {
+                    context.copyStmt->directionFrom = false;
+                    context.state = State::CopyDirection;
+                } else {
+                    throw syntactical_error("Expected 'TO', found '" + token.value + "'");
+                }
+                break;
+            case State::CopyDirection:
                 if (token.hasType(Type::literal)) {
                     context.copyStmt->filePath = token.value;
                     context.state = State::CopyPath;

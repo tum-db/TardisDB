@@ -212,6 +212,7 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
                 _import = (hsql::ImportStatement*)stmt;
                 dest.copyStmt->relation.name = _import->tableName;
                 dest.copyStmt->filePath = _import->filePath;
+                dest.copyStmt->directionFrom = true;
                 switch (_import->type) {
                     case hsql::ImportType::kImportCSV:
                         dest.copyStmt->format = "csv";
@@ -259,9 +260,6 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
             break;
         case tardisParser::ParsingContext::Copy:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::Copy;
-            break;
-        case tardisParser::ParsingContext::Dump:
-            dest.opType = semanticalAnalysis::SQLParserResult::OpType::Dump;
             break;
     }
     source = tardisParser::ParsingContext();
