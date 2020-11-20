@@ -56,11 +56,7 @@ namespace QueryCompiler {
         return queryFunc;
     }
 
-    void analyseCallback(Native::Sql::SqlTuple *tuple, QueryContext &context) {
-        (*context.analyzingContext.callback)(tuple);
-    }
-
-    void printFunction(Native::Sql::SqlTuple *tuple, QueryContext &context) {
+    void printFunction(Native::Sql::SqlTuple *tuple) {
         std::cout << Native::Sql::toString(*tuple);
     }
 
@@ -83,7 +79,7 @@ namespace QueryCompiler {
         analyser->constructTree();
         auto &queryTree = queryContext.analyzingContext.joinedTree;
         if (queryTree == nullptr) return;
-        if (callbackFunction == nullptr) callbackFunction = (queryContext.analyzingContext.callback != nullptr) ? (void*)&analyseCallback : (void*)&printFunction;
+        if (callbackFunction == nullptr) callbackFunction = (queryContext.analyzingContext.callback != nullptr) ? queryContext.analyzingContext.callback : (void*)&printFunction;
 
         auto queryFunc = compileQuery(query, queryTree,queryContext);
         if (queryFunc == nullptr) return;

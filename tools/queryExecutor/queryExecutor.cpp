@@ -64,7 +64,7 @@ namespace QueryExecutor {
 
 #endif // DISABLE_OPTIMIZATIONS
 
-    void defaultStreamingCallback(Native::Sql::SqlTuple *tuple, QueryContext &context) {}
+    void defaultStreamingCallback(Native::Sql::SqlTuple *tuple) {}
 
     llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();

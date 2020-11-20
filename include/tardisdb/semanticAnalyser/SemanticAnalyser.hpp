@@ -110,6 +110,7 @@ namespace semanticalAnalysis {
         DumpTableAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
         void verify() override;
         void constructTree() override;
+        static void dumpCallback(Native::Sql::SqlTuple *tuple);
     };
 }
 
