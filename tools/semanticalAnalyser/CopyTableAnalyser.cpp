@@ -10,11 +10,20 @@
 namespace semanticalAnalysis {
 
     static std::string path;
-    void CopyTableAnalyser::dumpCallback(Native::Sql::SqlTuple *tuple) {
+    void CopyTableAnalyser::dumpCallbackCSV(Native::Sql::SqlTuple *tuple) {
         std::ofstream output(path,std::fstream::ios_base::app);
         for (int i = 0; i<tuple->values.size()-1; i++) {
             output << Native::Sql::toString(*tuple->values[i]);
             output << ";";
+        }
+        output << Native::Sql::toString(*tuple->values[tuple->values.size()-1]) << "\n";
+        output.close();
+    }
+    void CopyTableAnalyser::dumpCallbackTBL(Native::Sql::SqlTuple *tuple) {
+        std::ofstream output(path,std::fstream::ios_base::app);
+        for (int i = 0; i<tuple->values.size()-1; i++) {
+            output << Native::Sql::toString(*tuple->values[i]);
+            output << "|";
         }
         output << Native::Sql::toString(*tuple->values[tuple->values.size()-1]) << "\n";
         output.close();
@@ -50,7 +59,8 @@ namespace semanticalAnalysis {
         } else {
             path = stmt->filePath;
             remove(stmt->filePath.c_str());
-            _context.callback = (void*)&CopyTableAnalyser::dumpCallback;
+            _context.callback = (stmt->format.compare("tbl") == 0) ? (void*)&CopyTableAnalyser::dumpCallbackTBL :
+                                (void*)&CopyTableAnalyser::dumpCallbackCSV;
 
             construct_scans(_context, stmt->relation);
             auto &production = _context.dangling_productions[stmt->relation.name];

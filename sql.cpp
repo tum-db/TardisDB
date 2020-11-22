@@ -17,13 +17,14 @@ void prompt()
     while (true) {
         try {
             const char *prompt = ">>> ";
-            const char* input = readline(prompt);
+            const char *input = readline(prompt);
             add_history(input);
-            if (std::string(input) == "quit\n") {
+            if (std::string(input) == "quit") {
                 break;
             }
 
             QueryCompiler::compileAndExecute(input,*currentdb);
+            free((void*)input);
         } catch (const std::exception & e) {
             fprintf(stderr, "Exception: %s\n", e.what());
         }

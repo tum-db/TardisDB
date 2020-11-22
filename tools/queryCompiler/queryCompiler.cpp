@@ -57,7 +57,7 @@ namespace QueryCompiler {
     }
 
     void printFunction(Native::Sql::SqlTuple *tuple) {
-        std::cout << Native::Sql::toString(*tuple);
+        std::cout << Native::Sql::toString(*tuple) << "\n";
     }
 
     void compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {

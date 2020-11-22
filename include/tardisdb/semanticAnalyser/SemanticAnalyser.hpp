@@ -103,7 +103,8 @@ namespace semanticalAnalysis {
         CopyTableAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
         void verify() override;
         void constructTree() override;
-        static void dumpCallback(Native::Sql::SqlTuple *tuple);
+        static void dumpCallbackCSV(Native::Sql::SqlTuple *tuple);
+        static void dumpCallbackTBL(Native::Sql::SqlTuple *tuple);
     };
 }
 
