@@ -20,6 +20,8 @@ namespace semanticalAnalysis {
         using scope_op_t = std::unique_ptr<std::unordered_map<std::string, iu_p_t>>;
         std::unordered_map<std::string, iu_p_t> scope;
 
+        void* callback = nullptr;
+
         JoinGraph graph;
         std::set<branch_id_t> branchIds;
 
@@ -29,6 +31,9 @@ namespace semanticalAnalysis {
         std::unique_ptr<Operator> joinedTree;
 
         AnalyzingContext(Database &db) : db(db) {}
+        ~AnalyzingContext() {
+            callback = nullptr;
+        }
 
         iu_p_t getUniqueColumnIU(std::string columnName) {
             for (auto& production : ius) {

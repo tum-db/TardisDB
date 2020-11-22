@@ -120,6 +120,7 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
         const hsql::UpdateStatement *_update;
         const hsql::DeleteStatement *_delete;
         const hsql::ImportStatement *_import;
+        const hsql::ExportStatement *_export;
         switch (stmt->type()) {
             case hsql::kStmtCreate:
                 dest.opType = semanticalAnalysis::SQLParserResult::OpType::CreateTable;
@@ -212,7 +213,29 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
                 _import = (hsql::ImportStatement*)stmt;
                 dest.copyStmt->relation.name = _import->tableName;
                 dest.copyStmt->filePath = _import->filePath;
+                dest.copyStmt->directionFrom = true;
                 switch (_import->type) {
+                    case hsql::ImportType::kImportCSV:
+                        dest.copyStmt->format = "csv";
+                        break;
+                    case hsql::ImportType::kImportTbl:
+                        dest.copyStmt->format = "tbl";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case hsql::kStmtExport:
+                dest.opType = semanticalAnalysis::SQLParserResult::OpType::Copy;
+                dest.copyStmt = new semanticalAnalysis::CopyStatement();
+                dest.copyStmt->directionFrom = false;
+
+                _export = (hsql::ExportStatement*)stmt;
+                dest.copyStmt->relation.name = _export->tableName;
+                dest.copyStmt->relation.version = (_export->version != nullptr) ? _export->version->name : "master";
+                dest.copyStmt->filePath = _export->filePath;
+                dest.copyStmt->format = "csv";
+                switch (_export->type) {
                     case hsql::ImportType::kImportCSV:
                         dest.copyStmt->format = "csv";
                         break;

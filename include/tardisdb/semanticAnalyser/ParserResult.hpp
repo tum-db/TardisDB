@@ -59,6 +59,7 @@ namespace semanticalAnalysis {
         Relation relation;
         std::string filePath;
         std::string format;
+        bool directionFrom;
     };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute

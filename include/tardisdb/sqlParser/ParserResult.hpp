@@ -94,7 +94,9 @@ namespace tardisParser {
 
         Copy,
         CopyTable,
-        CopyFrom,
+        CopyVersion,
+        CopyTag,
+        CopyDirection,
         CopyPath,
         CopyWith,
         CopyFormat,
@@ -152,6 +154,7 @@ namespace tardisParser {
         Table relation;
         std::string filePath;
         std::string format;
+        bool directionFrom;
     };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute

@@ -73,12 +73,36 @@ namespace tardisParser {
                 break;
             case State::CopyTable:
                 if (token.equalsKeyword(Keyword::From)) {
-                    context.state = State::CopyFrom;
+                    context.copyStmt->directionFrom = true;
+                    context.copyStmt->relation.version = "master";
+                    context.state = State::CopyDirection;
+                } else if (token.equalsKeyword(Keyword::To)) {
+                    context.copyStmt->directionFrom = false;
+                    context.copyStmt->relation.version = "master";
+                    context.state = State::CopyDirection;
+                } else if (token.equalsKeyword(Keyword::Version)) {
+                    context.state = State::CopyVersion;
                 } else {
-                    throw syntactical_error("Expected 'FROM', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'FROM','VERSION' OR 'TO', found '" + token.value + "'");
                 }
                 break;
-            case State::CopyFrom:
+            case State::CopyVersion:
+                if (token.hasType(Type::identifier)) {
+                    context.copyStmt->relation.version = token.value;
+                    context.state = State::CopyTag;
+                } else {
+                    throw syntactical_error("Expected branch name, found '" + token.value + "'");
+                }
+                break;
+            case State::CopyTag:
+                if (token.equalsKeyword(Keyword::To)) {
+                    context.copyStmt->directionFrom = false;
+                    context.state = State::CopyDirection;
+                } else {
+                    throw syntactical_error("Expected 'TO', found '" + token.value + "'");
+                }
+                break;
+            case State::CopyDirection:
                 if (token.hasType(Type::literal)) {
                     context.copyStmt->filePath = token.value;
                     context.state = State::CopyPath;
