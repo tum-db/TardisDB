@@ -87,7 +87,7 @@ include("${CMAKE_SOURCE_DIR}/test/local.cmake")
 ### tools ########
 ##################
 add_executable(sql sql.cpp)
-target_link_libraries(sql dblib queryCompiler queryExecutor)
+target_link_libraries(sql readline dblib queryCompiler queryExecutor)
 
 ##################
 ### benchmark ####

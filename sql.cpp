@@ -8,18 +8,18 @@
 
 #include "foundations/Database.hpp"
 #include "queryCompiler/queryCompiler.hpp"
-#include "utils/general.hpp"
+#include <readline/readline.h>
+#include <readline/history.h>
 
 void prompt()
 {
     std::unique_ptr<Database> currentdb = std::make_unique<Database>();
     while (true) {
         try {
-            printf(">>> ");
-            fflush(stdout);
-
-            std::string input = readline();
-            if (input == "quit\n") {
+            const char *prompt = ">>> ";
+            const char* input = readline(prompt);
+            add_history(input);
+            if (std::string(input) == "quit\n") {
                 break;
             }
 
