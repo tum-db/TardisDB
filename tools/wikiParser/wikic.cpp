@@ -49,7 +49,7 @@ int main(int argc, char * argv[])
                 for (int i=0; i<revisions.size(); i++) {
                     if (contents[i].text.compare("") == 0) continue;
 
-                    contentfile << contents[i].textid;
+                    contentfile << revisions[i].id;
                     contentfile << "|";
                     std::replace( contents[i].text.begin(), contents[i].text.end(), '|', '~' );
                     std::replace( contents[i].text.begin(), contents[i].text.end(), '"', '\'' );
@@ -71,7 +71,7 @@ int main(int argc, char * argv[])
                     revisionfile << "|";
                     revisionfile << page.id;
                     revisionfile << "|";
-                    revisionfile << contents[i].textid;
+                    revisionfile << revisions[i].id;
                     revisionfile << "|";
                     revisionfile << users[i].id;
                     revisionfile << "\n";
