@@ -43,6 +43,19 @@ static std::string escapeEscapes(const std::string& in) {
     }
     return ss.str();
 }
+static std::string escapeQuote(const std::string& in) {
+    std::stringstream ss;
+    size_t idx = 0;
+    while (idx < in.size()) {
+        if (in[idx] == '"') {
+            ss << '\\' << '"';
+        } else {
+            ss << in[idx];
+        }
+        ++idx;
+    }
+    return ss.str();
+}
 
 std::unordered_map<uint64_t, std::unique_ptr<Database>> dbs;
 std::atomic<uint64_t> dbcounter = 0;
@@ -61,7 +74,7 @@ void jsonStreamingCallback(Native::Sql::SqlTuple *tuple) {
   for (const auto & value : tuple->values) {
       if (column)
          ss << ", ";
-      ss << "\""<< column++ << "\":"  "\"" << toString(*value) << "\"" ;
+      ss << "\""<< column++ << "\":"  "\"" << escapeQuote(toString(*value)) << "\"" ;
   }
   ss << "}";
 }
