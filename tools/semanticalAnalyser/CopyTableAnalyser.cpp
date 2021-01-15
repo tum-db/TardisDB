@@ -4,6 +4,7 @@
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 #include "foundations/loader.hpp"
+#include "queryCompiler/QueryContext.hpp"
 
 #include <fstream>
 
@@ -45,17 +46,37 @@ namespace semanticalAnalysis {
 
     void CopyTableAnalyser::constructTree() {
         CopyStatement* stmt = _context.parserResult.copyStmt;
-
         if (stmt->directionFrom) {
             std::ifstream fs(stmt->filePath);
+            auto& db = _context.db;
+
             if (!fs) { throw std::runtime_error("file not found"); }
-            Table *table = _context.db.getTable(stmt->relation.name);
+            Table *table = db.getTable(stmt->relation.name);
+
+            std::string &branchName = stmt->relation.version;
+            branch_id_t branchId = (branchName.compare("master") != 0) ?
+                    db._branchMapping[branchName]:
+                    master_branch_id;
 
             char delimiter = ';';
             if (stmt->format.compare("tbl") == 0) delimiter = '|';
-            loadTable(fs, *table, delimiter);
+            QueryContext queryContext(db);
 
-            _context.joinedTree = nullptr;
+            std::vector<Native::Sql::SqlTuple *> tuples;
+            std::string rowStr;
+            while (std::getline(fs, rowStr)) {
+                std::vector<std::string> items = split(rowStr, delimiter);
+                size_t i = 0;
+                std::vector<Native::Sql::value_op_t> values;
+                for (const std::string & column : table->getColumnNames()) {
+                    ci_p_t ci = table->getCI(column);
+                    auto value = Native::Sql::Value::castString(items[i], ci->type);
+                    values.push_back(std::move(value));
+                    i += 1;
+                }
+                tuples.push_back(new Native::Sql::SqlTuple(std::move(values)));
+            }
+            _context.joinedTree = std::make_unique<Insert>(_context.iuFactory,*table,move(tuples),branchId);
         } else {
             path = stmt->filePath;
             remove(stmt->filePath.c_str());
