@@ -383,7 +383,7 @@ public:
         _translated.push( std::make_unique<Physical::Insert>(
                 op,
                 op.getTable(),
-                op.getTuple(),
+                op.getTuples(),
                 _queryContext,
                 op.getBranchId()
         ) );

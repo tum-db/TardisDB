@@ -456,7 +456,7 @@ protected:
 
 class Insert : public NullaryOperator {
 public:
-    Insert(IUFactory &iuFactory, Table & table, Native::Sql::SqlTuple *tuple, branch_id_t branchId);
+    Insert(IUFactory &iuFactory, Table & table, std::vector<Native::Sql::SqlTuple *> tuples, branch_id_t branchId);
 
     ~Insert() override;
 
@@ -464,7 +464,7 @@ public:
 
     Table & getTable() const { return _table; }
 
-    Native::Sql::SqlTuple *getTuple() { return sqlTuple; }
+    std::vector<Native::Sql::SqlTuple *> getTuples() { return sqlTuples; }
 
     branch_id_t getBranchId() { return branchId; }
 protected:
@@ -473,7 +473,7 @@ protected:
 
     Table & _table;
     branch_id_t branchId;
-    Native::Sql::SqlTuple *sqlTuple;
+    std::vector<Native::Sql::SqlTuple *> sqlTuples;
 };
 
 //-----------------------------------------------------------------------------
