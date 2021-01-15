@@ -54,9 +54,10 @@ namespace semanticalAnalysis {
             sqlvalues.emplace_back(std::move(sqlvalue));
         }
 
-        Native::Sql::SqlTuple *tuple =  new Native::Sql::SqlTuple(std::move(sqlvalues));
+        std::vector<Native::Sql::SqlTuple *> tuples;
+        tuples.push_back(new Native::Sql::SqlTuple(std::move(sqlvalues)));
 
-        _context.joinedTree = std::make_unique<Insert>(_context.iuFactory,*table,tuple,branchId);
+        _context.joinedTree = std::make_unique<Insert>(_context.iuFactory,*table,move(tuples),branchId);
     }
 
 }

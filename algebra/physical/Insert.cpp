@@ -11,8 +11,8 @@ using namespace Sql;
 namespace Algebra {
     namespace Physical {
 
-        Insert::Insert(const logical_operator_t & logicalOperator, Table & table, Native::Sql::SqlTuple *tuple, QueryContext &context, branch_id_t branchId) :
-                NullaryOperator(std::move(logicalOperator),context) , table(table), tuple(tuple), context(context), branchId(branchId)
+        Insert::Insert(const logical_operator_t & logicalOperator, Table & table, std::vector <Native::Sql::SqlTuple *> tuples, QueryContext &context, branch_id_t branchId) :
+                NullaryOperator(std::move(logicalOperator),context) , table(table), tuples(tuples), context(context), branchId(branchId)
         {
 
         }
@@ -50,7 +50,9 @@ namespace Algebra {
             llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, void *), false>::get(_codeGen.getLLVMContext());
             llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("insert_tuple_with_binding", funcTy) );
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,funcPtr);
-            _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(tuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1), cg_u32_t(branchId)});
+            // call insert for every single tuple
+            for(auto tuple: tuples)
+                _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(tuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1), cg_u32_t(branchId)});
         }
 
     } // end namespace Physical

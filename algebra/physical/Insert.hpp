@@ -11,14 +11,14 @@ namespace Algebra {
 /// The print operator
         class Insert : public NullaryOperator {
         public:
-            Insert(const logical_operator_t & logicalOperator, Table & table, Native::Sql::SqlTuple *tuple, QueryContext &context, branch_id_t branchId);
+            Insert(const logical_operator_t & logicalOperator, Table & table, std::vector<Native::Sql::SqlTuple *>tuples, QueryContext &context, branch_id_t branchId);
 
             virtual ~Insert();
 
             void produce() override;
 
         private:
-            Native::Sql::SqlTuple *tuple;
+            std::vector <Native::Sql::SqlTuple *> tuples;
             Table & table;
             QueryContext &context;
             branch_id_t branchId;
