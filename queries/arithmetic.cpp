@@ -12,6 +12,7 @@
 #include "foundations/version_management.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 #include "queries/common.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -78,20 +79,20 @@ static llvm::Function * gen_arithmentic1_func(Database & db)
 
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
-    auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *lineitem );
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU    = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU    = lookup(context, "l_linestatus");
-    iu_p_t l_discountIU      = lookup(context, "l_discount");
+    iu_p_t l_returnflagIU    = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU    = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_discountIU      = semanticalAnalysis::lookup(context, "l_discount");
 
     // keep l_returnflag
-    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
+    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_returnflagIU );
     selection.push_back( l_returnflagKeep->getProduced() );
 
     // keep l_linestatus
-    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context, l_linestatusIU );
+    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_linestatusIU );
     selection.push_back( l_linestatusKeep->getProduced() );
 
     // build a polynomial
@@ -117,7 +118,7 @@ static llvm::Function * gen_arithmentic1_func(Database & db)
         }
     }
 
-    auto aggr = std::make_unique<Aggregations::Sum>( context, std::move(polynomial) );
+    auto aggr = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(polynomial) );
     selection.push_back( aggr->getProduced() );
 
     std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -130,7 +131,7 @@ static llvm::Function * gen_arithmentic1_func(Database & db)
     auto result = std::make_unique<Result>( std::move(group), selection );
     verifyDependencies(*result);
 
-    auto physicalTree = Algebra::translateToPhysicalTree(*result);
+    auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
     physicalTree->produce();
 
     return funcGen.getFunction();
@@ -194,20 +195,20 @@ static llvm::Function * gen_arithmentic2_func(Database & db)
 
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
-    auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *lineitem );
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU    = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU    = lookup(context, "l_linestatus");
-    iu_p_t l_discountIU      = lookup(context, "l_discount");
+    iu_p_t l_returnflagIU    = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU    = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_discountIU      = semanticalAnalysis::lookup(context, "l_discount");
 
     // keep l_returnflag
-    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
+    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_returnflagIU );
     selection.push_back( l_returnflagKeep->getProduced() );
 
     // keep l_linestatus
-    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context, l_linestatusIU );
+    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_linestatusIU );
     selection.push_back( l_linestatusKeep->getProduced() );
 
     // build a polynomial
@@ -246,7 +247,7 @@ static llvm::Function * gen_arithmentic2_func(Database & db)
         }
     }
 
-    auto aggr = std::make_unique<Aggregations::Sum>( context, std::move(polynomial) );
+    auto aggr = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(polynomial) );
     selection.push_back( aggr->getProduced() );
 
     std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -259,7 +260,7 @@ static llvm::Function * gen_arithmentic2_func(Database & db)
     auto result = std::make_unique<Result>( std::move(group), selection );
     verifyDependencies(*result);
 
-    auto physicalTree = Algebra::translateToPhysicalTree(*result);
+    auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
     physicalTree->produce();
 
     return funcGen.getFunction();
@@ -291,20 +292,20 @@ static llvm::Function * gen_arithmentic3_func(Database & db)
 
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
-    auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *lineitem );
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU = lookup(context, "l_linestatus");
-    iu_p_t l_linenumberIU = lookup(context, "l_linenumber");
+    iu_p_t l_returnflagIU = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_linenumberIU = semanticalAnalysis::lookup(context, "l_linenumber");
 
     // keep l_returnflag
-    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
+    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_returnflagIU );
     selection.push_back( l_returnflagKeep->getProduced() );
 
     // keep l_linestatus
-    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context, l_linestatusIU );
+    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_linestatusIU );
     selection.push_back( l_linestatusKeep->getProduced() );
 
     // build a polynomial
@@ -336,7 +337,7 @@ static llvm::Function * gen_arithmentic3_func(Database & db)
         }
     }
 
-    auto aggr = std::make_unique<Aggregations::Min>( context, std::move(polynomial) );
+    auto aggr = std::make_unique<Aggregations::Min>( context.analyzingContext.iuFactory, std::move(polynomial) );
     selection.push_back( aggr->getProduced() );
 
     std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -349,7 +350,7 @@ static llvm::Function * gen_arithmentic3_func(Database & db)
     auto result = std::make_unique<Result>( std::move(group), selection );
     verifyDependencies(*result);
 
-    auto physicalTree = Algebra::translateToPhysicalTree(*result);
+    auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
     physicalTree->produce();
 
     return funcGen.getFunction();
@@ -381,20 +382,20 @@ static llvm::Function * gen_arithmentic4_func(Database & db)
 
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
-    auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *lineitem );
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU = lookup(context, "l_linestatus");
-    iu_p_t l_linenumberIU = lookup(context, "l_linenumber");
+    iu_p_t l_returnflagIU = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_linenumberIU = semanticalAnalysis::lookup(context, "l_linenumber");
 
     // keep l_returnflag
-    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
+    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_returnflagIU );
     selection.push_back( l_returnflagKeep->getProduced() );
 
     // keep l_linestatus
-    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context, l_linestatusIU );
+    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_linestatusIU );
     selection.push_back( l_linestatusKeep->getProduced() );
 
     // build a polynomial
@@ -415,7 +416,7 @@ static llvm::Function * gen_arithmentic4_func(Database & db)
         }
     }
 
-    auto aggr = std::make_unique<Aggregations::Min>( context, std::move(polynomial) );
+    auto aggr = std::make_unique<Aggregations::Min>( context.analyzingContext.iuFactory, std::move(polynomial) );
     selection.push_back( aggr->getProduced() );
 
     std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -428,7 +429,7 @@ static llvm::Function * gen_arithmentic4_func(Database & db)
     auto result = std::make_unique<Result>( std::move(group), selection );
     verifyDependencies(*result);
 
-    auto physicalTree = Algebra::translateToPhysicalTree(*result);
+    auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
     physicalTree->produce();
 
     return funcGen.getFunction();

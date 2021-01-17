@@ -55,5 +55,13 @@ value_op_t sqlOr(const Value & lhs, const Value & rhs);
 
 value_op_t sqlNot(const Value & value);
 
+    static bool overflowFlag = false;
+
+    void genOverflowException();
+
+    void genOverflowEvaluation();
+
+    cg_bool_t genEvaluateOverflow();
+
 } // end namespace Operators
 } // end namespace Sql

@@ -170,7 +170,7 @@ void genPrintValue(Value & sqlValue)
         }
         nullCheck.Else();
         {
-            genPrintAvailableValue(sqlValue);
+            genPrintAvailableValue(nullableValue.getValue());
         }
         nullCheck.EndIf();
     } else {

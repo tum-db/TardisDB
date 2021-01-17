@@ -7,7 +7,7 @@
 
 #include "algebra/logical/expressions.hpp"
 #include "foundations/InformationUnit.hpp"
-#include "foundations/QueryContext.hpp"
+#include "foundations/IUFactory.hpp"
 
 namespace Algebra {
 namespace Logical {
@@ -23,11 +23,10 @@ class Operator {
 public:
     size_t cardinality;
 
-    Operator(QueryContext & context) :
-            _context(context)
+    Operator(IUFactory &iuFactory) :
+            _iuFactory(iuFactory)
     {
-        _uid = _context.operatorUID;
-        _context.operatorUID += 1;
+        _uid = _iuFactory.getUID();
     }
 
     Operator(const Operator &) = delete;
@@ -38,7 +37,7 @@ public:
 
     virtual void accept(OperatorVisitor & visitor) = 0;
 
-    QueryContext & getContext() const { return _context; }
+    IUFactory & getIUFactory() const { return _iuFactory; }
 
     Operator * getParent() const { return parent; }
 
@@ -70,7 +69,7 @@ protected:
     virtual void updateRequiredSetsTraverser() = 0;
 
     Operator * parent = nullptr;
-    QueryContext & _context;
+    IUFactory &_iuFactory;
 
     iu_set_t produced;
     iu_set_t required;
@@ -116,7 +115,7 @@ struct OperatorVisitor {
 
 class NullaryOperator : public Operator {
 public:
-    NullaryOperator(QueryContext & context);
+    NullaryOperator(IUFactory &iuFactory);
 
     ~NullaryOperator() override;
 
@@ -263,16 +262,15 @@ struct AggregatorVisitor;
 
 class Aggregator {
 public:
-    Aggregator(QueryContext & context) :
-            _context(context)
+    Aggregator(IUFactory &iuFactory) :
+            _iuFactory(iuFactory)
     { }
 
     virtual ~Aggregator() { }
 
     virtual void accept(AggregatorVisitor & visitor) = 0;
 
-    QueryContext & getContext() const { return _context; }
-
+    IUFactory & getIUFactory() const { return _iuFactory; }
     iu_p_t getProduced();
 
     // the expression could contain multiple iu references
@@ -286,7 +284,7 @@ protected:
     virtual void computeProduced();
     virtual void computeRequired() = 0;
 
-    QueryContext & _context;
+    IUFactory & _iuFactory;
     Operator * parent = nullptr;
 
     iu_p_t _produced;
@@ -316,8 +314,8 @@ struct AggregatorVisitor {
 
 class Keep : public Aggregator {
 public:
-    Keep(QueryContext & context, iu_p_t keep) :
-            Aggregator(context),
+    Keep(IUFactory &iuFactory, iu_p_t keep) :
+            Aggregator(iuFactory),
             _keep(keep)
     { }
 
@@ -335,8 +333,8 @@ protected:
 
 class Sum : public Aggregator {
 public:
-    Sum(QueryContext & context, logical_exp_op_t exp) :
-            Aggregator(context),
+    Sum(IUFactory &iuFactory, logical_exp_op_t exp) :
+            Aggregator(iuFactory),
             _expression(std::move(exp))
     { }
 
@@ -356,7 +354,7 @@ private:
 
 class Avg : public Aggregator {
 public:
-    Avg(QueryContext & context, logical_exp_op_t exp);
+    Avg(IUFactory &iuFactory, logical_exp_op_t exp);
 
     ~Avg() override { }
 
@@ -374,8 +372,8 @@ private:
 
 class CountAll : public Aggregator {
 public:
-    CountAll(QueryContext & context) :
-            Aggregator(context)
+    CountAll(IUFactory &iuFactory) :
+            Aggregator(iuFactory)
     { }
 
     ~CountAll() override { }
@@ -390,8 +388,8 @@ protected:
 
 class Min : public Aggregator {
 public:
-    Min(QueryContext & context, logical_exp_op_t exp) :
-            Aggregator(context),
+    Min(IUFactory &iuFactory, logical_exp_op_t exp) :
+            Aggregator(iuFactory),
             _expression(std::move(exp))
     { }
 
@@ -432,7 +430,7 @@ protected:
 
 class Delete : public UnaryOperator {
 public:
-    Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table);
+    Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table, branch_id_t branchId);
 
     ~Delete() override;
 
@@ -442,6 +440,7 @@ public:
 
     iu_p_t &getTIDIU() { return tidIU; }
 
+    branch_id_t getBranchId() { return branchId; }
 protected:
     void computeProduced() override;
     void computeRequired() override;
@@ -449,6 +448,7 @@ protected:
     Table & _table;
 
     iu_p_t tidIU;
+    branch_id_t branchId;
 };
 
 //-----------------------------------------------------------------------------
@@ -456,7 +456,7 @@ protected:
 
 class Insert : public NullaryOperator {
 public:
-    Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple);
+    Insert(IUFactory &iuFactory, Table & table, std::vector<Native::Sql::SqlTuple *> tuples, branch_id_t branchId);
 
     ~Insert() override;
 
@@ -464,14 +464,16 @@ public:
 
     Table & getTable() const { return _table; }
 
-    Native::Sql::SqlTuple *getTuple() { return sqlTuple; }
+    std::vector<Native::Sql::SqlTuple *> getTuples() { return sqlTuples; }
 
+    branch_id_t getBranchId() { return branchId; }
 protected:
     void computeProduced() override;
     void computeRequired() override;
 
     Table & _table;
-    Native::Sql::SqlTuple *sqlTuple;
+    branch_id_t branchId;
+    std::vector<Native::Sql::SqlTuple *> sqlTuples;
 };
 
 //-----------------------------------------------------------------------------
@@ -479,7 +481,7 @@ protected:
 
 class Update : public UnaryOperator {
 public:
-    Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, std::string *alias);
+    Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, branch_id_t branchId);
 
     Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table);
 
@@ -490,7 +492,7 @@ public:
 
     Table & getTable() const { return _table; }
 
-    std::string *getAlias() { return alias; }
+    branch_id_t getBranchId() { return branchId; }
 
     std::vector<std::pair<iu_p_t,std::string>> &getUpdateIUValuePairs() { return updateIUValuePairs; }
 
@@ -499,7 +501,7 @@ protected:
     void computeRequired() override;
 
     Table & _table;
-    std::string *alias;
+    branch_id_t branchId;
 
     std::vector<std::pair<iu_p_t,std::string>> updateIUValuePairs;
 };
@@ -509,11 +511,7 @@ protected:
 
 class Result : public UnaryOperator {
 public:
-#if TUPLE_STREAM_REQUIRED
-    enum class Type { PrintToStdOut, TupleStreamHandler } _type = Type::TupleStreamHandler;
-#else
-    enum class Type { PrintToStdOut, TupleStreamHandler } _type = Type::PrintToStdOut;
-#endif
+    static enum class Type { PrintToStdOut, TupleStreamHandler } _type;
 
     std::vector<iu_p_t> selection;
 
@@ -533,16 +531,15 @@ protected:
 
 class TableScan : public NullaryOperator {
 public:
-    TableScan(QueryContext & context, Table & table, std::string *alias) :
-            NullaryOperator(context),
+    TableScan(IUFactory &iuFactory, Table & table, branch_id_t branchId) :
+            NullaryOperator(iuFactory),
             _table(table),
-            alias(alias)
+            branchId(branchId)
     { }
 
-    TableScan(QueryContext & context, Table & table) :
-            NullaryOperator(context),
-            _table(table),
-            alias(nullptr)
+    TableScan(IUFactory &iuFactory, Table & table) :
+            NullaryOperator(iuFactory),
+            _table(table)
     { }
 
     ~TableScan() override { }
@@ -551,14 +548,14 @@ public:
 
     Table & getTable() const { return _table; }
 
-    std::string *getAlias() { return alias; }
+    branch_id_t getBranchId() { return branchId; }
 
 protected:
     void computeProduced() override;
     void computeRequired() override;
 
     Table & _table;
-    std::string *alias;
+    branch_id_t branchId;
 };
 
 //-----------------------------------------------------------------------------

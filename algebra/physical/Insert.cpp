@@ -11,8 +11,8 @@ using namespace Sql;
 namespace Algebra {
     namespace Physical {
 
-        Insert::Insert(const logical_operator_t & logicalOperator, Table & table, Native::Sql::SqlTuple *tuple, QueryContext &context) :
-                NullaryOperator(std::move(logicalOperator)) , table(table), tuple(tuple), context(context)
+        Insert::Insert(const logical_operator_t & logicalOperator, Table & table, std::vector <Native::Sql::SqlTuple *> tuples, QueryContext &context, branch_id_t branchId) :
+                NullaryOperator(std::move(logicalOperator),context) , table(table), tuples(tuples), context(context), branchId(branchId)
         {
 
         }
@@ -39,17 +39,20 @@ namespace Algebra {
 
         void Insert::produce()
         {
-            //Native::Sql::SqlTuple *tuplePtr = tuple.get();
-            /*llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void*,void*,void*), false>::get(_codeGen.getLLVMContext());
-            llvm::CallInst * result = _codeGen.CreateCall(&insert_tuple, funcTy, {tuplePtr,tablePtr,contextPtr});*/
-            llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, void *), false>::get(_codeGen.getLLVMContext());
-            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("insert_tuple", funcTy) );
 #if USE_DATA_VERSIONING
-            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&insert_tuple);
+            genInsertCall((void *)&insert_tuple_with_branchId);
 #else
-            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&insert_tuple_without_versioning);
+            genInsertCall((void *)&insert_tuple_without_versioning);
 #endif
-            llvm::CallInst * result = _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(tuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
+        }
+
+        void Insert::genInsertCall(void *funcPtr) {
+            llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, void *), false>::get(_codeGen.getLLVMContext());
+            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("insert_tuple_with_binding", funcTy) );
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,funcPtr);
+            // call insert for every single tuple
+            for(auto tuple: tuples)
+                _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(tuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1), cg_u32_t(branchId)});
         }
 
     } // end namespace Physical

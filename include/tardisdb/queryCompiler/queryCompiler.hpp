@@ -8,6 +8,8 @@
 #include <string>
 
 #include "foundations/Database.hpp"
+#include "foundations/InformationUnit.hpp"
+
 
 namespace QueryCompiler {
 
@@ -17,11 +19,24 @@ namespace QueryCompiler {
         double translationTime;
         double llvmCompilationTime;
         double executionTime;
+        iu_set_t columns;
+
+        BenchmarkResult () : parsingTime(0), analysingTime(0), translationTime(0), llvmCompilationTime(0), executionTime(0) {}
+
+        BenchmarkResult& operator+=(const BenchmarkResult& rhs) {
+          parsingTime += rhs.parsingTime;
+          analysingTime += rhs.analysingTime;
+          translationTime += rhs.translationTime;
+          llvmCompilationTime += rhs.llvmCompilationTime;
+          executionTime += rhs.executionTime;
+          columns = rhs.columns;
+          return *this;
+        }
     };
 
     void compileAndExecute(const std::string & query, Database &db, void *callbackFunction = nullptr);
 
-    BenchmarkResult compileAndBenchmark(const std::string & query, Database &db);
+    BenchmarkResult compileAndBenchmark(const std::string & query, Database &db, void *callbackFunction = nullptr);
 
 }
 

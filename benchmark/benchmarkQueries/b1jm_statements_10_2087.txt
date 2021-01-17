@@ -1,0 +1,26 @@
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1925;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 612;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 51;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 431;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 600;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1616;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1692;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 626;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1508;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 991;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1525;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1107;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 702;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 565;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 759;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1659;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1946;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 1623;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 451;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 473;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 32;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 628;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 2047;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 859;
+SELECT text FROM page VERSION branch1 p , content c WHERE p.textId = c.id AND p.id = 207;
+quit

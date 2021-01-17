@@ -15,10 +15,10 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, std::string *alias) :
-        NullaryOperator(std::move(logicalOperator)),
+TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId, QueryContext &queryContext) :
+        NullaryOperator(std::move(logicalOperator), queryContext),
         table(table),
-        alias(alias)
+        branchId(branchId)
 {
     // collect all information which is necessary to access the columns
     for (auto iu : getRequired()) {
@@ -72,7 +72,6 @@ void TableScan::produce()
         LoopBodyGen bodyGen(scanLoop);
 
 #if USE_DATA_VERSIONING
-        auto branchId = _context.executionContext.branchIds[*alias];
         IfGen visibilityCheck(isVisible(tid, branchId));
         {
             produce(tid, branchId);
@@ -84,9 +83,6 @@ void TableScan::produce()
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
-
-    //Free the memory pointed by the alias string pointer
-    Functions::genFreeCall(cg_voidptr_t::fromRawPointer(alias));
 }
 
 
@@ -101,16 +97,8 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
     cg_voidptr_t resultPtr;
     cg_bool_t ptrIsNotNull(false);
     if (branchId != master_branch_id) {
-        llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_entry", funcTy) );
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
-        llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_ptr8_t::fromRawPointer(alias), _codeGen.getCurrentFunctionGen().getArg(1)});
-        resultPtr = cg_voidptr_t( llvm::cast<llvm::Value>(result) );
-#ifdef __APPLE__
-        ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));
-#else
-        ptrIsNotNull = cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(resultPtr, _codeGen->getIntNTy(64))) != cg_size_t(0ul));
-#endif
+        resultPtr = genGetLatestEntryCall(tid,branchId);
+        ptrIsNotNull = nullPointerCheck(resultPtr);
     }
 
 
@@ -223,12 +211,7 @@ llvm::Value *TableScan::getMasterElemPtr(cg_tid_t &tid, column_t &column) {
 llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voidptr_t &resultPtr, cg_bool_t &ptrIsNotNull) {
     IfGen check( _codeGen.getCurrentFunctionGen(), ptrIsNotNull, {{"elemPtr", cg_int_t(0)}} );
     {
-        llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
-        llvm::Type * tuplePtrTy = llvm::PointerType::getUnqual(tupleTy);
-        llvm::Value * tuplePtr = _codeGen->CreatePointerCast(resultPtr, tuplePtrTy);
-
-        cg_size_t index_gen = cg_size_t(std::get<3>(column));
-        llvm::Value * valuePtr = _codeGen->CreateStructGEP(tupleTy, tuplePtr, std::get<3>(column));
+        llvm::Value * valuePtr = tupleToElemPtr(resultPtr,column);
         check.setVar(0, valuePtr);
     }
     check.Else();
@@ -238,6 +221,31 @@ llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voi
     }
     check.EndIf();
     return check.getResult(0);
+}
+
+cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId) {
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
+    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_entry", funcTy) );
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
+    llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
+
+    return cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+}
+
+cg_bool_t TableScan::nullPointerCheck(cg_voidptr_t &ptr) {
+#ifdef __APPLE__
+    return cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(ptr, _codeGen->getIntNTy(64))) != cg_size_t(0ull));
+#else
+    return cg_bool_t(cg_size_t(_codeGen->CreatePtrToInt(ptr, _codeGen->getIntNTy(64))) != cg_size_t(0ul));
+#endif
+}
+
+llvm::Value *TableScan::tupleToElemPtr(cg_voidptr_t &ptr, column_t &column) {
+    llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
+    llvm::Type * tuplePtrTy = llvm::PointerType::getUnqual(tupleTy);
+    llvm::Value * tuplePtr = _codeGen->CreatePointerCast(ptr, tuplePtrTy);
+
+    return _codeGen->CreateStructGEP(tupleTy, tuplePtr, std::get<3>(column));
 }
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)

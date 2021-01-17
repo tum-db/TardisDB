@@ -6,34 +6,42 @@
 
 namespace semanticalAnalysis {
 
-    std::unique_ptr<Operator> DeleteAnalyser::constructTree() {
-        QueryPlan plan;
+    void DeleteAnalyser::verify() {
+        Database &db = _context.db;
+        DeleteStatement* stmt = _context.parserResult.deleteStmt;
+        if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
 
-        construct_scans(_context, plan, _parserResult);
-        construct_selects(_context, plan, _parserResult);
-
-        if (plan.dangling_productions.size() != 1 || _parserResult.relations.size() != 1) {
-            throw std::runtime_error("no or more than one root found: Table joining has failed");
+        if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
+        if (db._branchMapping.find(stmt->relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + stmt->relation.version + "' does not exist");
+        Table *table = db.getTable(stmt->relation.name);
+        std::vector<std::string> columnNames = table->getColumnNames();
+        for (auto &column : stmt->selections) {
+            if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.first.name + "' does not exist");
         }
+        // Relation
+        // // Relation with name exists?
+        // // Branch exists?
+        // For each column
+        // // Column exists?
+    }
 
-        auto &relationName = _parserResult.relations[0].second;
-        if (relationName.length() == 0) relationName = _parserResult.relations[0].first;
-        Table* table = _context.db.getTable(_parserResult.relations[0].first);
+    void DeleteAnalyser::constructTree() {
+        DeleteStatement *stmt = _context.parserResult.deleteStmt;
 
-        iu_p_t tidIU;
+        construct_scans(_context, stmt->relation);
+        construct_selects(_context, stmt->selections);
 
-        for (auto& production : plan.ius) {
-            for (auto &iu : production.second) {
-                if (iu.first.compare("tid") == 0) {
-                    tidIU = iu.second;
-                    break;
-                }
-            }
-        }
+        if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
+        branch_id_t branchId = (stmt->relation.version.compare("master") != 0) ?
+                               _context.db._branchMapping[stmt->relation.version] :
+                               master_branch_id;
 
-        auto &production = plan.dangling_productions[relationName];
+        Table* table = _context.db.getTable(stmt->relation.name);
+        iu_p_t tidIU = _context.getUniqueColumnIU("tid");
+        auto &production = _context.dangling_productions[stmt->relation.alias];
 
-        return std::make_unique<Delete>( std::move(production), tidIU, *table);
+        _context.joinedTree = std::make_unique<Delete>( std::move(production), tidIU, *table, branchId);
     }
 
 }

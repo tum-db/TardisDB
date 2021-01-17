@@ -3,7 +3,7 @@
 #include <tuple>
 
 #include "foundations/Database.hpp"
-#include "foundations/QueryContext.hpp"
+#include "queryCompiler/QueryContext.hpp"
 #include "native/sql/Register.hpp"
 #include "native/sql/SqlValues.hpp"
 #include "native/sql/SqlTuple.hpp"
@@ -61,23 +61,22 @@ const void * get_chain_element(const VersionEntry * version_entry, unsigned revi
 
 // FIXME tuple has to exist in the master branch!
 tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
+tid_t insert_tuple_with_branchId(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx, branch_id_t branchId);
 
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
-
-void update_tuple_with_binding(tid_t tid, std::string *binding, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
+void update_tuple_with_branchId(tid_t tid, branch_id_t branchId, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx);
 
 // the entire version chain has to be deleted
 // the tuple has to be relocated iff branch==master
 void delete_tuple(tid_t tid, Table & table, QueryContext & ctx);
+void delete_tuple_with_branchId(tid_t tid, branch_id_t branchId, Table & table, QueryContext & ctx);
 
 tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, QueryContext ctx);
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
-const void *get_latest_entry(tid_t tid, Table & table, std::string *binding, QueryContext & ctx);
-std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple_with_binding(std::string *binding, tid_t tid, Table & table, QueryContext & ctx);
+const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx);
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
-uint8_t is_visible_with_binding(tid_t tid, std::string *binding, Table & table, QueryContext & ctx);
 
 void destroy_chain(VersionEntry * version_entry);
 

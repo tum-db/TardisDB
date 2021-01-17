@@ -8,6 +8,7 @@
 #include "foundations/loader.hpp"
 #include "foundations/version_management.hpp"
 #include "queryExecutor/queryExecutor.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -29,10 +30,10 @@ llvm::Function * genFunc(Database & db)
 
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
-        auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
+        auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *studenten );
+        semanticalAnalysis::addToScope(context, *scan);
 
-        auto count = std::make_unique<Aggregations::CountAll>(context);
+        auto count = std::make_unique<Aggregations::CountAll>(context.analyzingContext.iuFactory);
         selection.push_back( count->getProduced() );
 
         std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -42,7 +43,7 @@ llvm::Function * genFunc(Database & db)
         auto result = std::make_unique<Result>( std::move(group), selection );
         verifyDependencies(*result);
 
-        auto physicalTree = Algebra::translateToPhysicalTree(*result);
+        auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
         physicalTree->produce();
     }
 
@@ -53,12 +54,12 @@ llvm::Function * genFunc(Database & db)
 
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
-        auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
+        auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *studenten );
+        semanticalAnalysis::addToScope(context, *scan);
 
-        iu_p_t semesterIU = lookup(context, "semester");
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
         auto sumExp = std::make_unique<Identifier>(semesterIU);
-        auto sum = std::make_unique<Aggregations::Sum>( context, std::move(sumExp) );
+        auto sum = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(sumExp) );
         selection.push_back( sum->getProduced() );
 
         std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -68,7 +69,7 @@ llvm::Function * genFunc(Database & db)
         auto result = std::make_unique<Result>( std::move(group), selection );
         verifyDependencies(*result);
 
-        auto physicalTree = Algebra::translateToPhysicalTree(*result);
+        auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
         physicalTree->produce();
     }
 
@@ -79,12 +80,12 @@ llvm::Function * genFunc(Database & db)
 
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
-        auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
-        iu_p_t semesterIU = lookup(context, "semester");
+        auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *studenten );
+        semanticalAnalysis::addToScope(context, *scan);
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
 
         auto avgExp = std::make_unique<Identifier>(semesterIU);
-        auto avg = std::make_unique<Aggregations::Avg>( context, std::move(avgExp) );
+        auto avg = std::make_unique<Aggregations::Avg>( context.analyzingContext.iuFactory, std::move(avgExp) );
         selection.push_back( avg->getProduced() );
 
         std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -94,7 +95,7 @@ llvm::Function * genFunc(Database & db)
         auto result = std::make_unique<Result>( std::move(group), selection );
         verifyDependencies(*result);
 
-        auto physicalTree = Algebra::translateToPhysicalTree(*result);
+        auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
         physicalTree->produce();
     }
 
@@ -105,19 +106,19 @@ llvm::Function * genFunc(Database & db)
 
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
-        auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
-        iu_p_t semesterIU = lookup(context, "semester");
+        auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *studenten );
+        semanticalAnalysis::addToScope(context, *scan);
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
 
-        auto count = std::make_unique<Aggregations::CountAll>(context);
+        auto count = std::make_unique<Aggregations::CountAll>(context.analyzingContext.iuFactory);
         selection.push_back( count->getProduced() );
 
         auto sumExp = std::make_unique<Identifier>(semesterIU);
-        auto sum = std::make_unique<Aggregations::Sum>( context, std::move(sumExp) );
+        auto sum = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(sumExp) );
         selection.push_back( sum->getProduced() );
 
         auto avgExp = std::make_unique<Identifier>(semesterIU);
-        auto avg = std::make_unique<Aggregations::Avg>( context, std::move(avgExp) );
+        auto avg = std::make_unique<Aggregations::Avg>( context.analyzingContext.iuFactory, std::move(avgExp) );
         selection.push_back( avg->getProduced() );
 
         std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -129,7 +130,7 @@ llvm::Function * genFunc(Database & db)
         auto result = std::make_unique<Result>( std::move(group), selection );
         verifyDependencies(*result);
 
-        auto physicalTree = Algebra::translateToPhysicalTree(*result);
+        auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
         physicalTree->produce();
     }
 
@@ -140,14 +141,14 @@ llvm::Function * genFunc(Database & db)
 
         Table * studenten = db.getTable("studenten");
         assert(studenten != nullptr);
-        auto scan = std::make_unique<TableScan>( context, *studenten );
-        addToScope(context, *scan);
-        iu_p_t semesterIU = lookup(context, "semester");
+        auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *studenten );
+        semanticalAnalysis::addToScope(context, *scan);
+        iu_p_t semesterIU = semanticalAnalysis::lookup(context, "semester");
 
-        auto keep = std::make_unique<Aggregations::Keep>( context, semesterIU );
+        auto keep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, semesterIU );
         selection.push_back( keep->getProduced() );
 
-        auto count = std::make_unique<Aggregations::CountAll>(context);
+        auto count = std::make_unique<Aggregations::CountAll>(context.analyzingContext.iuFactory);
         selection.push_back( count->getProduced() );
 
         std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -158,7 +159,7 @@ llvm::Function * genFunc(Database & db)
         auto result = std::make_unique<Result>( std::move(group), selection );
         verifyDependencies(*result);
 
-        auto physicalTree = Algebra::translateToPhysicalTree(*result);
+        auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
         physicalTree->produce();
     }
 

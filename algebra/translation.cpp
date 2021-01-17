@@ -205,9 +205,10 @@ private:
 struct AggregatorTranslator : public Logical::Aggregations::AggregatorVisitor {
     std::unique_ptr<Physical::Aggregations::Aggregator> _result;
     Logical::Aggregations::Aggregator & _input;
+    QueryContext &_queryContext;
 
-    AggregatorTranslator(Logical::Aggregations::Aggregator & input) :
-            _input(input)
+    AggregatorTranslator(Logical::Aggregations::Aggregator & input, QueryContext &queryContext) :
+            _input(input) , _queryContext(queryContext)
     {
         input.accept(*this);
     }
@@ -219,7 +220,7 @@ struct AggregatorTranslator : public Logical::Aggregations::AggregatorVisitor {
             throw InvalidOperationException("'keep' should only require one iu");
         }
         _result = std::make_unique<Physical::Aggregations::Keep>(
-                _input.getContext(), _input.getProduced(), *required.begin()
+                _queryContext, _input.getProduced(), *required.begin()
         );
     }
 
@@ -228,7 +229,7 @@ struct AggregatorTranslator : public Logical::Aggregations::AggregatorVisitor {
         ExpressionTranslator expressionTranslator(aggregator.getExpression());
         physical_expression_op_t physicalExpression = expressionTranslator.getResult();
         _result = std::make_unique<Physical::Aggregations::Sum>(
-                _input.getContext(), _input.getProduced(), std::move(physicalExpression)
+                _queryContext, _input.getProduced(), std::move(physicalExpression)
         );
     }
 
@@ -237,13 +238,13 @@ struct AggregatorTranslator : public Logical::Aggregations::AggregatorVisitor {
         ExpressionTranslator expressionTranslator(aggregator.getExpression());
         physical_expression_op_t physicalExpression = expressionTranslator.getResult();
         _result = std::make_unique<Physical::Aggregations::Avg>(
-                _input.getContext(), _input.getProduced(), std::move(physicalExpression)
+                _queryContext, _input.getProduced(), std::move(physicalExpression)
         );
     }
 
     void visit(Logical::Aggregations::CountAll & aggregator) override
     {
-        _result = std::make_unique<Physical::Aggregations::CountAll>(_input.getContext(), _input.getProduced());
+        _result = std::make_unique<Physical::Aggregations::CountAll>(_queryContext, _input.getProduced());
     }
 
     void visit(Logical::Aggregations::Min & aggregator) override
@@ -251,14 +252,14 @@ struct AggregatorTranslator : public Logical::Aggregations::AggregatorVisitor {
         ExpressionTranslator expressionTranslator(aggregator.getExpression());
         physical_expression_op_t physicalExpression = expressionTranslator.getResult();
         _result = std::make_unique<Physical::Aggregations::Min>(
-                _input.getContext(), _input.getProduced(), std::move(physicalExpression)
+                _queryContext, _input.getProduced(), std::move(physicalExpression)
         );
     }
 };
 
-static physical_aggregator_op_t translateAggregator(Logical::Aggregations::Aggregator & aggregator)
+static physical_aggregator_op_t translateAggregator(Logical::Aggregations::Aggregator & aggregator, QueryContext &queryContext)
 {
-    AggregatorTranslator translator(aggregator);
+    AggregatorTranslator translator(aggregator,queryContext);
     return std::move(translator._result);
 }
 
@@ -268,8 +269,9 @@ static physical_aggregator_op_t translateAggregator(Logical::Aggregations::Aggre
 class TreeTranslator : public Logical::OperatorVisitor {
 public:
     std::stack<physical_operator_op_t> _translated;
+    QueryContext &_queryContext;
 
-    TreeTranslator(const Logical::Operator & root)
+    TreeTranslator(const Logical::Operator & root, QueryContext &queryContext) : _queryContext(queryContext)
     {
         // I won't change anything. I promise.
         // The alternative would be a const version of OperatorVisitor.
@@ -317,13 +319,14 @@ public:
 
         std::vector<physical_aggregator_op_t> aggregations;
         for (auto & logicalAggregator : op._aggregations) {
-            aggregations.push_back( translateAggregator(*logicalAggregator) );
+            aggregations.push_back( translateAggregator(*logicalAggregator,_queryContext) );
         }
 
         _translated.push( std::make_unique<Physical::GroupBy>(
             op,
             std::move(child),
-            std::move(aggregations)
+            std::move(aggregations),
+            _queryContext
         ) );
     }
 
@@ -360,7 +363,8 @@ public:
                     op,
                     std::move(leftChild),
                     std::move(rightChild),
-                    std::move(joinPairs)
+                    std::move(joinPairs),
+                    _queryContext
                 ) );
                 break;
             }
@@ -379,8 +383,9 @@ public:
         _translated.push( std::make_unique<Physical::Insert>(
                 op,
                 op.getTable(),
-                op.getTuple(),
-                op.getContext()
+                op.getTuples(),
+                _queryContext,
+                op.getBranchId()
         ) );
     }
 
@@ -394,7 +399,8 @@ public:
                 std::move(child),
                 op.getTable(),
                 op.getUpdateIUValuePairs(),
-                op.getAlias()
+                op.getBranchId(),
+                _queryContext
         ) );
     }
 
@@ -407,7 +413,9 @@ public:
                 op,
                 std::move(child),
                 op.getTIDIU(),
-                op.getTable()
+                op.getTable(),
+                _queryContext,
+                op.getBranchId()
         ));
     }
 
@@ -420,14 +428,16 @@ public:
             case Logical::Result::Type::PrintToStdOut: {
                 _translated.push( std::make_unique<Physical::Print>(
                         op,
-                        std::move(child)
+                        std::move(child),
+                        _queryContext
                 ) );
                 break;
             }
             case Logical::Result::Type::TupleStreamHandler: {
                 _translated.push( std::make_unique<Physical::TupleStream>(
                         op,
-                        std::move(child)
+                        std::move(child),
+                        _queryContext
                 ) );
                 break;
             }
@@ -447,7 +457,8 @@ public:
         _translated.push( std::make_unique<Physical::Select>(
             op,
             std::move(child),
-            std::move(exp)
+            std::move(exp),
+            _queryContext
         ) );
     }
 
@@ -456,15 +467,16 @@ public:
         _translated.push( std::make_unique<Physical::TableScan>(
             op,
             op.getTable(),
-            op.getAlias()
+            op.getBranchId(),
+            _queryContext
         ) );
     }
 
 };
 
-std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Operator & resultOperator)
+std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Operator & resultOperator, QueryContext &queryContext)
 {
-    TreeTranslator t(resultOperator);
+    TreeTranslator t(resultOperator,queryContext);
     return t.getResult();
 }
 

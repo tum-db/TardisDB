@@ -204,8 +204,8 @@ static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_m
 
 HashJoin::HashJoin(const logical_operator_t & logicalOperator,
                    std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
-                   join_pair_vec_t pairs) :
-        BinaryOperator(std::move(logicalOperator), std::move(left), std::move(right)),
+                   join_pair_vec_t pairs, QueryContext &queryContext) :
+        BinaryOperator(std::move(logicalOperator), std::move(left), std::move(right), queryContext),
         joinPairs(std::move(pairs))
 {
     // sanity check:

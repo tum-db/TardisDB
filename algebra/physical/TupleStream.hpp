@@ -13,7 +13,7 @@ namespace Algebra {
 /// The print operator
         class TupleStream : public UnaryOperator {
         public:
-            TupleStream(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input);
+            TupleStream(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext &queryContext);
 
             virtual ~TupleStream();
 
@@ -21,8 +21,7 @@ namespace Algebra {
             void consume(const iu_value_mapping_t & values, const Operator & src) override;
 
         private:
-            std::vector<iu_p_t> selection;
-
+            void genCallbackCall(Native::Sql::SqlTuple* nativetuple);
 
             using column_t = std::tuple<iu_p_t>;
             std::vector<column_t> columns;

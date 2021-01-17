@@ -8,8 +8,8 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-Select::Select(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Expressions::exp_op_t exp) :
-        UnaryOperator(std::move(logicalOperator), std::move(input)),
+Select::Select(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Expressions::exp_op_t exp, QueryContext &queryContext) :
+        UnaryOperator(std::move(logicalOperator), std::move(input), queryContext),
         _exp(std::move(exp))
 { }
 

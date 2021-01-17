@@ -10,8 +10,8 @@
 #include "codegen/PhiNode.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
-#include "foundations/QueryContext.hpp"
 #include "sql/SqlUtils.hpp"
+#include "sql/SqlOperators.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 
@@ -618,6 +618,46 @@ value_op_t sqlNot(const Value & value)
     };
     return Utils::nullHandler(action, value, value.type);
 }
+
+        void genOverflowException()
+        {
+            auto & codeGen = getThreadLocalCodeGen();
+
+            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
+            llvm::Value * ptrVal = codeGen->CreateIntToPtr(
+                    ptrIntVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
+            llvm::Value * value = codeGen->getInt1(true);
+            codeGen->CreateStore(value, ptrVal);
+        }
+
+        void genOverflowEvaluation()
+        {
+            auto & codeGen = getThreadLocalCodeGen();
+
+            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
+            llvm::Value * ptrVal = codeGen->CreateIntToPtr(
+                    ptrIntVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
+            llvm::Value * obit = codeGen->CreateLoad(ptrVal);
+
+            IfGen overflowCheck(obit);
+            {
+                Functions::genPrintfCall("numerical overflow\n");
+            }
+            overflowCheck.EndIf();
+        }
+
+        cg_bool_t genEvaluateOverflow()
+        {
+            auto & codeGen = getThreadLocalCodeGen();
+
+            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
+            llvm::Value * ptrVal = codeGen->CreateIntToPtr(
+                    ptrIntVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
+
+            Sql::value_op_t boolResult = Sql::LongInteger::load(ptrVal);
+
+            return boolResult->equals(*Sql::LongInteger::castString("1"));
+        }
 
 } // end namespace Operators
 } // end namespace Sql

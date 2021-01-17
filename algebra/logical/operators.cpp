@@ -54,8 +54,8 @@ void Operator::updateRequiredSets()
 //-----------------------------------------------------------------------------
 // NullaryOperator
 
-NullaryOperator::NullaryOperator(QueryContext & context) :
-        Operator(context)
+NullaryOperator::NullaryOperator(IUFactory & iuFactory) :
+        Operator(iuFactory)
 { }
 
 NullaryOperator::~NullaryOperator()
@@ -81,7 +81,7 @@ void NullaryOperator::updateRequiredSetsTraverser()
 //-----------------------------------------------------------------------------
 // UnaryOperator
 UnaryOperator::UnaryOperator(std::unique_ptr<Operator> input) :
-        Operator(input->getContext()),
+        Operator(input->getIUFactory()),
         child(std::move(input))
 {
     child->parent = this;
@@ -113,7 +113,7 @@ void UnaryOperator::updateRequiredSetsTraverser()
 // BinaryOperator
 
 BinaryOperator::BinaryOperator(std::unique_ptr<Operator> leftInput, std::unique_ptr<Operator> rightInput) :
-        Operator(leftInput->getContext()),
+        Operator(leftInput->getIUFactory()),
         leftChild(std::move(leftInput)),
         rightChild(std::move(rightInput))
 {
@@ -191,7 +191,7 @@ const iu_set_t & Aggregator::getRequired()
 
 void Aggregator::computeProduced()
 {
-    _produced = _context.iuFactory.createIU(getResultType());
+    _produced = _iuFactory.createIU(getResultType());
 }
 
 void Keep::computeRequired()
@@ -205,8 +205,8 @@ void Sum::computeRequired()
     _required = collectRequired(*_expression);
 }
 
-Avg::Avg(QueryContext & context, logical_exp_op_t exp) :
-        Aggregator(context),
+Avg::Avg(IUFactory & iuFactory, logical_exp_op_t exp) :
+        Aggregator(iuFactory),
         _expression(std::move(exp))
 {
     Sql::SqlType type = _expression->getType();
@@ -352,13 +352,13 @@ void TableScan::computeProduced()
     // collect the produced attributes
     for (const std::string & columnName : _table.getColumnNames()) {
         auto columnInformation = _table.getCI(columnName);
-        auto iu =  _context.iuFactory.createIU(*this, columnInformation);
+        auto iu =  _iuFactory.createIU(getUID(), columnInformation);
         produced.insert(iu);
     }
 
     //Produce TID column
     std::unique_ptr<ColumnInformation> &columnInformation = _table.getTIDColumnInformation();
-    auto iu =  _context.iuFactory.createIU(*this, columnInformation.get());
+    auto iu =  _iuFactory.createIU(getUID(), columnInformation.get());
     produced.insert(iu);
 }
 
@@ -372,8 +372,8 @@ void TableScan::computeRequired()
 //-----------------------------------------------------------------------------
 // Delete operator
 
-Delete::Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table) :
-    UnaryOperator(std::move(child)), _table(table), tidIU(std::move(tidIU)) { }
+Delete::Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table, branch_id_t branchId) :
+    UnaryOperator(std::move(child)), _table(table), tidIU(std::move(tidIU)), branchId(branchId) { }
 
 Delete::~Delete() { }
 
@@ -393,8 +393,8 @@ void Delete::computeRequired() {
 //-----------------------------------------------------------------------------
 // Insert operator
 
-Insert::Insert(QueryContext & context, Table & table, Native::Sql::SqlTuple *tuple) :
-NullaryOperator(context), _table(table), sqlTuple(tuple) { }
+Insert::Insert(IUFactory &iuFactory, Table & table, std::vector<Native::Sql::SqlTuple *>tuples, branch_id_t branchId) :
+NullaryOperator(iuFactory), _table(table), sqlTuples(tuples), branchId(branchId) { }
 
 Insert::~Insert() { }
 
@@ -413,11 +413,11 @@ void Insert::computeRequired() {
 //-----------------------------------------------------------------------------
 // Update operator
 
-Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, std::string *alias) :
-UnaryOperator(std::move(child)), _table(table), alias(alias), updateIUValuePairs(std::move(updateIUValuePairs)) { }
+Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, branch_id_t branchId) :
+UnaryOperator(std::move(child)), _table(table), branchId(branchId), updateIUValuePairs(std::move(updateIUValuePairs)) { }
 
 Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table) :
-UnaryOperator(std::move(child)), _table(table), alias(nullptr), updateIUValuePairs(std::move(updateIUValuePairs)) { }
+UnaryOperator(std::move(child)), _table(table), branchId(0), updateIUValuePairs(std::move(updateIUValuePairs)) { }
 
 Update::~Update() { }
 
@@ -438,6 +438,13 @@ void Update::computeRequired() {
 
 //-----------------------------------------------------------------------------
 // Result operator
+
+
+#if TUPLE_STREAM_REQUIRED
+        Result::Type Result::_type = Type::TupleStreamHandler;
+#else
+        Result::Type Result::_type = Type::PrintToStdOut;
+#endif
 
 Result::Result(std::unique_ptr<Operator> child, const std::vector<iu_p_t> & selection) :
         UnaryOperator(std::move(child)),

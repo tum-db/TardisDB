@@ -115,12 +115,12 @@ namespace QueryExecutor {
     }
 
 /// \return A pair with the compilation time in microseconds as first element and the execution time as second
-    BenchmarkResult executeBenchmarkFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, unsigned runs) {
+    BenchmarkResult executeBenchmarkFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, unsigned runs, void *callbackFunction) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
         llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
         llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
-        moduleGen.addFunctionMapping(func,(void*) defaultStreamingCallback);
+        moduleGen.addFunctionMapping(func,(callbackFunction == nullptr ? (void*) defaultStreamingCallback : callbackFunction));
 
 #ifdef EMIT_IR
         llvm::outs() << GRN << "We just constructed this LLVM module:\n\n" << RESET << moduleGen.getModule();

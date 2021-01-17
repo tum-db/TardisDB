@@ -12,7 +12,7 @@
 
 namespace tardisParser {
     // Define all SQL keywords
-    namespace keywords {
+    namespace Keyword {
         const std::string Version = "version";
 
         const std::string Select = "select";
@@ -36,8 +36,16 @@ namespace tardisParser {
 
         const std::string Branch = "branch";
 
+        const std::string Copy = "copy";
+        const std::string With = "with";
+        const std::string Format = "format";
+        const std::string CSV = "csv";
+        const std::string TBL = "tbl";
+
+        const std::string To = "to";
+
         static std::set<std::string> keywordset = {Version, Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create,
-                                            Table, Not, Null, Branch};
+                                            Table, Not, Null, Branch, Copy, With, Format, CSV, TBL, To};
     }
 
     // Define all control symbols
@@ -52,15 +60,27 @@ namespace tardisParser {
         static std::set<std::string> controlSymbolSet = { separator, openBracket, closeBracket, star };
     }
 
-    enum TokenType : unsigned int {
+    enum Type : unsigned int {
         delimiter, controlSymbol, keyword, op, identifier, literal
     };
 
     struct Token {
-        TokenType type;
+        Type type;
         std::string value;
 
-        Token(TokenType type, std::string value) : type(type), value(value) {}
+        Token(Type type, std::string value) : type(type), value(value) {}
+
+        bool hasType(Type _type) const {
+            return type == _type;
+        }
+
+        bool equalsKeyword(std::string keywordStr) const {
+            return (hasType(keyword) && value.compare(keywordStr) == 0);
+        }
+
+        bool equalsControlSymbol(std::string symbolStr) const {
+            return (hasType(controlSymbol) && value.compare(symbolStr) == 0);
+        }
     };
 
     class Tokenizer {

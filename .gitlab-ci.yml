@@ -24,7 +24,7 @@ build_debug:
         expire_in: 1 hrs
     tags:
         - "clang-6.0"
-        - "llvm-6.0"
+        - "llvm-7.0"
         - "cmake"
         - "python3"
 

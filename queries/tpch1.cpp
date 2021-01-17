@@ -10,6 +10,7 @@
 #include "queryCompiler/queryCompiler.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 #include "queries/common.hpp"
+#include "semanticAnalyser/SemanticalVerifier.hpp"
 
 using namespace Algebra::Logical;
 using namespace Algebra::Logical::Aggregations;
@@ -55,17 +56,17 @@ static llvm::Function * genFunc(Database & db)
 
     Table * lineitem = db.getTable("lineitem");
     assert(lineitem != nullptr);
-    auto scan = std::make_unique<TableScan>( context, *lineitem );
-    addToScope(context, *scan);
+    auto scan = std::make_unique<TableScan>( context.analyzingContext.iuFactory, *lineitem );
+    semanticalAnalysis::addToScope(context, *scan);
 
     // collect ius
-    iu_p_t l_returnflagIU    = lookup(context, "l_returnflag");
-    iu_p_t l_linestatusIU    = lookup(context, "l_linestatus");
-    iu_p_t l_quantityIU      = lookup(context, "l_quantity");
-    iu_p_t l_extendedpriceIU = lookup(context, "l_extendedprice");
-    iu_p_t l_discountIU      = lookup(context, "l_discount");
-    iu_p_t l_taxIU           = lookup(context, "l_tax");
-    iu_p_t l_shipdateIU      = lookup(context, "l_shipdate");
+    iu_p_t l_returnflagIU    = semanticalAnalysis::lookup(context, "l_returnflag");
+    iu_p_t l_linestatusIU    = semanticalAnalysis::lookup(context, "l_linestatus");
+    iu_p_t l_quantityIU      = semanticalAnalysis::lookup(context, "l_quantity");
+    iu_p_t l_extendedpriceIU = semanticalAnalysis::lookup(context, "l_extendedprice");
+    iu_p_t l_discountIU      = semanticalAnalysis::lookup(context, "l_discount");
+    iu_p_t l_taxIU           = semanticalAnalysis::lookup(context, "l_tax");
+    iu_p_t l_shipdateIU      = semanticalAnalysis::lookup(context, "l_shipdate");
 
     // select operator
     // where l_shipdate <= date '1998-12-01' - interval '90' day
@@ -77,21 +78,21 @@ static llvm::Function * genFunc(Database & db)
     auto select = std::make_unique<Select>( std::move(scan), std::move(dateExp) );
 
     // keep l_returnflag
-    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context, l_returnflagIU );
+    auto l_returnflagKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_returnflagIU );
     selection.push_back( l_returnflagKeep->getProduced() );
 
     // keep l_linestatus
-    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context, l_linestatusIU );
+    auto l_linestatusKeep = std::make_unique<Aggregations::Keep>( context.analyzingContext.iuFactory, l_linestatusIU );
     selection.push_back( l_linestatusKeep->getProduced() );
 
     // sum(l_quantity) as sum_qty,
     auto sum_qtyExp = std::make_unique<Identifier>(l_quantityIU);
-    auto sum_qty = std::make_unique<Aggregations::Sum>( context, std::move(sum_qtyExp) );
+    auto sum_qty = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(sum_qtyExp) );
     selection.push_back( sum_qty->getProduced() );
 
     // sum(l_extendedprice) as sum_base_price,
     auto sum_base_priceExp = std::make_unique<Identifier>(l_extendedpriceIU);
-    auto sum_base_price = std::make_unique<Aggregations::Sum>( context, std::move(sum_base_priceExp) );
+    auto sum_base_price = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(sum_base_priceExp) );
     selection.push_back( sum_base_price->getProduced() );
 
     // sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
@@ -102,7 +103,7 @@ static llvm::Function * genFunc(Database & db)
                     std::make_unique<Identifier>(l_discountIU)
             )
     );
-    auto sum_disc_price = std::make_unique<Aggregations::Sum>( context, std::move(sum_disc_priceExp) );
+    auto sum_disc_price = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(sum_disc_priceExp) );
     selection.push_back( sum_disc_price->getProduced() );
 
     // sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
@@ -119,26 +120,26 @@ static llvm::Function * genFunc(Database & db)
                     )
             )
     );
-    auto sum_charge = std::make_unique<Aggregations::Sum>( context, std::move(sum_chargeExp) );
+    auto sum_charge = std::make_unique<Aggregations::Sum>( context.analyzingContext.iuFactory, std::move(sum_chargeExp) );
     selection.push_back( sum_charge->getProduced() );
 
     // avg(l_quantity) as avg_qty,
     auto avg_qtyExp = std::make_unique<Identifier>(l_quantityIU);
-    auto avg_qty = std::make_unique<Aggregations::Avg>( context, std::move(avg_qtyExp) );
+    auto avg_qty = std::make_unique<Aggregations::Avg>( context.analyzingContext.iuFactory, std::move(avg_qtyExp) );
     selection.push_back( avg_qty->getProduced() );
 
     // avg(l_extendedprice) as avg_price,
     auto avg_priceExp = std::make_unique<Identifier>(l_extendedpriceIU);
-    auto avg_price = std::make_unique<Aggregations::Avg>( context, std::move(avg_priceExp) );
+    auto avg_price = std::make_unique<Aggregations::Avg>( context.analyzingContext.iuFactory, std::move(avg_priceExp) );
     selection.push_back( avg_price->getProduced() );
 
     // avg(l_discount) as avg_disc,
     auto avg_discExp = std::make_unique<Identifier>(l_discountIU);
-    auto avg_disc = std::make_unique<Aggregations::Avg>( context, std::move(avg_discExp) );
+    auto avg_disc = std::make_unique<Aggregations::Avg>( context.analyzingContext.iuFactory, std::move(avg_discExp) );
     selection.push_back( avg_disc->getProduced() );
 
     // count(*) as count_order
-    auto count_order = std::make_unique<Aggregations::CountAll>(context);
+    auto count_order = std::make_unique<Aggregations::CountAll>(context.analyzingContext.iuFactory);
     selection.push_back( count_order->getProduced() );
 
     std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations;
@@ -158,7 +159,7 @@ static llvm::Function * genFunc(Database & db)
     auto result = std::make_unique<Result>( std::move(group), selection );
     verifyDependencies(*result);
 
-    auto physicalTree = Algebra::translateToPhysicalTree(*result);
+    auto physicalTree = Algebra::translateToPhysicalTree(*result,context);
     physicalTree->produce();
 
     return funcGen.getFunction();

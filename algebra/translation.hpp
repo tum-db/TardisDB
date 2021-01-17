@@ -10,6 +10,6 @@ namespace Algebra {
 
 /// \note This function must only be used inside a code generation context.
 /// This means that there already has to be a valid ModuleGen available within the current context.
-std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Operator & resultOperator);
+std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Operator & resultOperator, QueryContext &queryContext);
 
 } // end namespace Algebra

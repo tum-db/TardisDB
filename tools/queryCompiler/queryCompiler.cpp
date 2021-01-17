@@ -16,6 +16,7 @@
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
 #include <llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm/Target/TargetMachine.h>
+#include <include/tardisdb/sqlParser/SQLParser.hpp>
 
 #include "algebra/logical/operators.hpp"
 #include "algebra/translation.hpp"
@@ -26,10 +27,15 @@
 #include "queryExecutor/queryExecutor.hpp"
 
 #include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
+#include "sqlParser/ParserResult.hpp"
+
+#if USE_HYRISE
+    #include "SQLParser.h"
+#endif
 
 namespace QueryCompiler {
 
-    static llvm::Function *compileQuery(const std::string &query, std::unique_ptr<Operator> &queryTree) {
+    static llvm::Function *compileQuery(const std::string &query, std::unique_ptr<Operator> &queryTree, QueryContext &queryContext) {
         auto &codeGen = getThreadLocalCodeGen();
         auto &llvmContext = codeGen.getLLVMContext();
         auto &moduleGen = codeGen.getCurrentModuleGen();
@@ -41,7 +47,7 @@ namespace QueryCompiler {
         {
             FunctionGen funcGen(moduleGen, "query", funcTy);
 
-            auto physicalTree = Algebra::translateToPhysicalTree(*queryTree);
+            auto physicalTree = Algebra::translateToPhysicalTree(*queryTree,queryContext);
             physicalTree->produce();
 
             queryFunc = funcGen.getFunction();
@@ -50,21 +56,35 @@ namespace QueryCompiler {
         return queryFunc;
     }
 
+    void printFunction(Native::Sql::SqlTuple *tuple) {
+        std::cout << Native::Sql::toString(*tuple) << "\n";
+    }
 
     void compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {
         QueryContext queryContext(db);
 
         ModuleGen moduleGen("QueryModule");
 
-        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(query);
+#if USE_HYRISE
+        hsql::SQLParser::parse(query, &queryContext.hyriseResult);
+        if (!queryContext.hyriseResult.isValid()) throw std::runtime_error("invalid statement");
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
+#else
+        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
+#endif
 
-        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,parserResult);
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
         analyser->verify();
-        auto queryTree = analyser->constructTree();
+        analyser->constructTree();
+        auto &queryTree = queryContext.analyzingContext.joinedTree;
         if (queryTree == nullptr) return;
+        if (callbackFunction == nullptr) callbackFunction = (queryContext.analyzingContext.callback != nullptr) ? queryContext.analyzingContext.callback : (void*)&printFunction;
 
-        auto queryFunc = compileQuery(query, queryTree);
+        auto queryFunc = compileQuery(query, queryTree,queryContext);
         if (queryFunc == nullptr) return;
+
+        QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds,queryContext);
 
         std::vector<llvm::GenericValue> args(2);
         args[0].IntVal = llvm::APInt(64, 5);
@@ -73,34 +93,46 @@ namespace QueryCompiler {
         QueryExecutor::executeFunction(queryFunc, args, callbackFunction);
     }
 
-    BenchmarkResult compileAndBenchmark(const std::string &query, Database &db) {
+    BenchmarkResult compileAndBenchmark(const std::string &query, Database &db, void *callbackFunction) {
         QueryContext queryContext(db);
 
         ModuleGen moduleGen("QueryModule");
 
         const auto parsingStart = std::chrono::high_resolution_clock::now();
-        tardisParser::SQLParserResult parserResult = tardisParser::SQLParser::parse_sql_statement(query);
+#if USE_HYRISE
+        hsql::SQLParser::parse(query, &queryContext.hyriseResult);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
+#else
+        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
+#endif
         const auto parsingDuration = std::chrono::high_resolution_clock::now() - parsingStart;
 
         const auto analysingStart = std::chrono::high_resolution_clock::now();
-        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext,parserResult);
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
         analyser->verify();
-        auto queryTree = analyser->constructTree();
+        analyser->constructTree();
+        auto &queryTree = queryContext.analyzingContext.joinedTree;
         const auto analysingDuration = std::chrono::high_resolution_clock::now() - analysingStart;
         if (queryTree == nullptr) return BenchmarkResult();
+        
+        // return columns
+        BenchmarkResult result;
+        result.columns = queryTree->getRoot()->getRequired();
 
         const auto translationStart = std::chrono::high_resolution_clock::now();
-        auto queryFunc = compileQuery(query, queryTree);
+        auto queryFunc = compileQuery(query, queryTree, queryContext);
         const auto translationDuration = std::chrono::high_resolution_clock::now() - translationStart;
         if (queryFunc == nullptr) unreachable();
+
+        QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds,queryContext);
 
         std::vector<llvm::GenericValue> args(2);
         args[0].IntVal = llvm::APInt(64, 5);
         args[1].PointerVal = (void *) &queryContext;
 
-        QueryExecutor::BenchmarkResult llvmresult = QueryExecutor::executeBenchmarkFunction(queryFunc, args);
+        QueryExecutor::BenchmarkResult llvmresult = QueryExecutor::executeBenchmarkFunction(queryFunc, args, 1, callbackFunction);
 
-        BenchmarkResult result;
         result.parsingTime = std::chrono::duration_cast<std::chrono::microseconds>(parsingDuration).count();
         result.analysingTime = std::chrono::duration_cast<std::chrono::microseconds>(analysingDuration).count();
         result.translationTime = std::chrono::duration_cast<std::chrono::microseconds>(translationDuration).count();

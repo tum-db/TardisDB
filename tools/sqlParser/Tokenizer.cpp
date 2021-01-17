@@ -10,9 +10,9 @@
 namespace tardisParser {
     // Recognizes if token is a delimiter
     bool Tokenizer::is_delimiter(Token &tok) {
-        if (tok.type == TokenType::delimiter) return true;
+        if (tok.type == Type::delimiter) return true;
         if (tok.value.compare(";") == 0) {
-            tok.type = TokenType::delimiter;
+            tok.type = Type::delimiter;
             return true;
         }
         return false;
@@ -20,10 +20,10 @@ namespace tardisParser {
 
     // Recognizes if token is a control symbol
     bool Tokenizer::is_controlSymbol(Token &tok) {
-        if (tok.type == TokenType::delimiter) return false;
-        if (tok.type == TokenType::controlSymbol) return true;
+        if (tok.type == Type::delimiter) return false;
+        if (tok.type == Type::controlSymbol) return true;
         if (controlSymbols::controlSymbolSet.count(tok.value)) {
-            tok.type = TokenType::controlSymbol;
+            tok.type = Type::controlSymbol;
             return true;
         }
         return false;
@@ -31,12 +31,12 @@ namespace tardisParser {
 
     // Recognizes if token is a sql keyword
     bool Tokenizer::is_keyword(Token &tok) {
-        if (tok.type == TokenType::delimiter || tok.type == TokenType::controlSymbol) return false;
-        if (tok.type == TokenType::keyword) return true;
+        if (tok.type == Type::delimiter || tok.type == Type::controlSymbol) return false;
+        if (tok.type == Type::keyword) return true;
         std::string lowercase_token_value;
         std::transform(tok.value.begin(), tok.value.end(), std::back_inserter(lowercase_token_value), ::tolower);
 
-        if (keywords::keywordset.count(lowercase_token_value)) {
+        if (Keyword::keywordset.count(lowercase_token_value)) {
             tok.type = keyword;
             tok.value = lowercase_token_value;
             return true;
@@ -46,12 +46,12 @@ namespace tardisParser {
 
     // Recognizes if token is a operator
     bool Tokenizer::is_op(Token &tok) {
-        if (tok.type == TokenType::delimiter || tok.type == TokenType::controlSymbol ||
-            tok.type == TokenType::keyword)
+        if (tok.type == Type::delimiter || tok.type == Type::controlSymbol ||
+            tok.type == Type::keyword)
             return false;
-        if (tok.type == TokenType::op) return true;
+        if (tok.type == Type::op) return true;
         if (tok.value.compare("=") == 0) {
-            tok.type = TokenType::op;
+            tok.type = Type::op;
             return true;
         }
         return false;
@@ -59,17 +59,17 @@ namespace tardisParser {
 
     // Recognizes if token is a identifier
     bool Tokenizer::is_identifier(Token &tok) {
-        if (tok.type == TokenType::delimiter || tok.type == TokenType::controlSymbol ||
-            tok.type == TokenType::keyword || tok.type == TokenType::op)
+        if (tok.type == Type::delimiter || tok.type == Type::controlSymbol ||
+            tok.type == Type::keyword || tok.type == Type::op)
             return false;
-        if (tok.type == TokenType::identifier) return true;
+        if (tok.type == Type::identifier) return true;
         std::string lowercase_token_value;
         std::transform(tok.value.begin(), tok.value.end(), std::back_inserter(lowercase_token_value), ::tolower);
         if (!std::isdigit(tok.value[0]) &&
             tok.value[0] != '.' &&
             tok.value[0] != '_' &&
             lowercase_token_value.find_first_not_of("abcdefghijklmnopqrstuvwxyz_.1234567890") == std::string::npos) {
-            tok.type = TokenType::identifier;
+            tok.type = Type::identifier;
             return true;
         }
         return false;
@@ -137,7 +137,7 @@ namespace tardisParser {
         }
 
         // Check if the token is a special kind of token. If not it is a literal.
-        Token token = Token(TokenType::literal, ss.str());
+        Token token = Token(Type::literal, ss.str());
         if (!is_delimiter(token) && !is_controlSymbol(token) && !is_keyword(token) && !is_op(token) &&
             !is_identifier(token)) {
             token.value = unescape(token.value);

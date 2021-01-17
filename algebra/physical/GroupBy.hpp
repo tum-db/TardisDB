@@ -152,7 +152,7 @@ class CountDistinct : public Aggregator {
 class GroupBy : public UnaryOperator {
 public:
     GroupBy(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input,
-            std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations);
+            std::vector<std::unique_ptr<Aggregations::Aggregator>> aggregations, QueryContext &queryContext);
 
     virtual ~GroupBy();
 
