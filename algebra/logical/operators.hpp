@@ -464,7 +464,7 @@ public:
 
     Table & getTable() const { return _table; }
 
-    std::vector<Native::Sql::SqlTuple *> getTuples() { return sqlTuples; }
+    std::vector<Native::Sql::SqlTuple *> &getTuples() { return sqlTuples; }
 
     branch_id_t getBranchId() { return branchId; }
 protected:

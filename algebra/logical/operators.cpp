@@ -394,7 +394,7 @@ void Delete::computeRequired() {
 // Insert operator
 
 Insert::Insert(IUFactory &iuFactory, Table & table, std::vector<Native::Sql::SqlTuple *>tuples, branch_id_t branchId) :
-NullaryOperator(iuFactory), _table(table), sqlTuples(tuples), branchId(branchId) { }
+NullaryOperator(iuFactory), _table(table), sqlTuples(move(tuples)), branchId(branchId) { }
 
 Insert::~Insert() { }
 
