@@ -88,6 +88,33 @@ cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_
 class Database;
 struct VersionEntry;
 
+/// A hash index on one column of a table, local to one branch: CREATE INDEX ON t (c) VERSION b.
+/// It covers the tuples of the branch and is maintained by the writes of the branch only, since
+/// writes in other branches are not visible in it. Entries are candidates: the scan still tests
+/// visibility and the predicate, so entries of overwritten or deleted versions may remain.
+class BranchIndex {
+public:
+    BranchIndex(std::string name, size_t column, branch_id_t branch) :
+            name(std::move(name)), column(column), branch(branch)
+    { }
+
+    /// Adds the tuple under the hash of its key, unless it is there already
+    void add(uint64_t hash, tid_t tid);
+
+    /// \returns The candidates for the key with the given hash, or nullptr
+    const std::vector<tid_t> * lookup(uint64_t hash) const;
+
+    size_t size() const { return _size; }
+
+    const std::string name;
+    const size_t column;
+    const branch_id_t branch;
+
+private:
+    std::unordered_map<uint64_t, std::vector<tid_t>> _entries;
+    size_t _size = 0;
+};
+
 /// AbstractTable is a base class which provides an interface to lookup columns at runtime
 class Table {
 public:
@@ -128,6 +155,11 @@ public:
     std::vector<Sql::SqlType> getTupleType() const;
 
     size_t size() const;
+
+    /// \returns The index of the branch on the column, or nullptr
+    BranchIndex * getIndex(size_t column, branch_id_t branch) const;
+
+    std::vector<std::unique_ptr<BranchIndex>> _indexes;
 
 private:
     Database & _db;
@@ -194,6 +226,8 @@ public:
 
     Table * getTable(const std::string & tableName);
 
+    const std::unordered_map<std::string, std::unique_ptr<Table>> & getTables() const { return _tables; }
+
     bool hasTable(const std::string & tableName) {
         return getTable(tableName) != nullptr;
     }
@@ -206,6 +240,13 @@ private:
 
 public:
     branch_id_t createBranch(const std::string & name, branch_id_t parent);
+
+    /// \returns The branch and its descendants, children after their parents
+    std::vector<branch_id_t> getSubtree(branch_id_t branch) const;
+
+    /// Removes the branches from the catalogue and their bits from the bitmaps; their identifiers
+    /// are not reused. Versions are collected by drop_branches() in version_management.hpp.
+    void removeBranches(const std::vector<branch_id_t> & branches);
     void constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx);
 
     ident_t getIdent(branch_id_t branch) const { return _branches.at(branch)->ident; }
@@ -231,4 +272,9 @@ public:
     std::unordered_map<branch_id_t, std::unique_ptr<Branch>> _branches;
     std::unordered_map<std::string, branch_id_t> _branchMapping;
     branch_id_t _next_branch_id;
+
+    /// per (source, target) of a merge and per tuple: the bytes of the source version merged last,
+    /// which is the base of the next merge of the pair
+    std::map<std::pair<branch_id_t, branch_id_t>,
+             std::unordered_map<const Table *, std::unordered_map<tid_t, std::vector<uint8_t>>>> _mergeBases;
 };

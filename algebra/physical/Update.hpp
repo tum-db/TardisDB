@@ -2,6 +2,7 @@
 #define PROTODB_UPDATE_HPP
 
 #include "algebra/physical/Operator.hpp"
+#include "algebra/physical/expressions.hpp"
 
 namespace Algebra {
     namespace Physical {
@@ -9,8 +10,11 @@ namespace Algebra {
 /// The print operator
         class Update : public UnaryOperator {
         public:
+            using update_expressions_t = std::vector<std::pair<iu_p_t, Expressions::exp_op_t>>;
+
             Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,
-                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId, QueryContext &queryContext);
+                    std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId, QueryContext &queryContext,
+                    update_expressions_t expressions = {});
 
             virtual ~Update();
 
@@ -19,6 +23,8 @@ namespace Algebra {
 
         private:
             std::vector<std::pair<iu_p_t,std::string>> _updateIUs;
+            update_expressions_t _expressions;
+            std::vector<Sql::value_op_t> _computed;
             Table & table;
             branch_id_t branchId;
             llvm::Value * tupleCountPtr;

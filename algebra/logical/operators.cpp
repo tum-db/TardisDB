@@ -442,6 +442,57 @@ void BranchAggregation::computeRequired()
 }
 
 //-----------------------------------------------------------------------------
+// BranchDiff operator
+
+BranchDiff::BranchDiff(IUFactory &iuFactory, Table & table, branch_id_t first, branch_id_t second) :
+        NullaryOperator(iuFactory),
+        _table(table),
+        _first(first),
+        _second(second)
+{ }
+
+void BranchDiff::accept(OperatorVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+iu_p_t BranchDiff::getColumnIU(const std::string & columnName)
+{
+    auto it = _columnIUs.find(columnName);
+    if (it != _columnIUs.end()) {
+        return it->second;
+    }
+    iu_p_t iu = _iuFactory.createIU(getUID(), _table.getCI(columnName));
+    _columnIUs[columnName] = iu;
+    return iu;
+}
+
+iu_p_t BranchDiff::getBranchIU()
+{
+    if (_branchIU == nullptr) {
+        _branchIU = _iuFactory.createIU(Sql::getTextTy(false));
+    }
+    return _branchIU;
+}
+
+void BranchDiff::computeProduced()
+{
+    produced.clear();
+    if (_branchIU != nullptr) {
+        produced.insert(_branchIU);
+    }
+    for (auto & [name, iu] : _columnIUs) {
+        produced.insert(iu);
+    }
+}
+
+void BranchDiff::computeRequired()
+{
+    // the columns are read by the operator itself
+    required.clear();
+}
+
+//-----------------------------------------------------------------------------
 // Delete operator
 
 Delete::Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table, branch_id_t branchId) :
@@ -505,6 +556,10 @@ void Update::computeRequired() {
     // "selection" represents the required attributes of the Result operator
     for (auto &iu : updateIUValuePairs) {
         required.insert(iu.first);
+    }
+    for (auto & [iu, expression] : updateExpressions) {
+        iu_set_t needed = collectRequired(*expression);
+        required.insert(needed.begin(), needed.end());
     }
 }
 
@@ -716,6 +771,11 @@ struct Verifier : public OperatorVisitor {
     }
 
     void visit(BranchAggregation & op) override
+    {
+        // NOP
+    }
+
+    void visit(BranchDiff & op) override
     {
         // NOP
     }

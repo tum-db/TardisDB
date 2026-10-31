@@ -60,6 +60,20 @@ namespace semanticalAnalysis {
                 iu = context.ius[column.table][column.name];
             }
 
+            // an equality with a constant on an indexed column lets the scan read only the candidates of the index
+            Operator * production = context.dangling_productions[column.table].get();
+            while (auto * select = dynamic_cast<Select *>(production)) production = &select->getChild();
+            auto * scan = dynamic_cast<TableScan *>(production);
+            if (scan != nullptr && scan->getIndex() == nullptr) {
+                Table & table = scan->getTable();
+                const auto names = table.getColumnNames();
+                const size_t position = std::find(names.begin(), names.end(), column.name) - names.begin();
+                if (const BranchIndex * index = table.getIndex(position, scan->getBranchId())) {
+                    auto key = Native::Sql::Value::castString(valueString, Sql::toNotNullableTy(iu->columnInformation->type));
+                    scan->setIndexProbe(index, key->hash());
+                }
+            }
+
             // Construct Expression
             auto constExp = std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type);
             auto identifier = std::make_unique<Expressions::Identifier>(iu);
@@ -95,6 +109,12 @@ namespace semanticalAnalysis {
                 return std::make_unique<BranchAnalyser>(context);
             case SQLParserResult::OpType::Copy:
                 return std::make_unique<CopyTableAnalyser>(context);
+            case SQLParserResult::OpType::CreateIndex:
+                return std::make_unique<CreateIndexAnalyser>(context);
+            case SQLParserResult::OpType::DropBranch:
+                return std::make_unique<DropBranchAnalyser>(context);
+            case SQLParserResult::OpType::MergeBranch:
+                return std::make_unique<MergeBranchAnalyser>(context);
             case SQLParserResult::OpType::Unknown:
                 return nullptr;
         }

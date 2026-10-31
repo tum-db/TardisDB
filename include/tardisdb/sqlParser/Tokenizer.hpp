@@ -52,9 +52,17 @@ namespace tardisParser {
         const std::string Group = "group";
         const std::string By = "by";
 
+        // branch lifecycle and branch-local indexes
+        const std::string Drop = "drop";
+        const std::string Cascade = "cascade";
+        const std::string Merge = "merge";
+        const std::string Index = "index";
+        const std::string On = "on";
+
         static std::set<std::string> keywordset = {Version, Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create,
                                             Table, Not, Null, Branch, Copy, With, Format, CSV, TBL, To,
-                                            All, Descendants, Leaves, Of, Group, By};
+                                            All, Descendants, Leaves, Of, Group, By,
+                                            Drop, Cascade, Merge, Index, On};
     }
 
     // Define all control symbols

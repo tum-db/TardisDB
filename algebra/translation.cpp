@@ -394,13 +394,20 @@ public:
         auto child = std::move(_translated.top());
         _translated.pop();
 
+        Physical::Update::update_expressions_t expressions;
+        for (auto & [iu, expression] : op.updateExpressions) {
+            ExpressionTranslator translator(*expression);
+            expressions.emplace_back(iu, translator.getResult());
+        }
+
         _translated.push( std::make_unique<Physical::Update>(
                 op,
                 std::move(child),
                 op.getTable(),
                 op.getUpdateIUValuePairs(),
                 op.getBranchId(),
-                _queryContext
+                _queryContext,
+                std::move(expressions)
         ) );
     }
 
@@ -481,6 +488,21 @@ public:
         }
 
         _translated.push( std::make_unique<Physical::BranchAggregation>(
+            op,
+            std::move(predicates),
+            _queryContext
+        ) );
+    }
+
+    void visit(Logical::BranchDiff & op) override
+    {
+        std::vector<physical_expression_op_t> predicates;
+        for (auto & predicate : op._predicates) {
+            ExpressionTranslator translator(*predicate);
+            predicates.push_back(translator.getResult());
+        }
+
+        _translated.push( std::make_unique<Physical::BranchDiff>(
             op,
             std::move(predicates),
             _queryContext

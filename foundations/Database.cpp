@@ -147,6 +147,24 @@ cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_
 }
 
 //-----------------------------------------------------------------------------
+// BranchIndex
+
+void BranchIndex::add(uint64_t hash, tid_t tid)
+{
+    auto & tids = _entries[hash];
+    if (std::find(tids.begin(), tids.end(), tid) == tids.end()) {
+        tids.push_back(tid);
+        _size += 1;
+    }
+}
+
+const std::vector<tid_t> * BranchIndex::lookup(uint64_t hash) const
+{
+    auto it = _entries.find(hash);
+    return (it != _entries.end()) ? &it->second : nullptr;
+}
+
+//-----------------------------------------------------------------------------
 // Table
 
 Table::Table(Database & db) : _db(db) {
@@ -307,6 +325,16 @@ size_t Table::size() const
     }
 }
 
+BranchIndex * Table::getIndex(size_t column, branch_id_t branch) const
+{
+    for (auto & index : _indexes) {
+        if (index->column == column && index->branch == branch) {
+            return index.get();
+        }
+    }
+    return nullptr;
+}
+
 // wrapper functions
 static void tableAddRow(Table * table)
 {
@@ -331,12 +359,15 @@ Database::Database() :
 {
     auto branch = createBranch("master", invalid_branch_id);
     assert(branch == master_branch_id);
+    // the root branch is also known under the name of today's version control systems
+    _branchMapping["main"] = master_branch_id;
 }
 
 Table & Database::createTable(const std::string & name) {
     auto [it, ok] = _tables.emplace(name, std::make_unique<Table>(*this));
     assert(ok);
-    for (int i=0; i<_branches.size() - 1; i++) {
+    // one bitmap column per branch identifier, including those of dropped branches
+    for (branch_id_t i = 1; i < _next_branch_id; i++) {
         it->second->createBranch(invalid_branch_id);
     }
     return *it->second;
@@ -377,6 +408,43 @@ branch_id_t Database::createBranch(const std::string & name, branch_id_t parent)
     _branches.insert({branch_id, std::move(branch)});
     _branchMapping[name] = branch_id;
     return branch_id;
+}
+
+std::vector<branch_id_t> Database::getSubtree(branch_id_t branch) const {
+    // children have larger identifiers than their parents
+    std::vector<branch_id_t> subtree = {branch};
+    std::set<branch_id_t> members = {branch};
+    std::vector<branch_id_t> ids;
+    for (auto & [id, b] : _branches) ids.push_back(id);
+    std::sort(ids.begin(), ids.end());
+    for (branch_id_t id : ids) {
+        if (members.count(_branches.at(id)->parent_id) > 0) {
+            members.insert(id);
+            subtree.push_back(id);
+        }
+    }
+    return subtree;
+}
+
+void Database::removeBranches(const std::vector<branch_id_t> & branches) {
+    for (auto & [name, table] : _tables) {
+        auto & bitmap = table->getBranchBitmap();
+        for (branch_id_t branch : branches) {
+            for (tid_t tid = 0, size = table->size(); tid < size; ++tid) {
+                bitmap.set(tid, branch, false);
+            }
+        }
+        auto & indexes = table->_indexes;
+        indexes.erase(std::remove_if(indexes.begin(), indexes.end(), [&](auto & index) {
+            return std::find(branches.begin(), branches.end(), index->branch) != branches.end();
+        }), indexes.end());
+    }
+    for (branch_id_t branch : branches) {
+        for (auto it = _branchMapping.begin(); it != _branchMapping.end(); ) {
+            it = (it->second == branch) ? _branchMapping.erase(it) : std::next(it);
+        }
+        _branches.erase(branch);
+    }
 }
 
 void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx) {

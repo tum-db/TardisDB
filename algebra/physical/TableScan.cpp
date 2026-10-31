@@ -32,6 +32,22 @@ static void scan_run(void * state, void * function, void * context)
     Parallel::runMorsels(Parallel::threads, s->tuples, 1, reinterpret_cast<Parallel::morsel_function_t>(function));
 }
 
+// copies the candidates, since updates of the scanned tuples may add to the index
+static size_t index_probe(void * state)
+{
+    auto * s = static_cast<TableScan::ProbeState *>(state);
+    s->candidates.clear();
+    if (const auto * tids = s->index->lookup(s->keyHash)) {
+        s->candidates = *tids;
+    }
+    return s->candidates.size();
+}
+
+static void * index_candidates(void * state)
+{
+    return static_cast<TableScan::ProbeState *>(state)->candidates.data();
+}
+
 // get_latest_entry writes the reader into the shared context, which workers must not do
 static const void * scan_latest_entry(size_t tid, void * state)
 {
@@ -86,6 +102,11 @@ void TableScan::produce()
     size_t tableSize = table.size();
     if (tableSize < 1) return;  // nothing to produce
 #if USE_DATA_VERSIONING
+    auto & logicalScan = static_cast<const Logical::TableScan &>(_logicalOperator);
+    if (logicalScan.getIndex() != nullptr) {
+        produceIndexProbe(*logicalScan.getIndex(), logicalScan.getIndexKeyHash());
+        return;
+    }
     if (Parallel::threads > 1 && isParallelPipeline()) {
         produceParallel();
         return;
@@ -255,6 +276,45 @@ llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voi
 }
 
 #if USE_DATA_VERSIONING
+void TableScan::produceIndexProbe(const BranchIndex & index, uint64_t keyHash)
+{
+    auto & funcGen = _codeGen.getCurrentFunctionGen();
+    auto & context = _codeGen.getLLVMContext();
+    llvm::Type * i64Ty = llvm::Type::getInt64Ty(context);
+
+    auto owned = std::make_unique<ProbeState>();
+    ProbeState & state = *owned;
+    _context.executionContext.acquireResource(std::move(owned));
+    state.index = &index;
+    state.keyHash = keyHash;
+
+    auto & moduleGen = _codeGen.getCurrentModuleGen();
+    llvm::Function * probe = LLVMCompat::getOrInsertFunction(moduleGen.getModule(), "index_probe",
+            llvm::TypeBuilder<size_t (void *), false>::get(context));
+    moduleGen.addFunctionMapping(probe, (void *) &index_probe);
+    llvm::Function * candidatesFunc = LLVMCompat::getOrInsertFunction(moduleGen.getModule(), "index_candidates",
+            llvm::TypeBuilder<void * (void *), false>::get(context));
+    moduleGen.addFunctionMapping(candidatesFunc, (void *) &index_candidates);
+
+    llvm::Value * statePtr = cg_ptr8_t::fromRawPointer(&state).getValue();
+    llvm::Value * count = _codeGen->CreateCall(probe, {statePtr});
+    llvm::Value * candidates = _codeGen->CreatePointerCast(_codeGen->CreateCall(candidatesFunc, {statePtr}), llvm::PointerType::getUnqual(i64Ty));
+
+    LoopGen probeLoop(funcGen, _codeGen->CreateICmpULT(cg_size_t(0ul).getValue(), count), {{"candidate", cg_size_t(0ul)}});
+    cg_size_t candidate(probeLoop.getLoopVar(0));
+    {
+        LoopBodyGen bodyGen(probeLoop);
+        cg_tid_t tid(_codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, candidates, candidate.getValue())));
+        IfGen visibilityCheck(isVisible(tid, branchId));
+        {
+            produce(tid, branchId);
+        }
+        visibilityCheck.EndIf();
+    }
+    cg_size_t nextCandidate = candidate + 1ul;
+    probeLoop.loopDone(_codeGen->CreateICmpULT(nextCandidate.getValue(), count), {nextCandidate});
+}
+
 bool TableScan::isParallelPipeline()
 {
     // selections pass tuples on; the result operators serialise the callbacks of the workers

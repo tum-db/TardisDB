@@ -114,6 +114,38 @@ namespace tardisParser {
         CopyFormat,
         CopyType,
 
+        // SET c = c - 5: an arithmetic operator between two terms
+        UpdateSetExprArith,
+
+        // FROM DIFF ( t VERSION a , t VERSION b )
+        SelectFromDiffBegin,
+        SelectFromDiffTable,
+        SelectFromDiffVersion,
+        SelectFromDiffName,
+        SelectFromDiffSeparator,
+
+        CreateIndex,
+        CreateIndexName,
+        CreateIndexOn,
+        CreateIndexTable,
+        CreateIndexColumnsBegin,
+        CreateIndexColumnName,
+        CreateIndexColumnSeparator,
+        CreateIndexColumnsEnd,
+        CreateIndexVersion,
+        CreateIndexTag,
+
+        Drop,
+        DropBranch,
+        DropBranchName,
+        DropBranchCascade,
+
+        Merge,
+        MergeBranch,
+        MergeBranchName,
+        MergeBranchInto,
+        MergeBranchTarget,
+
         Done
     } state_t;
 
@@ -129,7 +161,7 @@ namespace tardisParser {
         std::string alias;
         std::string version;
         // branch-aware queries: "" (only version), "set" (versionSet), "all" (every branch),
-        // "descendants" or "leaves" (of version)
+        // "descendants" or "leaves" (of version), "diff" (the two versions in versionSet)
         std::string versionScope;
         std::vector<std::string> versionSet;
     };
@@ -137,6 +169,14 @@ namespace tardisParser {
         std::string name;
         std::string table;
         std::string aggregate; // "", "count", "sum", "min", "max" or "avg"; count(*) has name "*"
+    };
+
+    /// A term of the right-hand side of SET: a column or a constant, preceded by an operator
+    /// ("+", "-", "*" or "/") unless it is the first term
+    struct UpdateTerm {
+        std::string op;
+        Column column;     // empty name for a constant
+        std::string value;
     };
 
     struct CreateTableStatement {
@@ -158,6 +198,7 @@ namespace tardisParser {
         Table relation;
         std::vector<std::pair<Column,std::string>> updates;
         std::vector<std::pair<Column,std::string>> selections;
+        std::vector<std::vector<UpdateTerm>> expressions; // the right-hand side of each update
     };
     struct InsertStatement {
         Table relation;
@@ -175,6 +216,20 @@ namespace tardisParser {
         bool directionFrom;
     };
 
+    struct CreateIndexStatement {
+        std::string indexName;
+        Table relation;
+        std::vector<Column> columns;
+    };
+    struct DropBranchStatement {
+        std::string branchName;
+        bool cascade = false;
+    };
+    struct MergeBranchStatement {
+        std::string branchName;
+        std::string targetBranchName;
+    };
+
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
 
     struct ParsingContext {
@@ -182,7 +237,8 @@ namespace tardisParser {
         State state;
 
         enum OpType : unsigned int {
-            Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy
+            Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy,
+            CreateIndex, DropBranch, MergeBranch
         } opType;
 
         CreateTableStatement *createTableStmt;
@@ -192,6 +248,9 @@ namespace tardisParser {
         UpdateStatement *updateStmt;
         DeleteStatement *deleteStmt;
         CopyStatement *copyStmt;
+        CreateIndexStatement *createIndexStmt;
+        DropBranchStatement *dropBranchStmt;
+        MergeBranchStatement *mergeBranchStmt;
 
         ParsingContext() {
             opType = Unkown;
@@ -223,6 +282,15 @@ namespace tardisParser {
                 case Copy:
                     delete copyStmt;
                     break;
+                case CreateIndex:
+                    delete createIndexStmt;
+                    break;
+                case DropBranch:
+                    delete dropBranchStmt;
+                    break;
+                case MergeBranch:
+                    delete mergeBranchStmt;
+                    break;
             }
         }
 
@@ -243,7 +311,12 @@ namespace tardisParser {
                                             State::CreateTableColumnsEnd,
                                             State::CreateBranchParent,
                                             State::Branch,
-                                            State::CopyType };
+                                            State::CopyType,
+                                            State::CreateIndexColumnsEnd,
+                                            State::CreateIndexTag,
+                                            State::DropBranchName,
+                                            State::DropBranchCascade,
+                                            State::MergeBranchTarget };
 
             return finalStates.count(state);
         }

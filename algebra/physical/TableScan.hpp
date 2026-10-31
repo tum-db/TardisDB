@@ -28,6 +28,13 @@ public:
         uint64_t label = 0;                                                      // interval visibility
         const std::unordered_map<branch_id_t, branch_id_t> * lineage = nullptr;  // otherwise; set at run time
     };
+
+    /// The candidates of an index probe; owned by the execution context
+    struct ProbeState : public ExecutionResource {
+        const BranchIndex * index;
+        uint64_t keyHash;
+        std::vector<tid_t> candidates;
+    };
 #else
     void produce(cg_tid_t tid);
 #endif
@@ -43,6 +50,9 @@ private:
     bool isParallelPipeline();
     void produceParallel();
     ParallelState * _parallel = nullptr;
+
+    /// Scans the candidates of a branch-local index instead of the whole table
+    void produceIndexProbe(const BranchIndex & index, uint64_t keyHash);
 #endif
     cg_bool_t nullPointerCheck(cg_voidptr_t &pointer);
     llvm::Value *tupleToElemPtr(cg_voidptr_t &ptr, column_t &column);

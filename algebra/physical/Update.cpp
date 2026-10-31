@@ -5,6 +5,7 @@
 #include "codegen/LLVMCompat.hpp"
 
 #include "algebra/physical/Update.hpp"
+#include "sql/SqlOperators.hpp"
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"
@@ -17,9 +18,10 @@ namespace Algebra {
     namespace Physical {
 
         Update::Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,
-                std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId, QueryContext &queryContext) :
+                std::vector<std::pair<iu_p_t,std::string>> &updateIUs, branch_id_t branchId, QueryContext &queryContext,
+                update_expressions_t expressions) :
                 UnaryOperator(std::move(logicalOperator), std::move(input), queryContext) , table(table),
-                _updateIUs(std::move(updateIUs)), branchId(branchId)
+                _updateIUs(std::move(updateIUs)), _expressions(std::move(expressions)), branchId(branchId)
         {
             // collect all information which is necessary to access the columns
             for (auto &iuPairs : _updateIUs) {
@@ -89,6 +91,18 @@ namespace Algebra {
 
 
 #if USE_DATA_VERSIONING
+            // SET c = <expression>: computed from the values of the old tuple, in the type of the column
+            std::unordered_map<std::string, Sql::Value *> computed;
+            for (auto & [iu, expression] : _expressions) {
+                SqlType columnType = toNotNullableTy(iu->columnInformation->type);
+                value_op_t value = expression->evaluate(values);
+                if (!Sql::equals(value->type, columnType, SqlTypeEqualsMode::WithoutNullable)) {
+                    value = Sql::Operators::sqlCast(*value, columnType);
+                }
+                _computed.push_back(std::move(value));
+                computed[iu->columnInformation->columnName] = _computed.back().get();
+            }
+
             // Collect all values needed for the row tuple in correct order
             std::vector<Sql::Value*> tupleValues;
             std::sort(columns.begin(), columns.end(), sortColumns);
@@ -97,7 +111,10 @@ namespace Algebra {
                     if (iuPair.first->columnInformation->columnName.compare(std::get<0>(column)->columnName) == 0) {
                         // If tuple value needs to be updated take the value offered by the operator; Else take the value pushed up in the tree
                         std::unique_ptr<Sql::Value> &updateValue = std::get<4>(column);
-                        if (updateValue != nullptr) {
+                        auto it = computed.find(std::get<0>(column)->columnName);
+                        if (it != computed.end()) {
+                            tupleValues.emplace_back(it->second);
+                        } else if (updateValue != nullptr) {
                             tupleValues.emplace_back(updateValue.get());
                         } else {
                             tupleValues.emplace_back(values.at(iuPair.first));

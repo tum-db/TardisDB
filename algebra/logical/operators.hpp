@@ -93,6 +93,7 @@ class Result;
 class Select;
 class TableScan;
 class BranchAggregation;
+class BranchDiff;
 
 struct OperatorVisitor {
     void visit(Operator & op)
@@ -110,6 +111,7 @@ struct OperatorVisitor {
     virtual void visit(Select & op) = 0;
     virtual void visit(TableScan & op) = 0;
     virtual void visit(BranchAggregation & op) = 0;
+    virtual void visit(BranchDiff & op) = 0;
 };
 
 //-----------------------------------------------------------------------------
@@ -498,6 +500,11 @@ public:
 
     std::vector<std::pair<iu_p_t,std::string>> &getUpdateIUValuePairs() { return updateIUValuePairs; }
 
+    /// SET c = <expression>: the new value of the column of the iu is computed from the old tuple
+    void addUpdateExpression(iu_p_t iu, logical_exp_op_t expression) { updateExpressions.emplace_back(iu, std::move(expression)); }
+
+    std::vector<std::pair<iu_p_t, logical_exp_op_t>> updateExpressions;
+
 protected:
     void computeProduced() override;
     void computeRequired() override;
@@ -552,12 +559,21 @@ public:
 
     branch_id_t getBranchId() { return branchId; }
 
+    /// Scans only the candidates of the index for the key with the given hash
+    void setIndexProbe(const BranchIndex * index, uint64_t keyHash) { _index = index; _indexKeyHash = keyHash; }
+
+    const BranchIndex * getIndex() const { return _index; }
+
+    uint64_t getIndexKeyHash() const { return _indexKeyHash; }
+
 protected:
     void computeProduced() override;
     void computeRequired() override;
 
     Table & _table;
     branch_id_t branchId;
+    const BranchIndex * _index = nullptr;
+    uint64_t _indexKeyHash = 0;
 };
 
 //-----------------------------------------------------------------------------
@@ -615,6 +631,46 @@ protected:
     std::unordered_map<std::string, iu_p_t> _columnIUs;
     iu_p_t _branchIU = nullptr;
     std::vector<Aggregate> _aggregates;
+};
+
+//-----------------------------------------------------------------------------
+// BranchDiff operator
+
+/// The tuples of one table that differ between two branches, each with the branch it is seen in:
+/// SELECT * FROM DIFF ( t VERSION a , t VERSION b )
+class BranchDiff : public NullaryOperator {
+public:
+    BranchDiff(IUFactory &iuFactory, Table & table, branch_id_t first, branch_id_t second);
+
+    ~BranchDiff() override { }
+
+    void accept(OperatorVisitor & visitor) override;
+
+    /// \returns The iu of a column of the table
+    iu_p_t getColumnIU(const std::string & columnName);
+
+    /// \returns The iu holding the name of the branch
+    iu_p_t getBranchIU();
+
+    void addPredicate(logical_exp_op_t predicate) { _predicates.push_back(std::move(predicate)); }
+
+    Table & getTable() const { return _table; }
+
+    branch_id_t getFirst() const { return _first; }
+
+    branch_id_t getSecond() const { return _second; }
+
+    std::vector<logical_exp_op_t> _predicates;
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
+
+    Table & _table;
+    branch_id_t _first;
+    branch_id_t _second;
+    std::unordered_map<std::string, iu_p_t> _columnIUs;
+    iu_p_t _branchIU = nullptr;
 };
 
 //-----------------------------------------------------------------------------

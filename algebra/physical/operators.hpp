@@ -3,6 +3,7 @@
 
 #include "Operator.hpp"
 #include "BranchAggregation.hpp"
+#include "BranchDiff.hpp"
 #include "GroupBy.hpp"
 #include "HashJoin.hpp"
 #include "Map.hpp"

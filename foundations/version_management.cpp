@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <unordered_set>
 
 #include "foundations/exceptions.hpp"
 #include "utils/general.hpp"
@@ -40,6 +41,14 @@ inline const void * get_tuple_ptr(const VersionedTupleStorage * storage) {
     return storage->data;
 }
 
+void index_tuple(Table & table, branch_id_t branch, tid_t tid, const Native::Sql::SqlTuple & tuple) {
+    for (auto & index : table._indexes) {
+        if (index->branch == branch) {
+            index->add(tuple.values[index->column]->hash(), tid);
+        }
+    }
+}
+
 tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
     tid_t tid;
     branch_id_t branch = ctx.executionContext.branchId;
@@ -70,6 +79,7 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
         value->store(ptr);
         column_idx += 1;
     }
+    index_tuple(table, branch, tid, tuple);
 
     return tid;
 }
@@ -107,16 +117,12 @@ static void update_master(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tabl
     }
 }
 
-void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
-    branch_id_t branch = ctx.executionContext.branchId;
-
-    if (is_marked_as_dangling_tid(tid) && branch == master_branch_id) {
-        throw std::runtime_error("no such tuple in the given branch");
-    }
-
+// master updates in place; the previous in-place version moves into the chain
+static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table) {
+    const branch_id_t branch = master_branch_id;
     Database & db = table.getDatabase();
     auto version_entry = get_version_entry(tid, table);
-    if (branch == master_branch_id) {
+    {
         auto old_tuple = get_current_master(tid, table);
 
         auto storage = create_chain_element(table, old_tuple->getSize());
@@ -152,12 +158,15 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
 
         // new master
         update_master(tid, tuple, table);
-    } else {
-        auto predecessor = get_latest_chain_element(version_entry, table, ctx);
-        if (predecessor == nullptr) {
-            throw std::runtime_error("no such tuple in the given branch");
-        }
+    }
+    index_tuple(table, branch, tid, tuple);
+}
 
+// other branches prepend their version to the chain; predecessor is the version the branch saw before
+static void prepend_version(tid_t tid, branch_id_t branch, Native::Sql::SqlTuple & tuple, Table & table, const void * predecessor) {
+    Database & db = table.getDatabase();
+    auto version_entry = get_version_entry(tid, table);
+    {
         auto storage = create_chain_element(table, tuple.getSize());
 
         // branch visibility
@@ -182,6 +191,26 @@ void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, Query
         if (!is_marked_as_dangling_tid(tid)) {
             table._head_ident[tid] = invalid_ident;
         }
+    }
+    index_tuple(table, branch, tid, tuple);
+}
+
+void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
+    branch_id_t branch = ctx.executionContext.branchId;
+
+    if (is_marked_as_dangling_tid(tid) && branch == master_branch_id) {
+        throw std::runtime_error("no such tuple in the given branch");
+    }
+
+    if (branch == master_branch_id) {
+        write_in_place(tid, tuple, table);
+    } else {
+        auto version_entry = get_version_entry(tid, table);
+        auto predecessor = get_latest_chain_element(version_entry, table, ctx);
+        if (predecessor == nullptr) {
+            throw std::runtime_error("no such tuple in the given branch");
+        }
+        prepend_version(tid, branch, tuple, table, predecessor);
     }
 }
 
@@ -435,4 +464,303 @@ void destroy_chain(VersionEntry * version_entry) {
     version_entry->first = version_entry;
     version_entry->next = nullptr;
     version_entry->next_in_branch = nullptr;
+}
+
+//-----------------------------------------------------------------------------
+// Branch-aware statements: indexes, merge, drop and diff
+
+BranchReader::BranchReader(const Database & db, branch_id_t branch) :
+        branch(branch),
+        _db(db)
+{
+    _label = db._identL[db.getIdent(branch)];
+    for (branch_id_t current = branch; ; ) {
+        branch_id_t parent = db._branches.at(current)->parent_id;
+        if (parent == invalid_branch_id) break;
+        _lineage[parent] = current;
+        current = parent;
+    }
+}
+
+bool BranchReader::sees(branch_id_t creator, branch_id_t creation_ts, ident_t ident) const {
+#if INTERVAL_VISIBILITY
+    return _db._identL[ident] <= _label && _label <= _db._identR[ident];
+#else
+    if (creator == branch) return true;
+    auto it = _lineage.find(creator);
+    return it != _lineage.end() && creation_ts < it->second;
+#endif
+}
+
+bool BranchReader::sees(const VersionEntry * entry, const void * element) const {
+    if (element == entry) {
+        return sees(entry->branch_id, entry->creation_ts, entry->ident);
+    }
+    auto storage = static_cast<const VersionedTupleStorage *>(element);
+    return sees(storage->branch_id, storage->creation_ts, storage->ident);
+}
+
+static const void * next_chain_element(const VersionEntry * entry, const void * element) {
+    return (element == entry) ? entry->next : static_cast<const VersionedTupleStorage *>(element)->next;
+}
+
+const void * BranchReader::visible(const VersionEntry * entry) const {
+    if (branch == master_branch_id) {
+        return entry; // master reads in place
+    }
+    for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+        if (sees(entry, element)) return element;
+    }
+    return nullptr;
+}
+
+std::unique_ptr<Native::Sql::SqlTuple> load_version(tid_t tid, Table & table, const void * element) {
+    if (element == get_version_entry(tid, table)) {
+        return get_current_master(tid, table);
+    }
+    return Native::Sql::SqlTuple::load(get_tuple_ptr(static_cast<const VersionedTupleStorage *>(element)), table.getTupleType());
+}
+
+static bool equal_tuples(const Native::Sql::SqlTuple & a, const Native::Sql::SqlTuple & b) {
+    for (size_t i = 0; i < a.values.size(); ++i) {
+        if (!a.values[i]->equals(*b.values[i])) return false;
+    }
+    return true;
+}
+
+void build_index(Table & table, BranchIndex & index) {
+    BranchReader reader(table.getDatabase(), index.branch);
+    auto & bitmap = table.getBranchBitmap();
+    for (tid_t tid = 0, size = table._version_mgmt_column.size(); tid < size; ++tid) {
+        if (!bitmap.isSet(tid, index.branch)) continue;
+        const VersionEntry * entry = table._version_mgmt_column[tid].get();
+        const void * element = reader.visible(entry);
+        if (element == nullptr) continue;
+        index.add(load_version(tid, table, element)->values[index.column]->hash(), tid);
+    }
+}
+
+// writes a version of the tuple in the branch; predecessor is the version the branch saw before
+static void write_version(tid_t tid, branch_id_t branch, Native::Sql::SqlTuple & tuple, Table & table, const void * predecessor) {
+    if (branch == master_branch_id) {
+        write_in_place(tid, tuple, table);
+    } else {
+        prepend_version(tid, branch, tuple, table, predecessor);
+    }
+}
+
+static std::vector<uint8_t> tuple_bytes(Native::Sql::SqlTuple & tuple) {
+    std::vector<uint8_t> bytes(tuple.getSize());
+    tuple.store(bytes.data());
+    return bytes;
+}
+
+MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
+    BranchReader source(db, src);
+    BranchReader target(db, dst);
+    auto & bases = db._mergeBases[{src, dst}];
+
+    enum class Kind { Write, Insert, Delete };
+    struct Action {
+        Table * table;
+        tid_t tid;
+        Kind kind;
+        std::unique_ptr<Native::Sql::SqlTuple> tuple;  // to be written
+        std::unique_ptr<Native::Sql::SqlTuple> merged; // the version of src, the base of the next merge
+        const void * predecessor;
+    };
+    std::vector<Action> actions;
+    MergeResult result;
+
+    // tables in the order of their names, so that conflicts are reported deterministically
+    std::vector<std::pair<std::string, Table *>> tables;
+    for (auto & [name, table] : db.getTables()) tables.emplace_back(name, table.get());
+    std::sort(tables.begin(), tables.end());
+
+    for (auto & [name, table] : tables) {
+        auto & bitmap = table->getBranchBitmap();
+        const auto columnNames = table->getColumnNames();
+        const auto types = table->getTupleType();
+        auto & tableBases = bases[table];
+        auto conflict = [&, &name = name](tid_t tid, const std::string & what) {
+            result.conflicts.push_back("table " + name + ", tuple " + std::to_string(tid) + ": " + what);
+        };
+
+        for (tid_t tid = 0, size = table->_version_mgmt_column.size(); tid < size; ++tid) {
+            const VersionEntry * entry = table->_version_mgmt_column[tid].get();
+            const void * inSource = bitmap.isSet(tid, src) ? source.visible(entry) : nullptr;
+            const void * inTarget = bitmap.isSet(tid, dst) ? target.visible(entry) : nullptr;
+            if (inSource == nullptr && inTarget == nullptr) continue;
+            if (inSource == inTarget) continue; // both see the same version
+
+            // the base: the version src had when it was merged last, else the newest common version
+            std::unique_ptr<Native::Sql::SqlTuple> base;
+            auto recorded = tableBases.find(tid);
+            if (recorded != tableBases.end()) {
+                base = Native::Sql::SqlTuple::load(recorded->second.data(), types);
+            } else {
+                for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+                    if (source.sees(entry, element) && target.sees(entry, element)) {
+                        base = load_version(tid, *table, element);
+                        break;
+                    }
+                }
+            }
+
+            if (inSource != nullptr && inTarget != nullptr) {
+                auto s = load_version(tid, *table, inSource);
+                auto d = load_version(tid, *table, inTarget);
+                std::vector<Native::Sql::value_op_t> merged;
+                bool clean = true;
+                for (size_t i = 0; i < types.size(); ++i) {
+                    const auto & sv = *s->values[i];
+                    const auto & dv = *d->values[i];
+                    if (sv.equals(dv) || (base && base->values[i]->equals(sv))) {
+                        merged.push_back(dv.clone());
+                    } else if (base && base->values[i]->equals(dv)) {
+                        merged.push_back(sv.clone());
+                    } else {
+                        clean = false;
+                        conflict(tid, "column " + columnNames[i] + " changed to " + Native::Sql::toString(sv) + " in the source and to " +
+                                      Native::Sql::toString(dv) + " in the target" +
+                                      (base ? " (was " + Native::Sql::toString(*base->values[i]) + ")" : ""));
+                    }
+                }
+                if (!clean) continue;
+                auto tuple = std::make_unique<Native::Sql::SqlTuple>(std::move(merged));
+                if (equal_tuples(*tuple, *d)) {
+                    // already in the target; remember the version of src for the next merge
+                    actions.push_back({table, tid, Kind::Write, nullptr, std::move(s), inTarget});
+                } else {
+                    actions.push_back({table, tid, Kind::Write, std::move(tuple), std::move(s), inTarget});
+                }
+            } else if (inSource != nullptr) {
+                auto s = load_version(tid, *table, inSource);
+                if (!base) {
+                    // inserted on the side of src
+                    auto copy = Native::Sql::SqlTuple::load(tuple_bytes(*s).data(), types);
+                    actions.push_back({table, tid, Kind::Insert, std::move(copy), std::move(s), nullptr});
+                } else if (!equal_tuples(*s, *base)) {
+                    conflict(tid, "deleted in the target and changed in the source");
+                }
+            } else if (base) {
+                // only in the target, which has it from a common version: src deleted it
+                auto d = load_version(tid, *table, inTarget);
+                if (equal_tuples(*d, *base)) {
+                    actions.push_back({table, tid, Kind::Delete, nullptr, nullptr, inTarget});
+                } else {
+                    conflict(tid, "deleted in the source and changed in the target");
+                }
+            }
+        }
+    }
+    if (!result.conflicts.empty()) {
+        return result;
+    }
+
+    for (auto & action : actions) {
+        Table & table = *action.table;
+        switch (action.kind) {
+            case Kind::Write:
+                if (action.tuple) {
+                    write_version(action.tid, dst, *action.tuple, table, action.predecessor);
+                    result.updated += 1;
+                }
+                break;
+            case Kind::Insert:
+                write_version(action.tid, dst, *action.tuple, table, nullptr);
+                table.getBranchBitmap().set(action.tid, dst, true);
+                result.inserted += 1;
+                break;
+            case Kind::Delete:
+                table.getBranchBitmap().set(action.tid, dst, false);
+                bases[&table].erase(action.tid);
+                result.deleted += 1;
+                break;
+        }
+        if (action.merged) {
+            bases[&table][action.tid] = tuple_bytes(*action.merged);
+        }
+    }
+    return result;
+}
+
+size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
+    std::unordered_set<branch_id_t> dropped(branches.begin(), branches.end());
+    size_t freed = 0;
+    for (auto & [name, table] : db.getTables()) {
+        for (tid_t tid = 0, size = table->_version_mgmt_column.size(); tid < size; ++tid) {
+            VersionEntry * entry = table->_version_mgmt_column[tid].get();
+
+            // the versions written by dropped branches are seen by dropped branches only
+            std::vector<void *> kept;
+            std::unordered_map<const void *, const void *> garbage; // freed version -> its next_in_branch
+            for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+                if (element != entry) {
+                    auto storage = static_cast<const VersionedTupleStorage *>(element);
+                    if (dropped.count(storage->branch_id) > 0) {
+                        garbage[element] = storage->next_in_branch;
+                        continue;
+                    }
+                }
+                kept.push_back(const_cast<void *>(element));
+            }
+            if (garbage.empty()) continue;
+
+            auto skipGarbage = [&](const void * element) {
+                for (auto it = garbage.find(element); it != garbage.end(); it = garbage.find(element)) {
+                    element = it->second;
+                }
+                return element;
+            };
+            for (size_t i = 0; i < kept.size(); ++i) {
+                void * next = (i + 1 < kept.size()) ? kept[i + 1] : nullptr;
+                if (kept[i] == entry) {
+                    entry->next = next;
+                    entry->next_in_branch = static_cast<VersionedTupleStorage *>(const_cast<void *>(skipGarbage(entry->next_in_branch)));
+                    entry->prev = (i > 0) ? kept[i - 1] : nullptr;
+                } else {
+                    auto storage = static_cast<VersionedTupleStorage *>(kept[i]);
+                    storage->next = next;
+                    storage->next_in_branch = skipGarbage(storage->next_in_branch);
+                }
+            }
+            entry->first = kept.front();
+            table->_head_ident[tid] = (entry->first == entry) ? entry->ident : invalid_ident;
+
+            for (auto & [element, _] : garbage) {
+                std::free(const_cast<void *>(element));
+            }
+            freed += garbage.size();
+        }
+    }
+    for (auto it = db._mergeBases.begin(); it != db._mergeBases.end(); ) {
+        bool obsolete = dropped.count(it->first.first) > 0 || dropped.count(it->first.second) > 0;
+        it = obsolete ? db._mergeBases.erase(it) : std::next(it);
+    }
+    db.removeBranches(branches);
+    return freed;
+}
+
+void diff_branches(Table & table, branch_id_t a, branch_id_t b, std::vector<DiffEntry> & out) {
+    Database & db = table.getDatabase();
+    const BranchReader readers[2] = {BranchReader(db, a), BranchReader(db, b)};
+    auto & bitmap = table.getBranchBitmap();
+    for (tid_t tid = 0, size = table._version_mgmt_column.size(); tid < size; ++tid) {
+        const VersionEntry * entry = table._version_mgmt_column[tid].get();
+        const void * seen[2];
+        for (int side = 0; side < 2; ++side) {
+            seen[side] = bitmap.isSet(tid, readers[side].branch) ? readers[side].visible(entry) : nullptr;
+        }
+        if (seen[0] == seen[1]) continue; // the same version, or in neither branch
+        if (seen[0] != nullptr && seen[1] != nullptr &&
+            equal_tuples(*load_version(tid, table, seen[0]), *load_version(tid, table, seen[1]))) {
+            continue; // different versions with the same values
+        }
+        for (uint32_t side = 0; side < 2; ++side) {
+            if (seen[side] == nullptr) continue;
+            const void * data = (seen[side] == entry) ? nullptr : get_tuple_ptr(static_cast<const VersionedTupleStorage *>(seen[side]));
+            out.push_back({tid, data, side});
+        }
+    }
 }

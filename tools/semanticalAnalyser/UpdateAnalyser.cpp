@@ -19,6 +19,15 @@ namespace semanticalAnalysis {
             if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
                 throw semantic_sql_error("column '" + column.first.name + "' does not exist");
         }
+        for (auto &expression : stmt->expressions) {
+            for (auto &term : expression) {
+                if (term.column.name.empty()) continue;
+                if (!term.column.table.empty() && term.column.table != stmt->relation.name && term.column.table != stmt->relation.alias)
+                    throw semantic_sql_error("binding '" + term.column.table + "' is not specified");
+                if (std::find(columnNames.begin(),columnNames.end(),term.column.name) == columnNames.end())
+                    throw semantic_sql_error("column '" + term.column.name + "' does not exist");
+            }
+        }
         for (auto &column : stmt->selections) {
             if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
                 throw semantic_sql_error("column '" + column.first.name + "' does not exist");
@@ -59,7 +68,37 @@ namespace semanticalAnalysis {
         }
 
         auto &production = _context.dangling_productions[stmt->relation.alias];
-        _context.joinedTree = std::make_unique<Update>( std::move(production), updateIUs, *table, branchId);
+        auto update = std::make_unique<Update>( std::move(production), updateIUs, *table, branchId);
+
+        // SET c = <terms>: constants take the type of the column; '*' and '/' bind before '+' and '-'
+        auto &ius = _context.ius[stmt->relation.alias];
+        for (size_t i = 0; i < stmt->updates.size(); ++i) {
+            auto &terms = stmt->expressions[i];
+            if (terms.size() == 1 && terms.front().column.name.empty()) continue; // a constant
+            iu_p_t target = ius[stmt->updates[i].first.name];
+            Sql::SqlType constantType = Sql::toNotNullableTy(target->columnInformation->type);
+            auto operand = [&](const UpdateTerm &term) -> Expressions::exp_op_t {
+                if (term.column.name.empty()) return std::make_unique<Expressions::Constant>(term.value, constantType);
+                return std::make_unique<Expressions::Identifier>(ius[term.column.name]);
+            };
+            std::vector<std::pair<std::string, Expressions::exp_op_t>> sums; // operator and product
+            for (auto &term : terms) {
+                if (term.op == "*" || term.op == "/") {
+                    auto &product = sums.back().second;
+                    if (term.op == "*") product = std::make_unique<Expressions::Multiplication>(std::move(product), operand(term));
+                    else product = std::make_unique<Expressions::Division>(std::move(product), operand(term));
+                } else {
+                    sums.emplace_back(term.op, operand(term));
+                }
+            }
+            Expressions::exp_op_t expression = std::move(sums.front().second);
+            for (size_t j = 1; j < sums.size(); ++j) {
+                if (sums[j].first == "+") expression = std::make_unique<Expressions::Addition>(std::move(expression), std::move(sums[j].second));
+                else expression = std::make_unique<Expressions::Subtraction>(std::move(expression), std::move(sums[j].second));
+            }
+            update->addUpdateExpression(target, std::move(expression));
+        }
+        _context.joinedTree = std::move(update);
     }
 
 }

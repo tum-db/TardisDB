@@ -100,6 +100,68 @@ uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, boo
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 
+/// Adds the tuple, written by the branch, to the indexes of the branch
+void index_tuple(Table & table, branch_id_t branch, tid_t tid, const Native::Sql::SqlTuple & tuple);
+
+/// Fills an index from the versions visible in its branch
+void build_index(Table & table, BranchIndex & index);
+
+/// A reader of one branch, independent of a query context
+class BranchReader {
+public:
+    BranchReader(const Database & db, branch_id_t branch);
+
+    /// \returns Whether the branch sees a version written by the given branch, at the given time, under the given identifier
+    bool sees(branch_id_t creator, branch_id_t creation_ts, ident_t ident) const;
+
+    /// \returns The newest version of the tuple visible in the branch: the version entry for the
+    /// in-place version, a VersionedTupleStorage otherwise, or nullptr; the bitmap is not consulted
+    const void * visible(const VersionEntry * entry) const;
+
+    /// \returns Whether the branch sees the chain element (the version entry or a VersionedTupleStorage)
+    bool sees(const VersionEntry * entry, const void * element) const;
+
+    const branch_id_t branch;
+
+private:
+    const Database & _db;
+    uint64_t _label = 0;
+    std::unordered_map<branch_id_t, branch_id_t> _lineage; // ancestor -> its child on the path to the branch
+};
+
+/// \returns The tuple of a chain element of tid (see BranchReader::visible)
+std::unique_ptr<Native::Sql::SqlTuple> load_version(tid_t tid, Table & table, const void * element);
+
+/// The outcome of MERGE BRANCH src INTO dst
+struct MergeResult {
+    size_t updated = 0;
+    size_t inserted = 0;
+    size_t deleted = 0;
+    std::vector<std::string> conflicts; // nothing has been merged if there are any
+};
+
+/// Merges the changes of src since its common versions with dst into dst. Per tuple, the base is
+/// the newest version visible in both branches, or the version of src merged last into dst.
+/// Attributes changed on one side only are taken from that side; an attribute changed differently
+/// on both sides, or a tuple deleted on one side and changed on the other, is a conflict. The merge
+/// is applied only if there are no conflicts.
+MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst);
+
+/// Drops the branches (a branch with all its descendants): clears their bitmaps, frees the versions
+/// they wrote and removes them from the catalogue. \returns The number of freed versions
+size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches);
+
+/// One side of a difference: the version of tuple tid seen in one of two branches
+struct DiffEntry {
+    tid_t tid;
+    const void * data; // nullptr for the in-place version, the tuple data of a VersionedTupleStorage otherwise
+    uint32_t side;     // 0: first branch, 1: second branch
+};
+
+/// Appends the tuples that differ between two branches: a tuple only in one branch yields one
+/// entry, a tuple whose versions differ in value yields one entry per branch
+void diff_branches(Table & table, branch_id_t a, branch_id_t b, std::vector<DiffEntry> & out);
+
 void destroy_chain(VersionEntry * version_entry);
 
 std::unique_ptr<Native::Sql::SqlTuple> get_current_master(tid_t tid, Table & table);

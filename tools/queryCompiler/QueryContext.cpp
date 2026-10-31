@@ -283,6 +283,15 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
         case tardisParser::ParsingContext::Copy:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::Copy;
             break;
+        case tardisParser::ParsingContext::CreateIndex:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::CreateIndex;
+            break;
+        case tardisParser::ParsingContext::DropBranch:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::DropBranch;
+            break;
+        case tardisParser::ParsingContext::MergeBranch:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::MergeBranch;
+            break;
     }
     source = tardisParser::ParsingContext();
 }

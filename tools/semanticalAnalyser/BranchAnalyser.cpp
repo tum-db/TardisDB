@@ -32,7 +32,11 @@ namespace semanticalAnalysis {
     std::string BranchAnalyser::returnJSON() {
         std::string nodes="\"nodes\": [", links ="\"links\": [";
         bool firstnode=true, firstlink=true;
-        for(branch_id_t i=0; i<_context.db._next_branch_id; i++){
+        // dropped branches leave gaps in the identifiers
+        std::vector<branch_id_t> ids;
+        for (auto &[id, branch] : _context.db._branches) ids.push_back(id);
+        std::sort(ids.begin(), ids.end());
+        for (branch_id_t i : ids) {
             auto &branch = _context.db._branches[i];
             if (branch->id != 0){
                if (!firstlink)

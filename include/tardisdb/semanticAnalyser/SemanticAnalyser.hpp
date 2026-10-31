@@ -57,6 +57,11 @@ namespace semanticalAnalysis {
         void verifyBranchQuery();
         void constructBranchQuery();
 
+        // SELECT ... FROM DIFF ( t VERSION a , t VERSION b )
+        static bool isDiffQuery(SelectStatement *stmt);
+        void verifyDiffQuery();
+        void constructDiffQuery();
+
         static void construct_joins(AnalyzingContext & context);
         static void construct_join_graph(AnalyzingContext & context, SelectStatement *stmt);
         static void construct_join(AnalyzingContext &context, std::string &vertexName);
@@ -103,6 +108,27 @@ namespace semanticalAnalysis {
         void verify() override;
         void constructTree() override;
         std::string returnJSON();
+    };
+
+    class CreateIndexAnalyser : public SemanticAnalyser {
+    public:
+        CreateIndexAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
+        void verify() override;
+        void constructTree() override;
+    };
+
+    class DropBranchAnalyser : public SemanticAnalyser {
+    public:
+        DropBranchAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
+        void verify() override;
+        void constructTree() override;
+    };
+
+    class MergeBranchAnalyser : public SemanticAnalyser {
+    public:
+        MergeBranchAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
+        void verify() override;
+        void constructTree() override;
     };
 
     class CopyTableAnalyser : public SemanticAnalyser {

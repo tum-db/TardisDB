@@ -3,6 +3,16 @@
 #include "sqlParser/SQLParser.hpp"
 
 namespace tardisParser {
+    static bool isArithmeticOperator(const Token &token) {
+        return (token.hasType(Type::literal) && (token.value == "+" || token.value == "-" || token.value == "/")) ||
+               token.equalsControlSymbol(controlSymbols::star);
+    }
+
+    static bool equalsIgnoreCase(const std::string &a, const std::string &b) {
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(),
+                                                  [](char x, char y) { return ::tolower(x) == ::tolower(y); });
+    }
+
     // Parses an identifier into a binding and its attribute
     BindingAttribute SQLParser::parse_binding_attribute(std::string value) {
         auto dotPos = value.find_first_of(".");
@@ -55,8 +65,76 @@ namespace tardisParser {
                     context.opType = ParsingContext::OpType::Copy;
                     context.copyStmt = new CopyStatement();
                     context.state = State::Copy;
+                } else if (token.equalsKeyword(Keyword::Drop)) {
+                    context.state = State::Drop;
+                } else if (token.equalsKeyword(Keyword::Merge)) {
+                    context.opType = ParsingContext::OpType::MergeBranch;
+                    context.mergeBranchStmt = new MergeBranchStatement();
+                    context.state = State::Merge;
                 } else {
-                    throw syntactical_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH', 'COPY' or 'Create', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH', 'COPY', 'Create', 'DROP' or 'MERGE', found '" + token.value + "'");
+                }
+                break;
+
+                //
+                //  DROP BRANCH b [ CASCADE ]
+                //
+            case State::Drop:
+                if (token.equalsKeyword(Keyword::Branch)) {
+                    context.opType = ParsingContext::OpType::DropBranch;
+                    context.dropBranchStmt = new DropBranchStatement();
+                    context.state = State::DropBranch;
+                } else {
+                    throw syntactical_error("Expected 'BRANCH', found '" + token.value + "'");
+                }
+                break;
+            case State::DropBranch:
+                if (token.hasType(Type::identifier)) {
+                    context.dropBranchStmt->branchName = token.value;
+                    context.state = State::DropBranchName;
+                } else {
+                    throw syntactical_error("Expected branch name, found '" + token.value + "'");
+                }
+                break;
+            case State::DropBranchName:
+                if (token.equalsKeyword(Keyword::Cascade)) {
+                    context.dropBranchStmt->cascade = true;
+                    context.state = State::DropBranchCascade;
+                } else {
+                    throw syntactical_error("Expected 'CASCADE', found '" + token.value + "'");
+                }
+                break;
+
+                //
+                //  MERGE [ BRANCH ] b INTO p
+                //
+            case State::Merge:
+                if (token.equalsKeyword(Keyword::Branch)) {
+                    context.state = State::MergeBranch;
+                    break;
+                }
+                // fall through: BRANCH is optional
+            case State::MergeBranch:
+                if (token.hasType(Type::identifier)) {
+                    context.mergeBranchStmt->branchName = token.value;
+                    context.state = State::MergeBranchName;
+                } else {
+                    throw syntactical_error("Expected branch name, found '" + token.value + "'");
+                }
+                break;
+            case State::MergeBranchName:
+                if (token.equalsKeyword(Keyword::Into)) {
+                    context.state = State::MergeBranchInto;
+                } else {
+                    throw syntactical_error("Expected 'INTO', found '" + token.value + "'");
+                }
+                break;
+            case State::MergeBranchInto:
+                if (token.hasType(Type::identifier)) {
+                    context.mergeBranchStmt->targetBranchName = token.value;
+                    context.state = State::MergeBranchTarget;
+                } else {
+                    throw syntactical_error("Expected branch name, found '" + token.value + "'");
                 }
                 break;
 
@@ -148,8 +226,80 @@ namespace tardisParser {
                     context.opType = ParsingContext::OpType::CreateBranch;
                     context.createBranchStmt = new CreateBranchStatement();
                     context.state = State::CreateBranch;
+                } else if (token.equalsKeyword(Keyword::Index)) {
+                    context.opType = ParsingContext::OpType::CreateIndex;
+                    context.createIndexStmt = new CreateIndexStatement();
+                    context.createIndexStmt->relation.version = "master";
+                    context.state = State::CreateIndex;
                 } else {
-                    throw syntactical_error("Expected 'TABLE' or 'Branch', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'TABLE', 'BRANCH' or 'INDEX', found '" + token.value + "'");
+                }
+                break;
+
+                //
+                //  CREATE INDEX [ name ] ON t ( c ) [ VERSION b ]
+                //
+            case State::CreateIndex:
+                if (token.hasType(Type::identifier)) {
+                    context.createIndexStmt->indexName = token.value;
+                    context.state = State::CreateIndexName;
+                    break;
+                }
+                // fall through: the name is optional
+            case State::CreateIndexName:
+                if (token.equalsKeyword(Keyword::On)) {
+                    context.state = State::CreateIndexOn;
+                } else {
+                    throw syntactical_error("Expected index name or 'ON', found '" + token.value + "'");
+                }
+                break;
+            case State::CreateIndexOn:
+                if (token.hasType(Type::identifier)) {
+                    context.createIndexStmt->relation.name = token.value;
+                    context.state = State::CreateIndexTable;
+                } else {
+                    throw syntactical_error("Expected table name, found '" + token.value + "'");
+                }
+                break;
+            case State::CreateIndexTable:
+                if (token.equalsControlSymbol(controlSymbols::openBracket)) {
+                    context.state = State::CreateIndexColumnsBegin;
+                } else {
+                    throw syntactical_error("Expected '(', found '" + token.value + "'");
+                }
+                break;
+            case State::CreateIndexColumnsBegin:
+            case State::CreateIndexColumnSeparator:
+                if (token.hasType(Type::identifier)) {
+                    context.createIndexStmt->columns.push_back(Column());
+                    context.createIndexStmt->columns.back().name = token.value;
+                    context.state = State::CreateIndexColumnName;
+                } else {
+                    throw syntactical_error("Expected column name, found '" + token.value + "'");
+                }
+                break;
+            case State::CreateIndexColumnName:
+                if (token.equalsControlSymbol(controlSymbols::separator)) {
+                    context.state = State::CreateIndexColumnSeparator;
+                } else if (token.equalsControlSymbol(controlSymbols::closeBracket)) {
+                    context.state = State::CreateIndexColumnsEnd;
+                } else {
+                    throw syntactical_error("Expected ',' or ')', found '" + token.value + "'");
+                }
+                break;
+            case State::CreateIndexColumnsEnd:
+                if (token.equalsKeyword(Keyword::Version)) {
+                    context.state = State::CreateIndexVersion;
+                } else {
+                    throw syntactical_error("Expected 'VERSION', found '" + token.value + "'");
+                }
+                break;
+            case State::CreateIndexVersion:
+                if (token.hasType(Type::identifier)) {
+                    context.createIndexStmt->relation.version = token.value;
+                    context.state = State::CreateIndexTag;
+                } else {
+                    throw syntactical_error("Expected version name, found '" + token.value + "'");
                 }
                 break;
             case State::CreateBranch:
@@ -422,21 +572,39 @@ namespace tardisParser {
                 }
                 break;
             case State::UpdateSetExprOp:
-                if (token.type == Type::literal) {
-                    context.updateStmt->updates.push_back(std::make_pair(Column(),token.value));
-                    context.updateStmt->updates.back().first.name = tokenizer.prev(2).value;
+            case State::UpdateSetExprArith:
+                if (token.type == Type::literal || token.type == Type::identifier) {
+                    UpdateTerm term;
+                    if (context.state == State::UpdateSetExprArith) {
+                        term.op = tokenizer.prev(1).value;
+                    } else {
+                        // the first term; a constant alone is also kept as the value of the update
+                        context.updateStmt->updates.push_back(std::make_pair(Column(), token.type == Type::literal ? token.value : ""));
+                        context.updateStmt->updates.back().first.name = tokenizer.prev(2).value;
+                        context.updateStmt->expressions.emplace_back();
+                    }
+                    if (token.type == Type::identifier) {
+                        BindingAttribute columnBinding = parse_binding_attribute(token.value);
+                        term.column.name = columnBinding.second;
+                        term.column.table = columnBinding.first;
+                    } else {
+                        term.value = token.value;
+                    }
+                    context.updateStmt->expressions.back().push_back(term);
                     context.state = State::UpdateSetExprRhs;
                 } else {
                     throw syntactical_error("Expected right expression, found '" + token.value + "'");
                 }
                 break;
             case State::UpdateSetExprRhs:
-                if (token.equalsControlSymbol(controlSymbols::separator)) {
+                if (isArithmeticOperator(token)) {
+                    context.state = State::UpdateSetExprArith;
+                } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::UpdateSetSeperator;
                 } else if (token.equalsKeyword(Keyword::Where)) {
                     context.state = State::UpdateWhere;
                 } else {
-                    throw syntactical_error("Expected 'SET' or 'WHERE', found '" + token.value + "'");
+                    throw syntactical_error("Expected '+', '-', '*', '/', ',' or 'WHERE', found '" + token.value + "'");
                 }
                 break;
             case State::UpdateWhere:
@@ -656,7 +824,13 @@ namespace tardisParser {
                 }
                 break;
             case State::SelectFromRelationName:
-                if (token.equalsKeyword(Keyword::Version)) {
+                if (token.equalsControlSymbol(controlSymbols::openBracket) &&
+                    equalsIgnoreCase(context.selectStmt->relations.back().name, "diff")) {
+                    // DIFF ( t VERSION a , t VERSION b )
+                    context.selectStmt->relations.back().name = "";
+                    context.selectStmt->relations.back().versionScope = "diff";
+                    context.state = SelectFromDiffBegin;
+                } else if (token.equalsKeyword(Keyword::Version)) {
                     context.state = SelectFromVersion;
                 } else if (token.type == Type::identifier) {
                     context.selectStmt->relations.back().alias = token.value;
@@ -687,6 +861,47 @@ namespace tardisParser {
                     context.state = SelectFromVersionAll;
                 } else {
                     throw syntactical_error("Expected version name, '(' or 'ALL', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectFromDiffBegin:
+            case State::SelectFromDiffSeparator:
+                if (token.type == Type::identifier) {
+                    Table &relation = context.selectStmt->relations.back();
+                    if (relation.name.empty()) {
+                        relation.name = token.value;
+                    } else if (relation.name != token.value) {
+                        throw syntactical_error("DIFF compares two versions of one table, found '" + relation.name + "' and '" + token.value + "'");
+                    }
+                    context.state = SelectFromDiffTable;
+                } else {
+                    throw syntactical_error("Expected table name, found '" + token.value + "'");
+                }
+                break;
+            case State::SelectFromDiffTable:
+            case State::SelectFromDiffName: {
+                Table &relation = context.selectStmt->relations.back();
+                if (context.state == State::SelectFromDiffTable && token.equalsKeyword(Keyword::Version)) {
+                    context.state = SelectFromDiffVersion;
+                    break;
+                }
+                if (context.state == State::SelectFromDiffTable) {
+                    relation.versionSet.push_back("master");
+                }
+                if (token.equalsControlSymbol(controlSymbols::separator) && relation.versionSet.size() == 1) {
+                    context.state = SelectFromDiffSeparator;
+                } else if (token.equalsControlSymbol(controlSymbols::closeBracket) && relation.versionSet.size() == 2) {
+                    context.state = SelectFromTag;
+                } else {
+                    throw syntactical_error(std::string("Expected ") + (relation.versionSet.size() == 1 ? "','" : "')'") + ", found '" + token.value + "'");
+                }
+                break;
+            }
+            case State::SelectFromDiffVersion:
+                if (token.type == Type::identifier) {
+                    context.selectStmt->relations.back().versionSet.push_back(token.value);
+                    context.state = SelectFromDiffName;
+                } else {
+                    throw syntactical_error("Expected version name, found '" + token.value + "'");
                 }
                 break;
             case State::SelectFromVersionSetBegin:

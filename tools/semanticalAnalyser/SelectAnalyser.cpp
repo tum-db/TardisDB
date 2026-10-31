@@ -10,6 +10,10 @@ namespace semanticalAnalysis {
         Database &db = _context.db;
         SelectStatement* stmt = _context.parserResult.selectStmt;
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+        if (isDiffQuery(stmt)) {
+            verifyDiffQuery();
+            return;
+        }
         if (isBranchQuery(stmt)) {
             verifyBranchQuery();
             return;
@@ -91,6 +95,10 @@ namespace semanticalAnalysis {
 //TODO: Check physical tree projections do not work after joining
     void SelectAnalyser::constructTree() {
         SelectStatement *stmt = _context.parserResult.selectStmt;
+        if (isDiffQuery(stmt)) {
+            constructDiffQuery();
+            return;
+        }
         if (isBranchQuery(stmt)) {
             constructBranchQuery();
             return;
@@ -112,11 +120,13 @@ namespace semanticalAnalysis {
             }
         }
         if (stmt->projections.empty()) {
+            // SELECT *: the columns in the order of their tables
             for (auto &relation : stmt->relations) {
                 std::string &productionName = relation.alias.empty() ? relation.name : relation.alias;
-                for (auto &iu : _context.ius[productionName]) {
-                    if (iu.second->columnInformation->columnName == "tid") continue;
-                    projectedIUs.push_back(iu.second);
+                auto &ius = _context.ius[productionName];
+                for (auto &name : db.getTable(relation.name)->getColumnNames()) {
+                    auto it = ius.find(name);
+                    if (it != ius.end()) projectedIUs.push_back(it->second);
                 }
             }
         }
@@ -256,6 +266,82 @@ namespace semanticalAnalysis {
         }
 
         _context.joinedTree = std::make_unique<Result>(std::move(aggregation), projectedIUs);
+    }
+
+    bool SelectAnalyser::isDiffQuery(SelectStatement *stmt) {
+        for (auto &relation : stmt->relations) {
+            if (relation.versionScope == "diff") return true;
+        }
+        return false;
+    }
+
+    void SelectAnalyser::verifyDiffQuery() {
+        Database &db = _context.db;
+        SelectStatement *stmt = _context.parserResult.selectStmt;
+        if (stmt->relations.size() != 1 || !stmt->joinConditions.empty())
+            throw semantic_sql_error("DIFF cannot be combined with other relations yet");
+        if (!stmt->groupBy.empty()) throw semantic_sql_error("DIFF does not support GROUP BY yet");
+        Relation &relation = stmt->relations.front();
+        Table *table = db.getTable(relation.name);
+        if (table == nullptr) throw semantic_sql_error("table '" + relation.name + "' does not exist");
+        for (auto &name : relation.versionSet) {
+            if (db._branchMapping.find(name) == db._branchMapping.end()) throw semantic_sql_error("version '" + name + "' does not exist");
+        }
+
+        const auto columnNames = table->getColumnNames();
+        auto checkColumn = [&](const Column &column) {
+            if (!column.table.empty() && column.table != relation.name && column.table != relation.alias)
+                throw semantic_sql_error("binding '" + column.table + "' is not specified");
+            if (std::find(columnNames.begin(), columnNames.end(), column.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.name + "' is not specified");
+            if (table->getCI(column.name)->type.nullable)
+                throw semantic_sql_error("column '" + column.name + "' is nullable, which DIFF does not support yet");
+        };
+        for (auto &column : stmt->projections) {
+            if (!column.aggregate.empty()) throw semantic_sql_error("DIFF does not support aggregates yet");
+            if (column.table.empty() && column.name == "branch") continue;
+            checkColumn(column);
+        }
+        if (stmt->projections.empty()) {
+            for (auto &name : columnNames) {
+                Column column;
+                column.name = name;
+                checkColumn(column);
+            }
+        }
+        for (auto &selection : stmt->selections) checkColumn(selection.first);
+    }
+
+    void SelectAnalyser::constructDiffQuery() {
+        Database &db = _context.db;
+        SelectStatement *stmt = _context.parserResult.selectStmt;
+        Relation &relation = stmt->relations.front();
+        Table *table = db.getTable(relation.name);
+        const branch_id_t first = db._branchMapping.at(relation.versionSet[0]);
+        const branch_id_t second = db._branchMapping.at(relation.versionSet[1]);
+        _context.branchIds.insert({first, second});
+
+        auto diff = std::make_unique<BranchDiff>(_context.iuFactory, *table, first, second);
+        std::vector<iu_p_t> projectedIUs;
+        if (stmt->projections.empty()) {
+            // SELECT *: the branch, then the columns of the table
+            projectedIUs.push_back(diff->getBranchIU());
+            for (auto &name : table->getColumnNames()) projectedIUs.push_back(diff->getColumnIU(name));
+        }
+        for (auto &column : stmt->projections) {
+            if (column.table.empty() && column.name == "branch") projectedIUs.push_back(diff->getBranchIU());
+            else projectedIUs.push_back(diff->getColumnIU(column.name));
+        }
+        for (auto &[column, valueString] : stmt->selections) {
+            iu_p_t iu = diff->getColumnIU(column.name);
+            diff->addPredicate(std::make_unique<Expressions::Comparison>(
+                    Expressions::ComparisonMode::eq,
+                    std::make_unique<Expressions::Identifier>(iu),
+                    std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type)
+            ));
+        }
+
+        _context.joinedTree = std::make_unique<Result>(std::move(diff), projectedIUs);
     }
 
     void SelectAnalyser::construct_join_graph(AnalyzingContext & context, SelectStatement *stmt) {

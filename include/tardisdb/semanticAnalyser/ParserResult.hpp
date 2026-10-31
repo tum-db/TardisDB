@@ -22,7 +22,7 @@ namespace semanticalAnalysis {
         std::string alias;
         std::string version;
         // branch-aware queries: "" (only version), "set" (versionSet), "all" (every branch),
-        // "descendants" or "leaves" (of version)
+        // "descendants" or "leaves" (of version), "diff" (the two versions in versionSet)
         std::string versionScope;
         std::vector<std::string> versionSet;
     };
@@ -30,6 +30,14 @@ namespace semanticalAnalysis {
         std::string name;
         std::string table;
         std::string aggregate; // "", "count", "sum", "min", "max" or "avg"; count(*) has name "*"
+    };
+
+    /// A term of the right-hand side of SET: a column or a constant, preceded by an operator
+    /// ("+", "-", "*" or "/") unless it is the first term
+    struct UpdateTerm {
+        std::string op;
+        Column column;     // empty name for a constant
+        std::string value;
     };
 
     struct CreateTableStatement {
@@ -51,6 +59,7 @@ namespace semanticalAnalysis {
         Relation relation;
         std::vector<std::pair<Column,std::string>> updates;
         std::vector<std::pair<Column,std::string>> selections;
+        std::vector<std::vector<UpdateTerm>> expressions; // the right-hand side of each update
     };
     struct InsertStatement {
         Relation relation;
@@ -70,10 +79,25 @@ namespace semanticalAnalysis {
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
 
+    struct CreateIndexStatement {
+        std::string indexName;
+        Relation relation;
+        std::vector<Column> columns;
+    };
+    struct DropBranchStatement {
+        std::string branchName;
+        bool cascade = false;
+    };
+    struct MergeBranchStatement {
+        std::string branchName;
+        std::string targetBranchName;
+    };
+
     struct SQLParserResult {
 
         enum OpType : unsigned int {
-            Unknown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy
+            Unknown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy,
+            CreateIndex, DropBranch, MergeBranch
         } opType = Unknown;
 
         CreateTableStatement *createTableStmt;
@@ -83,6 +107,9 @@ namespace semanticalAnalysis {
         UpdateStatement *updateStmt;
         DeleteStatement *deleteStmt;
         CopyStatement *copyStmt;
+        CreateIndexStatement *createIndexStmt;
+        DropBranchStatement *dropBranchStmt;
+        MergeBranchStatement *mergeBranchStmt;
 
         SQLParserResult() {}
         ~SQLParserResult() {
@@ -109,6 +136,15 @@ namespace semanticalAnalysis {
                     break;
                 case Copy:
                     delete copyStmt;
+                    break;
+                case CreateIndex:
+                    delete createIndexStmt;
+                    break;
+                case DropBranch:
+                    delete dropBranchStmt;
+                    break;
+                case MergeBranch:
+                    delete mergeBranchStmt;
                     break;
                 case Unknown:
                     break;
