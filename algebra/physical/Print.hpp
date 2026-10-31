@@ -18,7 +18,7 @@ public:
 
 private:
     std::vector<iu_p_t> selection;
-    llvm::Value * tupleCountPtr;
+    uint64_t * tupleCount;
 };
 
 } // end namespace Physical

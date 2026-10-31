@@ -2,7 +2,7 @@
 // Created by josef on 29.12.16.
 //
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include <iostream>
 
 #include "codegen/CodeGen.hpp"
@@ -239,8 +239,8 @@ llvm::Function * if_8_test()
         codeGen->CreateBr(exit);
 
         llvm::Function * func = funcGen.getFunction();
-        func->getBasicBlockList().push_back(passed);
-        func->getBasicBlockList().push_back(exit);
+        passed->insertInto(func);
+        exit->insertInto(func);
 
         codeGen->SetInsertPoint(passed);
         node = Sql::Bool(true);

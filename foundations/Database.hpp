@@ -16,6 +16,10 @@ using cg_branch_id_t = TypeWrappers::UInt32;
 constexpr branch_id_t master_branch_id = 0;
 constexpr branch_id_t invalid_branch_id = std::numeric_limits<branch_id_t>::max();
 
+/// identifier under which a branch writes; a fork gives the parent and the child a new one
+using ident_t = uint32_t;
+constexpr ident_t invalid_ident = std::numeric_limits<ident_t>::max();
+
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
 constexpr tid_t invalid_tid = std::numeric_limits<tid_t>::max();
@@ -140,6 +144,9 @@ private:
 
 public:
     std::vector<std::unique_ptr<VersionEntry>> _version_mgmt_column;
+    /// per tuple: the identifier of the in-place version if it heads the chain, otherwise invalid_ident;
+    /// lets the compiled scan decide visibility without dereferencing the version entry
+    std::vector<ident_t> _head_ident;
     std::vector<std::unique_ptr<VersionEntry>> _dangling_version_mgmt_column;
 };
 
@@ -171,6 +178,7 @@ struct Branch {
     branch_id_t id;
     branch_id_t parent_id;
     std::string name;
+    ident_t ident; // current identifier
 };
 
 //-----------------------------------------------------------------------------
@@ -199,6 +207,26 @@ private:
 public:
     branch_id_t createBranch(const std::string & name, branch_id_t parent);
     void constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx);
+
+    ident_t getIdent(branch_id_t branch) const { return _branches.at(branch)->ident; }
+    size_t getIdentCount() const { return _identParent.size(); }
+    size_t getRelabelCount() const { return _relabelCount; }
+
+    /// Interval labels of the identifier tree: identifier p is an ancestor of q (or q itself)
+    /// iff _identL[p] <= _identL[q] <= _identR[p]. Versions store identifiers, not labels,
+    /// so relabelling changes only these arrays.
+    std::vector<uint64_t> _identL;
+    std::vector<uint64_t> _identR;
+
+private:
+    ident_t newIdent(ident_t parent);
+    void relabel();
+
+    std::vector<ident_t> _identParent;
+    std::vector<uint64_t> _identNextFree; // first label not yet given to a child
+    size_t _relabelCount = 0;
+
+public:
 
     std::unordered_map<branch_id_t, std::unique_ptr<Branch>> _branches;
     std::unordered_map<std::string, branch_id_t> _branchMapping;

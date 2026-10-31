@@ -2,7 +2,7 @@
 // Created by josef on 03.01.17.
 //
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "algebra/physical/Update.hpp"
 #include "sql/SqlUtils.hpp"
@@ -71,7 +71,7 @@ namespace Algebra {
 
             child->produce();
 
-            cg_size_t tupleCnt(_codeGen->CreateLoad(tupleCountPtr));
+            cg_size_t tupleCnt(_codeGen->CreateLoad(cg_size_t::getType(), tupleCountPtr));
 
             //Functions::genPrintfCall("Updated %lu tuples\n", tupleCnt);
         }
@@ -139,13 +139,13 @@ namespace Algebra {
 #endif
 
             // increment tuple counter
-            cg_size_t prevCnt(_codeGen->CreateLoad(tupleCountPtr));
+            cg_size_t prevCnt(_codeGen->CreateLoad(cg_size_t::getType(), tupleCountPtr));
             _codeGen->CreateStore(prevCnt + 1ul, tupleCountPtr);
         }
 
         void Update::genUpdateCall(cg_size_t tid, Native::Sql::SqlTuple* nativetuple) {
             llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void * (size_t, void *, void * , void *, void *), false>::get(_codeGen.getLLVMContext());
-            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("update_tuple_with_binding", funcUpdateTupleTy) );
+            llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "update_tuple_with_binding", funcUpdateTupleTy);
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&update_tuple_with_branchId);
             _codeGen->CreateCall(func, {tid, cg_u32_t(branchId), cg_ptr8_t::fromRawPointer(nativetuple), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});
         }

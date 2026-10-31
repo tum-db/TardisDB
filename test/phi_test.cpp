@@ -7,7 +7,7 @@
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Analysis/Passes.h>

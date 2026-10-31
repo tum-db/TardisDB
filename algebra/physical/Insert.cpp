@@ -2,7 +2,7 @@
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlValues.hpp"
 #include "foundations/version_management.hpp"
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include <iostream>
 
@@ -48,7 +48,7 @@ namespace Algebra {
 
         void Insert::genInsertCall(void *funcPtr) {
             llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, void *), false>::get(_codeGen.getLLVMContext());
-            llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("insert_tuple_with_binding", funcTy) );
+            llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "insert_tuple_with_binding", funcTy);
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,funcPtr);
             // call insert for every single tuple
             for(auto tuple: tuples)

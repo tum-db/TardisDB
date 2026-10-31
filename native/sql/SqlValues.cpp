@@ -1,4 +1,5 @@
 #include "native/sql/SqlValues.hpp"
+#include "codegen/LLVMCompat.hpp"
 
 #include <functional>
 #include <limits>
@@ -465,7 +466,7 @@ value_op_t Char::load(llvm::Value * ptr, SqlType type)
 {
     auto & codeGen = getThreadLocalCodeGen();
     llvm::Value * strValue, * length;
-    llvm::Type * charTy = getPointeeType(ptr);
+    llvm::Type * charTy = Sql::toLLVMTy(toNotNullableTy(type));
 
     // only Chars with a length of 1 need special treatment
     if (type.length == 1) {
@@ -504,7 +505,7 @@ void Char::store(llvm::Value * ptr) const
             MDNode *ScopeTag=nullptr,
             MDNode *NoAliasTag=nullptr)
         */
-        codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+        LLVMCompat::createMemCpy(codeGen.getIRBuilder(), strPtr, _llvmValue, _length);
     }
 }
 
@@ -600,7 +601,7 @@ value_op_t Varchar::load(llvm::Value * ptr, SqlType type)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
-    llvm::Type * varcharTy = getPointeeType(ptr);
+    llvm::Type * varcharTy = Sql::toLLVMTy(toNotNullableTy(type));
     llvm::Value * strPtr = codeGen->CreateStructGEP(varcharTy, ptr, 1);
     llvm::Value * length = loadStringLength(ptr, type);
     return value_op_t( new Varchar(type, strPtr, length) );
@@ -627,7 +628,7 @@ void Varchar::store(llvm::Value * ptr) const
         MDNode *ScopeTag=nullptr,
         MDNode *NoAliasTag=nullptr)
     */
-    codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+    LLVMCompat::createMemCpy(codeGen.getIRBuilder(), strPtr, _llvmValue, _length);
 }
 
 cg_hash_t Varchar::hash() const

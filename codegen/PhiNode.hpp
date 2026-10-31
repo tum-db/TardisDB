@@ -69,11 +69,10 @@ public:
         llvm::BasicBlock * currentBB = codeGen->GetInsertBlock();
         unsigned size = static_cast<unsigned>(_incoming.size());
 
-        auto & instList = currentBB->getInstList();
-        if (instList.empty()) {
+        if (currentBB->empty()) {
             _node = llvm::PHINode::Create(firstValue->getType(), size, _name, currentBB);
         } else {
-            auto * first = &currentBB->getInstList().front();
+            auto * first = &currentBB->front();
             _node = llvm::PHINode::Create(firstValue->getType(), size, _name, first);
         }
 

@@ -625,7 +625,7 @@ value_op_t sqlNot(const Value & value)
 
             llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
             llvm::Value * ptrVal = codeGen->CreateIntToPtr(
-                    ptrIntVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
+                    ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
             llvm::Value * value = codeGen->getInt1(true);
             codeGen->CreateStore(value, ptrVal);
         }
@@ -636,8 +636,8 @@ value_op_t sqlNot(const Value & value)
 
             llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
             llvm::Value * ptrVal = codeGen->CreateIntToPtr(
-                    ptrIntVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
-            llvm::Value * obit = codeGen->CreateLoad(ptrVal);
+                    ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
+            llvm::Value * obit = codeGen->CreateLoad(codeGen->getIntNTy(TypeWrappers::ptrBitSize), ptrVal);
 
             IfGen overflowCheck(obit);
             {
@@ -652,7 +652,7 @@ value_op_t sqlNot(const Value & value)
 
             llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
             llvm::Value * ptrVal = codeGen->CreateIntToPtr(
-                    ptrIntVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
+                    ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
 
             Sql::value_op_t boolResult = Sql::LongInteger::load(ptrVal);
 

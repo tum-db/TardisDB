@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Operator.hpp"
+#include "BranchAggregation.hpp"
 #include "GroupBy.hpp"
 #include "HashJoin.hpp"
 #include "Map.hpp"

@@ -11,6 +11,8 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 
+#include "codegen/LLVMCompat.hpp"
+
 #include "codegen/TypeCache.hpp"
 #include "utils/general.hpp"
 
@@ -148,6 +150,8 @@ private:
     ModuleGen & moduleGen;
     llvm::Function * function;
     llvm::Value * returnValue;
+    /// a function generated while another one is being generated continues it afterwards
+    llvm::IRBuilderBase::InsertPoint outerInsertPoint;
 };
 
 //-----------------------------------------------------------------------------
@@ -636,7 +640,7 @@ public:
         auto & codeGen = getThreadLocalCodeGen();
         llvm::Value * intVal = codeGen->getIntN( ptrBitSize, reinterpret_cast<ptr_int_rep_t>(address) );
         llvm::Value * ptrVal = codeGen->CreateIntToPtr(
-                intVal, llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), ptrBitSize) );
+                intVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), ptrBitSize) );
         return PointerBase<n>(ptrVal);
     }
 
@@ -658,15 +662,13 @@ public:
     Bool operator ==(const wrapper_type_t & other)
     {
         auto & codeGen = getThreadLocalCodeGen();
-        llvm::Value * diff = codeGen->CreatePtrDiff(llvmValue, other.llvmValue);
-        return Bool( codeGen->CreateICmpEQ(diff, codeGen->getInt64(0)) );
+        return Bool( codeGen->CreateICmpEQ(llvmValue, other.llvmValue) );
     }
 
     Bool operator !=(const wrapper_type_t & other)
     {
         auto & codeGen = getThreadLocalCodeGen();
-        llvm::Value * diff = codeGen->CreatePtrDiff(llvmValue, other.llvmValue);
-        return Bool( codeGen->CreateICmpNE(diff, codeGen->getInt64(0)) );
+        return Bool( codeGen->CreateICmpNE(llvmValue, other.llvmValue) );
     }
 
     wrapper_type_t operator +(ptr_int_rep_t offset)
@@ -749,7 +751,7 @@ public:
     {
         auto & codeGen = getThreadLocalCodeGen();
         auto & context = codeGen.getLLVMContext();
-        llvm::PointerType * type = llvm::PointerType::getIntNPtrTy(context, n);
+        llvm::PointerType * type = LLVMCompat::getIntNPtrTy(context, n);
         llvm::Value * constantNull = llvm::ConstantPointerNull::get(type);
         return Bool( codeGen->CreateICmpEQ(llvmValue, constantNull) );
     }
@@ -757,7 +759,7 @@ public:
     static llvm::Type * getType()
     {
         auto & codeGen = getThreadLocalCodeGen();
-        return llvm::PointerType::getIntNPtrTy(codeGen.getLLVMContext(), n);
+        return LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), n);
     }
 };
 

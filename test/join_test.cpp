@@ -1,5 +1,5 @@
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include <iostream>
 
 #include "codegen/CodeGen.hpp"
@@ -393,7 +393,7 @@ llvm::Function * genJoinTest(std::vector<value_op_t> &persistentStore, Vector &t
 
         {
             cg_voidptr_t first = genStaticHashtableLookupCall(joinTable, h);
-            llvm::Type * i8Ptr = llvm::PointerType::getInt8PtrTy(codeGen.getLLVMContext() );
+            llvm::Type * i8Ptr = LLVMCompat::getInt8PtrTy(codeGen.getLLVMContext() );
 
 //    Functions::genPrintfCall("lookup result: %p\n", first);
 

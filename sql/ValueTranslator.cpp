@@ -2,7 +2,7 @@
 // Created by Blum Thomas on 2020-06-16.
 //
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "ValueTranslator.hpp"
 
@@ -37,7 +37,7 @@ std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sq
         case Sql::SqlType::TypeID::VarcharID:
             returnValue = std::make_unique<Native::Sql::Varchar>(original->type);
             funcTy = llvm::TypeBuilder<void * (void * , void *, uint8_t), false>::get(codeGen.getLLVMContext());
-            func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("storeStringInTextFormat", funcTy) );
+            func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "storeStringInTextFormat", funcTy);
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeStringInTextFormat);
             result = codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer((Native::Sql::Varchar*) returnValue.get()), cg_voidptr_t(((Sql::Varchar*) original)->getLLVMValue()), cg_u8_t(((Sql::Varchar*) original)->getLength())});
             break;

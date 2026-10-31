@@ -2,7 +2,7 @@
 // Created by josef on 04.01.17.
 //
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/load.hpp"

@@ -7,7 +7,7 @@
 #include <chrono>
 
 #include <llvm/Support/raw_ostream.h>
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Analysis/Passes.h>
@@ -53,7 +53,11 @@ namespace QueryExecutor {
         pm.add(createReassociatePass());
         pm.add(createGVNPass(false)); // there should be no redundant loads
         //pm.add(createCFGSimplificationPass());
+#if LLVM_VERSION_MAJOR < 18
         pm.add(createAggressiveDCEPass());
+#else
+        pm.add(createDeadCodeEliminationPass()); // the legacy pass manager lost aggressive DCE
+#endif
     }
 
     static void optimize(llvm::Module &module) {
@@ -70,7 +74,7 @@ namespace QueryExecutor {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
         llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "callHandler", funcUpdateTupleTy);
         moduleGen.addFunctionMapping(func,(callbackFunction == nullptr ? (void*) defaultStreamingCallback : callbackFunction));
 
 #ifdef EMIT_IR
@@ -91,7 +95,7 @@ namespace QueryExecutor {
         const auto compilationStart = std::chrono::high_resolution_clock::now();
 
         llvm::EngineBuilder eb(moduleGen.finalizeModule());
-        eb.setOptLevel(llvm::CodeGenOpt::None);
+        eb.setOptLevel(LLVMCompat::codeGenOptNone);
 //    eb.setOptLevel( llvm::CodeGenOpt::Less );
 //    eb.setOptLevel( llvm::CodeGenOpt::Default );
 //    eb.setOptLevel( llvm::CodeGenOpt::Aggressive );
@@ -119,7 +123,7 @@ namespace QueryExecutor {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
         llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("callHandler", funcUpdateTupleTy) );
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "callHandler", funcUpdateTupleTy);
         moduleGen.addFunctionMapping(func,(callbackFunction == nullptr ? (void*) defaultStreamingCallback : callbackFunction));
 
 #ifdef EMIT_IR
@@ -140,7 +144,7 @@ namespace QueryExecutor {
         const auto compilationStart = std::chrono::high_resolution_clock::now();
 
         llvm::EngineBuilder eb(moduleGen.finalizeModule());
-         eb.setOptLevel( llvm::CodeGenOpt::None );
+         eb.setOptLevel( LLVMCompat::codeGenOptNone );
         // eb.setOptLevel( llvm::CodeGenOpt::Less );
         // eb.setOptLevel(llvm::CodeGenOpt::Default);
         // eb.setOptLevel( llvm::CodeGenOpt::Aggressive );

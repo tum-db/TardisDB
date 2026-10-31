@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <cmath>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
 #include "utils/general.hpp"
@@ -357,7 +357,7 @@ void genHashtableIter(cg_voidptr_t hashtable, cg_hash_t h, std::function<void(cg
     auto & codeGen = getThreadLocalCodeGen();
     auto & funcGen = codeGen.getCurrentFunctionGen();
 
-    llvm::Type * i8Ptr = llvm::PointerType::getInt8PtrTy(codeGen.getLLVMContext() );
+    llvm::Type * i8Ptr = LLVMCompat::getInt8PtrTy(codeGen.getLLVMContext() );
 
 //    Functions::genPrintfCall("lookup result: %p\n", first);
 

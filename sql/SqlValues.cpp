@@ -4,7 +4,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/DerivedTypes.h>
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include <functional>
 #include <limits>
@@ -312,8 +312,7 @@ value_op_t Integer::fromRawValues(const std::vector<llvm::Value *> & values)
 value_op_t Integer::load(llvm::Value * ptr)
 {
     auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * integerTy = getPointeeType(ptr);
-    assert(integerTy == cg_value_type::getType());
+    llvm::Type * integerTy = cg_value_type::getType();
 
     llvm::Value * value = codeGen->CreateLoad(integerTy, ptr);
 //    Functions::genPrintfCall("Integer::load ptr: %p value: %d\n", ptr, value);
@@ -388,8 +387,7 @@ value_op_t LongInteger::fromRawValues(const std::vector<llvm::Value *> & values)
 
 value_op_t LongInteger::load(llvm::Value * ptr) {
     auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * integerTy = getPointeeType(ptr);
-    assert(integerTy == cg_value_type::getType());
+    llvm::Type * integerTy = cg_value_type::getType();
 
     llvm::Value * value = codeGen->CreateLoad(integerTy, ptr);
     //Functions::genPrintfCall("Integer::load ptr: %p\n", ptr, value);
@@ -479,8 +477,7 @@ value_op_t Numeric::fromRawValues(const std::vector<llvm::Value *> & values, Sql
 value_op_t Numeric::load(llvm::Value * ptr, SqlType type)
 {
     auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * numericTy = getPointeeType(ptr);
-    assert(numericTy == cg_value_type::getType());
+    llvm::Type * numericTy = cg_value_type::getType();
 
     llvm::Value * value = codeGen->CreateLoad(numericTy, ptr);
     value_op_t sqlValue( new Numeric(type, value) );
@@ -571,8 +568,7 @@ value_op_t Bool::fromRawValues(const std::vector<llvm::Value *> & values)
 value_op_t Bool::load(llvm::Value * ptr)
 {
     auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * boolTy = getPointeeType(ptr);
-    assert(boolTy == codeGen->getInt1Ty());
+    llvm::Type * boolTy = codeGen->getInt1Ty();
 
     llvm::Value * value = codeGen->CreateLoad(boolTy, ptr);
     value_op_t sqlValue( new Bool(value) );
@@ -744,7 +740,7 @@ value_op_t Char::load(llvm::Value * ptr, SqlType type)
 {
     auto & codeGen = getThreadLocalCodeGen();
     llvm::Value * strValue, * length;
-    llvm::Type * charTy = getPointeeType(ptr);
+    llvm::Type * charTy = toLLVMTy(toNotNullableTy(type));
 
     // only Chars with a length of 1 need special treatment
     if (type.length == 1) {
@@ -786,7 +782,7 @@ void Char::store(llvm::Value * ptr) const
             MDNode *ScopeTag=nullptr,
             MDNode *NoAliasTag=nullptr)
         */
-        codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+        LLVMCompat::createMemCpy(codeGen.getIRBuilder(), strPtr, _llvmValue, _length);
 #endif
     }
 }
@@ -936,7 +932,7 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         }
 
         llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, size_t), false>::get(codeGen.getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("storeText", funcTy) );
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "storeText", funcTy);
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeText);
         codeGen->CreateCall(func, { arrayPtr, cg_ptr8_t::fromRawPointer(beginPtr) , cg_u64_t(len) });
 
@@ -967,10 +963,10 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 
         //llvm::Value * begin = codeGen->CreateStructGEP(llvmType, ptr, 0);
         //llvm::Value * strPtr = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
-        codeGen->CreateMemCpy(arrayPtr, 0, ptr, 0, 16);
+        LLVMCompat::createMemCpy(codeGen.getIRBuilder(), arrayPtr, ptr, 16);
 
         /*llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "getLengthText", funcTy);
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
         llvm::CallInst * result = codeGen->CreateCall(func, { strPtr });
         cg_u64_t length = cg_u64_t( llvm::cast<llvm::Value>(result) );*/
@@ -1002,7 +998,7 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 
         //strValue = codeGen->CreateLoad(charTy, ptr);
 
-        codeGen->CreateMemCpy(ptr, 0, _llvmValue, 0, 16);
+        LLVMCompat::createMemCpy(codeGen.getIRBuilder(), ptr, _llvmValue, 16);
 #endif
     }
 
@@ -1011,13 +1007,13 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         auto & codeGen = getThreadLocalCodeGen();
 
         llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "getLengthText", funcTy);
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
         llvm::CallInst * result = codeGen->CreateCall(func, { _llvmValue });
         cg_u64_t length = cg_u64_t( llvm::cast<llvm::Value>(result) );
 
         llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * funcBegin = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("textBegin", funcTyBegin) );
+        llvm::Function * funcBegin = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "textBegin", funcTyBegin);
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
         llvm::CallInst * resultBegin = codeGen->CreateCall(funcBegin, { _llvmValue });
         cg_voidptr_t begin = cg_voidptr_t( llvm::cast<llvm::Value>(resultBegin) );
@@ -1043,7 +1039,7 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         }
 
         llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("getLengthText", funcTy) );
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "getLengthText", funcTy);
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
 
         llvm::CallInst * _otherLength = codeGen->CreateCall(func, { static_cast<const Text &>(other).getLLVMValue() });
@@ -1054,7 +1050,7 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         cg_bool_t isLengthEqual = otherlength == thisLength;
 
         llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * funcBegin = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("textBegin", funcTyBegin) );
+        llvm::Function * funcBegin = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "textBegin", funcTyBegin);
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
 
         IfGen check( codeGen.getCurrentFunctionGen(), isLengthEqual, {{"isEqual", cg_bool_t(true)}} );
@@ -1131,7 +1127,7 @@ value_op_t Varchar::load(llvm::Value * ptr, SqlType type)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
-    llvm::Type * varcharTy = getPointeeType(ptr);
+    llvm::Type * varcharTy = toLLVMTy(toNotNullableTy(type));
     llvm::Value * strPtr = codeGen->CreateStructGEP(varcharTy, ptr, 1);
     llvm::Value * length = loadStringLength(ptr, type);
     return value_op_t( new Varchar(type, strPtr, length) );
@@ -1162,7 +1158,7 @@ void Varchar::store(llvm::Value * ptr) const
         MDNode *ScopeTag=nullptr,
         MDNode *NoAliasTag=nullptr)
     */
-    codeGen->CreateMemCpy(strPtr, 1, _llvmValue, 1, _length);
+    LLVMCompat::createMemCpy(codeGen.getIRBuilder(), strPtr, _llvmValue, _length);
 #endif
 }
 
@@ -1242,8 +1238,7 @@ value_op_t Date::fromRawValues(const std::vector<llvm::Value *> & values)
 value_op_t Date::load(llvm::Value * ptr)
 {
     auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * dateTy = getPointeeType(ptr);
-    assert(dateTy == cg_value_type::getType());
+    llvm::Type * dateTy = cg_value_type::getType();
 
     llvm::Value * value = codeGen->CreateLoad(dateTy, ptr);
     value_op_t sqlValue( new Date(value) );
@@ -1326,8 +1321,7 @@ value_op_t Timestamp::fromRawValues(const std::vector<llvm::Value *> & values)
 value_op_t Timestamp::load(llvm::Value * ptr)
 {
     auto & codeGen = getThreadLocalCodeGen();
-    llvm::Type * timestampTy = getPointeeType(ptr);
-    assert(timestampTy == cg_value_type::getType());
+    llvm::Type * timestampTy = cg_value_type::getType();
 
     llvm::Value * value = codeGen->CreateLoad(timestampTy, ptr);
     value_op_t sqlValue( new Timestamp(value) );

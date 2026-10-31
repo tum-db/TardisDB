@@ -6,7 +6,7 @@
 #include <cstring>
 #include <cmath>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
 
@@ -21,7 +21,7 @@ Vector::Vector(size_type elementSize, size_type reserveCount) :
     _capacity = defaultCount;
 
     if (reserveCount > defaultCount) {
-        unsigned power = static_cast<unsigned>( std::ceil( std::log2(_capacity) ) );
+        unsigned power = static_cast<unsigned>( std::ceil( std::log2(reserveCount) ) );
         _capacity = 1ul << power;
     }
 

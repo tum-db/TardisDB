@@ -92,6 +92,7 @@ class Delete;
 class Result;
 class Select;
 class TableScan;
+class BranchAggregation;
 
 struct OperatorVisitor {
     void visit(Operator & op)
@@ -108,6 +109,7 @@ struct OperatorVisitor {
     virtual void visit(Result & op) = 0;
     virtual void visit(Select & op) = 0;
     virtual void visit(TableScan & op) = 0;
+    virtual void visit(BranchAggregation & op) = 0;
 };
 
 //-----------------------------------------------------------------------------
@@ -556,6 +558,63 @@ protected:
 
     Table & _table;
     branch_id_t branchId;
+};
+
+//-----------------------------------------------------------------------------
+// BranchAggregation operator
+
+/// Scans one table in a set of branches and aggregates per branch:
+/// SELECT branch, sum(x) FROM t VERSION ( b1 , b2 ) GROUP BY branch
+class BranchAggregation : public NullaryOperator {
+public:
+    enum class Function { Count, Sum, Min, Max, Avg };
+
+    struct Aggregate {
+        Function function;
+        iu_p_t input; // nullptr for count(*)
+        iu_p_t produced;
+    };
+
+    /// Shared: one pass over the versions shared by the branches; PerBranch: one scan per branch
+    enum class Strategy { Shared, PerBranch };
+    static Strategy _strategy;
+
+    BranchAggregation(IUFactory &iuFactory, Table & table, std::vector<branch_id_t> branches);
+
+    ~BranchAggregation() override { }
+
+    void accept(OperatorVisitor & visitor) override;
+
+    /// \returns The iu of a column of the scanned table, to be used by predicates and aggregates
+    iu_p_t getColumnIU(const std::string & columnName);
+
+    /// \returns The iu holding the name of the branch
+    iu_p_t addBranchOutput();
+
+    /// \returns The iu holding the result of the aggregate
+    iu_p_t addAggregate(Function function, iu_p_t input);
+
+    void addPredicate(logical_exp_op_t predicate);
+
+    Table & getTable() const { return _table; }
+
+    const std::vector<branch_id_t> & getBranches() const { return _branches; }
+
+    iu_p_t getBranchIU() const { return _branchIU; }
+
+    const std::vector<Aggregate> & getAggregates() const { return _aggregates; }
+
+    std::vector<logical_exp_op_t> _predicates;
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
+
+    Table & _table;
+    std::vector<branch_id_t> _branches;
+    std::unordered_map<std::string, iu_p_t> _columnIUs;
+    iu_p_t _branchIU = nullptr;
+    std::vector<Aggregate> _aggregates;
 };
 
 //-----------------------------------------------------------------------------

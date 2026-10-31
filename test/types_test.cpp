@@ -1,6 +1,6 @@
 #include <unordered_map>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include <iostream>
 
 #include "codegen/CodeGen.hpp"

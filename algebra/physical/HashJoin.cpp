@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <memory>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/StaticHashtable.hpp"
@@ -41,8 +41,8 @@ static llvm::Type * getListHeaderTy()
         std::vector<llvm::Type *> members(3);
 
         // struct members:
-        members[0] = llvm::PointerType::getInt8PtrTy(context);
-        members[1] = llvm::PointerType::getInt8PtrTy(context);
+        members[0] = LLVMCompat::getInt8PtrTy(context);
+        members[1] = LLVMCompat::getInt8PtrTy(context);
         members[2] = cg_size_t::getType();
 
         llvm::StructType * nodeTy = llvm::StructType::create(context, name);
@@ -94,7 +94,7 @@ llvm::Type * getListNodeTy(llvm::Type * dataTy)
     std::vector<llvm::Type *> members(3);
 
     // struct members:
-    members[0] = llvm::PointerType::getInt8PtrTy(context);
+    members[0] = LLVMCompat::getInt8PtrTy(context);
     members[1] = cg_hash_t::getType();
     members[2] = dataTy;
 
@@ -118,16 +118,16 @@ void genAppendEntryToList(cg_voidptr_t memoryPool, llvm::Value * headerPtr, llvm
     cg_voidptr_t node = genMemoryPoolMallocCall(memoryPool, cgSize);
 
     // update header:
-    llvm::Type * headerTy = getPointeeType(headerPtr);
+    llvm::Type * headerTy = getListHeaderTy();
 //    Functions::genPrintfCall("allocated node: %p\n", node);
 
     llvm::Value * headerLastFieldPtr = codeGen->CreateStructGEP(headerTy, headerPtr, 1);
-    llvm::Value * headerLastPtr = codeGen->CreateLoad(headerLastFieldPtr);
+    llvm::Value * headerLastPtr = codeGen->CreateLoad(headerTy->getStructElementType(1), headerLastFieldPtr);
 
 //    Functions::genPrintfCall("current last ptr: %p\n", headerLastPtr);
 
     llvm::Value * headerLengthPtr = codeGen->CreateStructGEP(headerTy, headerPtr, 2);
-    cg_size_t length( codeGen->CreateLoad( headerLengthPtr ) );
+    cg_size_t length( codeGen->CreateLoad( cg_size_t::getType(), headerLengthPtr ) );
     length = length + 1;
     codeGen->CreateStore(length, headerLengthPtr);
 
@@ -154,13 +154,13 @@ std::pair<cg_voidptr_t, cg_size_t> genListGetHeaderData(llvm::Value * headerPtr)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
-    llvm::Type * headerTy = getPointeeType(headerPtr);
+    llvm::Type * headerTy = getListHeaderTy();
 
     llvm::Value * headerNextFieldPtr = codeGen->CreateStructGEP(headerTy, headerPtr, 0);
-    llvm::Value * headerNextPtr = codeGen->CreateLoad(headerNextFieldPtr); // llvm Type: i8*
+    llvm::Value * headerNextPtr = codeGen->CreateLoad(headerTy->getStructElementType(0), headerNextFieldPtr); // llvm Type: i8*
 
     llvm::Value * headerLengthFieldPtr = codeGen->CreateStructGEP(headerTy, headerPtr, 2);
-    llvm::Value * headerLength = codeGen->CreateLoad(headerLengthFieldPtr);
+    llvm::Value * headerLength = codeGen->CreateLoad(cg_size_t::getType(), headerLengthFieldPtr);
 
     return std::make_pair(cg_voidptr_t(headerNextPtr), cg_size_t(headerLength));
 };

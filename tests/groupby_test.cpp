@@ -1,5 +1,5 @@
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "algebra/logical/operators.hpp"
 #include "algebra/translation.hpp"

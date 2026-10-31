@@ -26,7 +26,7 @@ namespace Algebra {
             using column_t = std::tuple<iu_p_t>;
             std::vector<column_t> columns;
 
-            llvm::Value * tupleCountPtr;
+            uint64_t * tupleCount;
         };
 
     } // end namespace Physical

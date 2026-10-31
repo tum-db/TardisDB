@@ -44,8 +44,17 @@ namespace tardisParser {
 
         const std::string To = "to";
 
+        // branch-aware queries
+        const std::string All = "all";
+        const std::string Descendants = "descendants";
+        const std::string Leaves = "leaves";
+        const std::string Of = "of";
+        const std::string Group = "group";
+        const std::string By = "by";
+
         static std::set<std::string> keywordset = {Version, Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create,
-                                            Table, Not, Null, Branch, Copy, With, Format, CSV, TBL, To};
+                                            Table, Not, Null, Branch, Copy, With, Format, CSV, TBL, To,
+                                            All, Descendants, Leaves, Of, Group, By};
     }
 
     // Define all control symbols

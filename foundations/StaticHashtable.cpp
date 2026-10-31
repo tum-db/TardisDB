@@ -7,7 +7,7 @@
 #include <cstdlib>
 #include <cmath>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
 
@@ -140,7 +140,7 @@ void genStaticHashtableIter(cg_voidptr_t hashtable, cg_hash_t h, std::function<v
     auto & funcGen = codeGen.getCurrentFunctionGen();
 
     cg_voidptr_t first = genStaticHashtableLookupCall(hashtable, h);
-    llvm::Type * i8Ptr = llvm::PointerType::getInt8PtrTy(codeGen.getLLVMContext() );
+    llvm::Type * i8Ptr = LLVMCompat::getInt8PtrTy(codeGen.getLLVMContext() );
 
 //    Functions::genPrintfCall("lookup result: %p\n", first);
 

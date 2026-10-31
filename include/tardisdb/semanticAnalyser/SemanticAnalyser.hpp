@@ -51,6 +51,12 @@ namespace semanticalAnalysis {
         void verify() override;
         void constructTree() override;
     private:
+        // branch-aware queries: aggregates per branch over a set of branches
+        static bool isBranchQuery(SelectStatement *stmt);
+        static std::vector<branch_id_t> resolveBranches(Database &db, Relation &relation);
+        void verifyBranchQuery();
+        void constructBranchQuery();
+
         static void construct_joins(AnalyzingContext & context);
         static void construct_join_graph(AnalyzingContext & context, SelectStatement *stmt);
         static void construct_join(AnalyzingContext &context, std::string &vertexName);

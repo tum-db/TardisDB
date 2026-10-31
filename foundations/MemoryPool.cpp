@@ -7,7 +7,7 @@
 #include <cstdlib>
 #include <cmath>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
 #include "utils/general.hpp"

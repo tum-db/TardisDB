@@ -18,6 +18,7 @@ struct VersionedTupleStorage {
     const void * next_in_branch = nullptr;
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation
+    ident_t ident; // identifier of the branch at the time of creation
     uint8_t data[0];
 };
 
@@ -29,6 +30,7 @@ struct VersionEntry {
     VersionedTupleStorage * next_in_branch = nullptr;
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation (same as the length of the branch bitvector)
+    ident_t ident; // identifier of the branch at the time of creation
     opt_lock::lock_t lock;
     boost::dynamic_bitset<> branch_visibility;
 };
@@ -75,6 +77,26 @@ tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, Que
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
 const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx);
+
+/// As get_latest_entry, but leaves the context unchanged, so that threads can share it. The reader is
+/// given by its label (interval visibility) or its lineage map (otherwise).
+const void * get_latest_entry_of_reader(tid_t tid, Table & table, branch_id_t branchId, uint64_t reader_label,
+                                        const std::unordered_map<branch_id_t, branch_id_t> * lineage);
+
+/// The branches read by a cross-branch query. Readers are kept in the order of their labels, so
+/// that the readers seeing a version form one range of positions.
+struct BranchSet {
+    std::vector<branch_id_t> branches; // reader at position p
+    std::vector<uint64_t> labels;      // label of the reader at position p, ascending
+};
+
+/// Splits the readers of a branch set by the version of tuple tid each of them sees, walking the
+/// version chain once. Part i is seen by the readers at the positions lo[i]..hi[i]; ptrs[i] is
+/// nullptr for the in-place version and the tuple data otherwise. Readers whose bitmap does not
+/// contain the tuple are left out; all_present states that all of them contain it.
+/// The output arrays hold one entry per reader. Returns the number of parts.
+uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, bool all_present,
+                            const void ** ptrs, uint32_t * lo, uint32_t * hi);
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx);
 

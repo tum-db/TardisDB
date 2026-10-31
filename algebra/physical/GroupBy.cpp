@@ -372,7 +372,7 @@ void GroupBy::produce()
         child->produce();
 
         // pass the group to the parent if it is not empty
-        cg_bool_t isEmpty( _codeGen->CreateLoad(_emptyStackVar) );
+        cg_bool_t isEmpty( _codeGen->CreateLoad(cg_bool_t::getType(), _emptyStackVar) );
         IfGen notEmptyCheck(!isEmpty);
         {
             auto result = getResult(_singleGroup);
@@ -486,7 +486,7 @@ void GroupBy::consume(const iu_value_mapping_t & values, const Operator & src)
         }
         isNull.EndIf();
     } else {
-        cg_bool_t isEmpty( _codeGen->CreateLoad(_emptyStackVar) );
+        cg_bool_t isEmpty( _codeGen->CreateLoad(cg_bool_t::getType(), _emptyStackVar) );
         IfGen emptyCheck(isEmpty);
         {
             // create a new group and initialize it

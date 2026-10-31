@@ -1,4 +1,5 @@
 #include <sstream>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <dlfcn.h>

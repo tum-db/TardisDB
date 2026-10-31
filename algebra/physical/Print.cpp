@@ -4,6 +4,9 @@
 
 #include "algebra/physical/Print.hpp"
 #include "sql/SqlUtils.hpp"
+#include "foundations/Parallel.hpp"
+
+#include "codegen/LLVMCompat.hpp"
 
 using namespace Sql;
 
@@ -19,16 +22,16 @@ Print::~Print()
 
 void Print::produce()
 {
-    tupleCountPtr = _codeGen->CreateAlloca(cg_size_t::getType());
-#ifdef __APPLE__
-    _codeGen->CreateStore(cg_size_t(0ull), tupleCountPtr);
-#else
-    _codeGen->CreateStore(cg_size_t(0ul), tupleCountPtr);
-#endif
+    // the counter may be incremented by the workers of a parallel pipeline
+    auto counter = std::make_unique<CounterResource>();
+    tupleCount = &counter->value;
+    _context.executionContext.acquireResource(std::move(counter));
+    llvm::Value * countPtr = _codeGen->CreatePointerCast(cg_ptr8_t::fromRawPointer(tupleCount), llvm::PointerType::getUnqual(cg_size_t::getType()));
+    _codeGen->CreateStore(cg_size_t(0ul), countPtr);
 
     child->produce();
 
-    cg_size_t tupleCnt(_codeGen->CreateLoad(tupleCountPtr));
+    cg_size_t tupleCnt(_codeGen->CreateLoad(cg_size_t::getType(), countPtr));
 #ifdef __APPLE__
     IfGen check(tupleCnt == cg_size_t(0ull));
 #else
@@ -46,6 +49,11 @@ void Print::produce()
 
 void Print::consume(const iu_value_mapping_t & values, const Operator & src)
 {
+    // workers print one tuple at a time
+    llvm::FunctionType * lockTy = llvm::TypeBuilder<void (), false>::get(_codeGen.getLLVMContext());
+    if (_context.parallelPipeline) {
+        _codeGen.CreateCall(&Parallel::lockResults, lockTy);
+    }
     bool first = true;
     auto& selection = _logicalOperator.getRequired();
     for (iu_p_t iu : selection) {
@@ -60,8 +68,13 @@ void Print::consume(const iu_value_mapping_t & values, const Operator & src)
     Functions::genPrintfCall("\n");
 
     // increment tuple counter
-    cg_size_t prevCnt(_codeGen->CreateLoad(tupleCountPtr));
-    _codeGen->CreateStore(prevCnt + 1ul, tupleCountPtr);
+    llvm::Value * countPtr = _codeGen->CreatePointerCast(cg_ptr8_t::fromRawPointer(tupleCount), llvm::PointerType::getUnqual(cg_size_t::getType()));
+    cg_size_t prevCnt(_codeGen->CreateLoad(cg_size_t::getType(), countPtr));
+    _codeGen->CreateStore(prevCnt + 1ul, countPtr);
+
+    if (_context.parallelPipeline) {
+        _codeGen.CreateCall(&Parallel::unlockResults, lockTy);
+    }
 }
 
 } // end namespace Physical

@@ -6,7 +6,7 @@
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 // target data layout:
 #if defined (__amd64__)
@@ -31,7 +31,7 @@ CodeGen::CodeGen() :
 //        currentFunctionGen(nullptr),
         builder(context)
 {
-    dataLayout = make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
+    dataLayout = std::make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
 }
 
 CodeGen::~CodeGen()
@@ -134,10 +134,10 @@ ModuleGen::ModuleGen(const std::string & moduleName) :
     assert(!g_codeGen.hasModuleGen());
 
     // initialize:
-    module = make_unique<llvm::Module>(StringRef(moduleName), context);
+    module = std::make_unique<llvm::Module>(StringRef(moduleName), context);
 
     
-//    dataLayout = make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
+//    dataLayout = std::make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
 //    module->setDataLayout(*dataLayout);
     module->setDataLayout(codeGen.getDefaultDataLayout());
     codeGen.setCurrentModuleGen(*this);
@@ -193,14 +193,15 @@ FunctionGen::FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
         function(nullptr),
         returnValue(nullptr)
 {
-    assert(!g_codeGen.hasFunctionGen());
-
     auto & context = moduleGen.getContext();
     auto & module = moduleGen.getModule();
     auto & codeGen = moduleGen.getCodeGen();
+    if (codeGen.hasFunctionGen()) {
+        outerInsertPoint = codeGen->saveIP();
+    }
 
     // create a new function object
-    function = cast<Function>(module.getOrInsertFunction(name, functionType));
+    function = LLVMCompat::getOrInsertFunction(module, name, functionType);
     BasicBlock * entryBB = BasicBlock::Create(context, "EntryBlock", function);
     codeGen->SetInsertPoint(entryBB);
 
@@ -213,14 +214,15 @@ FunctionGen::FunctionGen(ModuleGen & moduleGen, llvm::StringRef name,
         function(nullptr),
         returnValue(nullptr)
 {
-    assert(!g_codeGen.hasFunctionGen());
-
     auto & context = moduleGen.getContext();
     auto & module = moduleGen.getModule();
     auto & codeGen = moduleGen.getCodeGen();
+    if (codeGen.hasFunctionGen()) {
+        outerInsertPoint = codeGen->saveIP();
+    }
 
     // create a new function object
-    function = cast<Function>(module.getOrInsertFunction(name, functionType, attributeList));
+    function = LLVMCompat::getOrInsertFunction(module, name, functionType, attributeList);
     BasicBlock * entryBB = BasicBlock::Create(context, "EntryBlock", function);
     codeGen->SetInsertPoint(entryBB);
 
@@ -238,6 +240,9 @@ FunctionGen::~FunctionGen()
     }
 
     codeGen.finalizeFunctionGen();
+    if (outerInsertPoint.isSet()) {
+        codeGen->restoreIP(outerInsertPoint);
+    }
 }
 
 ModuleGen & FunctionGen::getModuleGen()
@@ -348,7 +353,7 @@ llvm::BasicBlock * IfGen::ElseIf(llvm::Value * condV)
     // create one basic block for the conditional branch
     BasicBlock * conditionTestBB = blocks.back();
     conditionTestBB->setName("else_if");
-    functionGen.getFunction()->getBasicBlockList().push_back(conditionTestBB);
+    conditionTestBB->insertInto(functionGen.getFunction());
     codeGen->SetInsertPoint(conditionTestBB);
 
     // if condV evaluates to "true", the code in this block is executed
@@ -361,7 +366,7 @@ llvm::BasicBlock * IfGen::ElseIf(llvm::Value * condV)
 
     codeGen->CreateCondBr(condV, thenBB, nextBB);
 
-    functionGen.getFunction()->getBasicBlockList().push_back(thenBB);
+    thenBB->insertInto(functionGen.getFunction());
     codeGen->SetInsertPoint(thenBB);
 
     state = StateElseIf;
@@ -384,7 +389,7 @@ llvm::BasicBlock * IfGen::Else()
     BasicBlock * currentBB = blocks.back();
     currentBB->setName("else");
 
-    functionGen.getFunction()->getBasicBlockList().push_back(currentBB);
+    currentBB->insertInto(functionGen.getFunction());
     codeGen->SetInsertPoint(currentBB);
 
     // prevent the creation of further ElseIf/Else blocks
@@ -406,7 +411,7 @@ void IfGen::EndIf()
     getCodeGen().leaveBlock(mergeBB);
 
     // continue after the "if"-statement
-    functionGen.getFunction()->getBasicBlockList().push_back(mergeBB);
+    mergeBB->insertInto(functionGen.getFunction());
     codeGen->SetInsertPoint(mergeBB);
 
     state = StateDone;
@@ -529,8 +534,8 @@ void LoopGen::loopDone(llvm::Value * condV, const loop_val_vec_t & currentValues
 
     // add the new basic blocks
     Function * fun = functionGen.getFunction();
-    fun->getBasicBlockList().push_back(loopContBB);
-    fun->getBasicBlockList().push_back(afterBB);
+    loopContBB->insertInto(fun);
+    afterBB->insertInto(fun);
 
     codeGen->SetInsertPoint(loopContBB);
 
@@ -599,13 +604,8 @@ Function * getPrintfPrototype(llvm::Module & module)
 
     // lookup printf()
     llvm::FunctionType * type = llvm::TypeBuilder<int(char *, ...), false>::get(context);
-    llvm::Function * func =
-            cast<Function>(
-                    module.getOrInsertFunction(
-                            "printf", type,
-                            llvm::AttributeList().addAttribute(context, 1u, llvm::Attribute::NoAlias)
-                    )
-            );
+    llvm::Function * func = LLVMCompat::getOrInsertFunction(module, "printf", type,
+            llvm::AttributeList().addParamAttribute(context, 0, llvm::Attribute::NoAlias));
 
     return func;
 }
@@ -616,7 +616,7 @@ Function * getPutcharPrototype(llvm::Module & module)
 
     // lookup putchar()
     llvm::FunctionType * type = llvm::TypeBuilder<int(int), false>::get(context);
-    llvm::Function * func = cast<Function>( module.getOrInsertFunction("putchar", type) );
+    llvm::Function * func = LLVMCompat::getOrInsertFunction(module, "putchar", type);
 
     return func;
 }
@@ -638,7 +638,7 @@ Function * getMemcmpPrototype(llvm::Module & module)
 
     // lookup memcmp()
     llvm::FunctionType * type = llvm::TypeBuilder<int(void *, void *, size_t), false>::get(context);
-    llvm::Function * func = cast<Function>( module.getOrInsertFunction("memcmp", type) );
+    llvm::Function * func = LLVMCompat::getOrInsertFunction(module, "memcmp", type);
 
     return func;
 }
@@ -660,7 +660,7 @@ Function * getMallocPrototype(llvm::Module & module)
 
     // lookup malloc()
     llvm::FunctionType * type = llvm::TypeBuilder<void *(size_t), false>::get(context);
-    llvm::Function * func = cast<Function>( module.getOrInsertFunction("malloc", type) );
+    llvm::Function * func = LLVMCompat::getOrInsertFunction(module, "malloc", type);
 
     return func;
 }
@@ -682,7 +682,7 @@ Function * getFreePrototype(llvm::Module & module)
 
     // lookup free()
     llvm::FunctionType * type = llvm::TypeBuilder<void(void *), false>::get(context);
-    llvm::Function * func = cast<Function>( module.getOrInsertFunction("free", type) );
+    llvm::Function * func = LLVMCompat::getOrInsertFunction(module, "free", type);
 
     return func;
 }

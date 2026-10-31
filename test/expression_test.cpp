@@ -1,6 +1,6 @@
 #include <tuple>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include <sql/SqlType.hpp>
 
 #include "algebra/physical/Operator.hpp"

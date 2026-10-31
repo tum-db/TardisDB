@@ -4,16 +4,41 @@
 
 #include "algebra/physical/TableScan.hpp"
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include "foundations/version_management.hpp"
 #include <unordered_map>
 
 #include "sql/SqlTuple.hpp"
+#include "algebra/physical/Print.hpp"
+#include "algebra/physical/Select.hpp"
+#include "algebra/physical/TupleStream.hpp"
+#include "foundations/Parallel.hpp"
 
 using namespace Sql;
 
 namespace Algebra {
 namespace Physical {
+
+#if USE_DATA_VERSIONING
+static void scan_run(void * state, void * function, void * context)
+{
+    auto * s = static_cast<TableScan::ParallelState *>(state);
+#if !INTERVAL_VISIBILITY
+    // the lineage maps are built after the query has been compiled
+    auto & executionContext = static_cast<QueryContext *>(context)->executionContext;
+    auto it = executionContext.branch_lineages.find(s->branch);
+    s->lineage = (it != executionContext.branch_lineages.end()) ? &it->second : nullptr;
+#endif
+    Parallel::runMorsels(Parallel::threads, s->tuples, 1, reinterpret_cast<Parallel::morsel_function_t>(function));
+}
+
+// get_latest_entry writes the reader into the shared context, which workers must not do
+static const void * scan_latest_entry(size_t tid, void * state)
+{
+    auto * s = static_cast<TableScan::ParallelState *>(state);
+    return get_latest_entry_of_reader(tid, *s->table, s->branch, s->label, s->lineage);
+}
+#endif
 
 TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId, QueryContext &queryContext) :
         NullaryOperator(std::move(logicalOperator), queryContext),
@@ -60,6 +85,12 @@ void TableScan::produce()
 
     size_t tableSize = table.size();
     if (tableSize < 1) return;  // nothing to produce
+#if USE_DATA_VERSIONING
+    if (Parallel::threads > 1 && isParallelPipeline()) {
+        produceParallel();
+        return;
+    }
+#endif
 
     // iterate over all tuples
 #ifdef __APPLE__
@@ -223,13 +254,118 @@ llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voi
     return check.getResult(0);
 }
 
-cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId) {
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
-    llvm::Function * func = llvm::cast<llvm::Function>( getThreadLocalCodeGen().getCurrentModuleGen().getModule().getOrInsertFunction("get_latest_entry", funcTy) );
-    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
-    llvm::CallInst * result = _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
+#if USE_DATA_VERSIONING
+bool TableScan::isParallelPipeline()
+{
+    // selections pass tuples on; the result operators serialise the callbacks of the workers
+    for (Operator * op = _parent; op != nullptr; op = op->getParent()) {
+        if (dynamic_cast<Select *>(op) != nullptr) continue;
+        return dynamic_cast<TupleStream *>(op) != nullptr || dynamic_cast<Print *>(op) != nullptr;
+    }
+    return false;
+}
 
-    return cg_voidptr_t( llvm::cast<llvm::Value>(result) );
+void TableScan::produceParallel()
+{
+    auto & context = _codeGen.getLLVMContext();
+    auto owned = std::make_unique<ParallelState>();
+    _parallel = owned.get();
+    _parallel->table = &table;
+    _parallel->branch = branchId;
+    _parallel->tuples = table.size();
+#if INTERVAL_VISIBILITY
+    Database & db = table.getDatabase();
+    _parallel->label = db._identL[db.getIdent(branchId)];
+#endif
+    _context.executionContext.acquireResource(std::move(owned));
+
+    // the scan loop over a morsel and the operators above it form their own function
+    llvm::Function * morsel;
+    {
+        FunctionGen funcGen(_codeGen.getCurrentModuleGen(), "table_scan_morsel",
+                            llvm::TypeBuilder<void (size_t, size_t, size_t, size_t), false>::get(context));
+        _context.parallelPipeline = true;
+        llvm::Value * begin = funcGen.getArg(0);
+        llvm::Value * end = funcGen.getArg(1);
+        LoopGen scanLoop(funcGen, _codeGen->CreateICmpULT(begin, end), {{"index", begin}});
+        cg_size_t tid(scanLoop.getLoopVar(0));
+        {
+            LoopBodyGen bodyGen(scanLoop);
+            IfGen visibilityCheck(isVisible(tid, branchId));
+            {
+                produce(tid, branchId);
+            }
+            visibilityCheck.EndIf();
+        }
+        cg_size_t nextIndex = tid + 1ul;
+        scanLoop.loopDone(_codeGen->CreateICmpULT(nextIndex.getValue(), end), {nextIndex});
+        _context.parallelPipeline = false;
+        morsel = funcGen.getFunction();
+    }
+
+    llvm::FunctionType * runTy = llvm::TypeBuilder<void (void *, void *, void *), false>::get(context);
+    llvm::Function * run = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "table_scan_run", runTy);
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(run, (void *) &scan_run);
+    _codeGen->CreateCall(run, {cg_ptr8_t::fromRawPointer(_parallel).getValue(),
+            _codeGen->CreatePointerCast(morsel, LLVMCompat::getInt8PtrTy(context)), _codeGen.getCurrentFunctionGen().getArg(1)});
+}
+#endif
+
+llvm::Value * TableScan::genChainWalkCall(cg_tid_t tid, branch_id_t branchId) {
+#if USE_DATA_VERSIONING
+    if (_parallel != nullptr) {
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void *), false>::get(_codeGen.getLLVMContext());
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "table_scan_latest_entry", funcTy);
+        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func, (void *) &scan_latest_entry);
+        return _codeGen->CreateCall(func, {tid.getValue(), cg_ptr8_t::fromRawPointer(_parallel).getValue()});
+    }
+#endif
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
+    llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "get_latest_entry", funcTy);
+    getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
+    return _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
+}
+
+cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId) {
+#if INTERVAL_VISIBILITY
+    if (table._head_ident.size() != table._version_mgmt_column.size()) {
+        // rows were loaded without maintaining the head identifiers: always walk the chain
+        return cg_voidptr_t( genChainWalkCall(tid, branchId) );
+    }
+    // Fast path compiled into the scan loop: if no version of another branch precedes the
+    // in-place version and the reader's label lies in the label of its identifier, the tuple
+    // is read in place (nullptr); otherwise the chain is walked in get_latest_entry.
+    auto & context = _codeGen.getLLVMContext();
+    llvm::Type * i8PtrTy = LLVMCompat::getInt8PtrTy(context);
+    llvm::Type * i32Ty = llvm::Type::getInt32Ty(context);
+    llvm::Type * i64Ty = llvm::Type::getInt64Ty(context);
+    Database & db = table.getDatabase();
+
+    // the labels and the head identifiers do not move while the query runs
+    const uint64_t readerLabel = db._identL[db.getIdent(branchId)];
+
+    llvm::Value * heads = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(table._head_ident.data())).getValue(), llvm::PointerType::getUnqual(i32Ty));
+    llvm::Value * head = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, heads, tid.getValue()));
+    llvm::Value * headIsInPlace = _codeGen->CreateICmpNE(head, llvm::ConstantInt::get(i32Ty, invalid_ident));
+    llvm::Value * ident = _codeGen->CreateZExt(_codeGen->CreateSelect(headIsInPlace, head, llvm::ConstantInt::get(i32Ty, 0)), i64Ty);
+    llvm::Value * labelsL = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(db._identL.data())).getValue(), llvm::PointerType::getUnqual(i64Ty));
+    llvm::Value * labelsR = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(db._identR.data())).getValue(), llvm::PointerType::getUnqual(i64Ty));
+    llvm::Value * l = _codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, labelsL, ident));
+    llvm::Value * r = _codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, labelsR, ident));
+    llvm::Value * reader = cg_size_t(readerLabel).getValue();
+    llvm::Value * inPlace = _codeGen->CreateAnd(headIsInPlace,
+                            _codeGen->CreateAnd(_codeGen->CreateICmpULE(l, reader), _codeGen->CreateICmpULE(reader, r)));
+
+    IfGen slowPath(_codeGen.getCurrentFunctionGen(), _codeGen->CreateNot(inPlace), {{"latest", cg_size_t(0ul)}});
+    {
+        llvm::Value * result = genChainWalkCall(tid, branchId);
+        slowPath.setVar(0, _codeGen->CreatePtrToInt(result, i64Ty));
+    }
+    slowPath.EndIf();
+    return cg_voidptr_t( _codeGen->CreateIntToPtr(slowPath.getResult(0), i8PtrTy) );
+#else
+    return cg_voidptr_t( genChainWalkCall(tid, branchId) );
+#endif
 }
 
 cg_bool_t TableScan::nullPointerCheck(cg_voidptr_t &ptr) {

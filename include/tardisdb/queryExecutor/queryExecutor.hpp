@@ -5,7 +5,7 @@
 #ifndef PROTODB_QUERYEXECUTOR_HPP
 #define PROTODB_QUERYEXECUTOR_HPP
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 #include <llvm/ExecutionEngine/GenericValue.h>
 
 namespace QueryExecutor {

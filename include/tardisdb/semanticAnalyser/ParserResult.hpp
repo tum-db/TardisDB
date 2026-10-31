@@ -21,10 +21,15 @@ namespace semanticalAnalysis {
         std::string name;
         std::string alias;
         std::string version;
+        // branch-aware queries: "" (only version), "set" (versionSet), "all" (every branch),
+        // "descendants" or "leaves" (of version)
+        std::string versionScope;
+        std::vector<std::string> versionSet;
     };
     struct Column {
         std::string name;
         std::string table;
+        std::string aggregate; // "", "count", "sum", "min", "max" or "avg"; count(*) has name "*"
     };
 
     struct CreateTableStatement {
@@ -40,6 +45,7 @@ namespace semanticalAnalysis {
         std::vector<Relation> relations;
         std::vector<std::pair<Column,Column>> joinConditions;
         std::vector<std::pair<Column,std::string>> selections;
+        std::vector<Column> groupBy;
     };
     struct UpdateStatement {
         Relation relation;

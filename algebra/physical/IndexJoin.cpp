@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <memory>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "algebra/physical/TableScan.hpp"
 #include "codegen/CodeGen.hpp"

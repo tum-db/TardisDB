@@ -2,10 +2,11 @@
 
 #include <cmath>
 #include <climits>
+#include <cstring>
 #include <algorithm>
 #include <vector>
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "foundations/exceptions.hpp"
 #include "foundations/version_management.hpp"
@@ -97,7 +98,19 @@ bool BitmapTable::isSet(tid_t tid, unsigned column) const
 
 void BitmapTable::resize()
 {
-    throw NotImplementedException("BitmapTable::resize()");
+    // double the bytes per row and copy the rows; compiled code embeds the data pointer
+    // and the row size, but every statement is compiled anew
+    const size_t oldBytes = _data->getElementSize();
+    const size_t newBytes = 2 * oldBytes;
+    const size_t rows = _data->size();
+    auto data = std::make_unique<Vector>(newBytes);
+    for (size_t tid = 0; tid < rows; ++tid) {
+        auto * row = static_cast<uint8_t *>(data->reserve_back());
+        std::memcpy(row, _data->at(tid), oldBytes);
+        std::memset(row + oldBytes, 0, newBytes - oldBytes);
+    }
+    _data = std::move(data);
+    _availableCount = newBytes * 8;
 }
 
 static cg_bool_t isSet_gen(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
@@ -353,6 +366,14 @@ branch_id_t Database::createBranch(const std::string & name, branch_id_t parent)
     branch->id = branch_id;
     branch->name = name;
     branch->parent_id = parent;
+    if (parent == invalid_branch_id) {
+        branch->ident = newIdent(invalid_ident);
+    } else {
+        // the parent continues under a new identifier, so that its later writes are not inherited
+        ident_t old = _branches[parent]->ident;
+        _branches[parent]->ident = newIdent(old);
+        branch->ident = newIdent(old);
+    }
     _branches.insert({branch_id, std::move(branch)});
     _branchMapping[name] = branch_id;
     return branch_id;
@@ -379,4 +400,69 @@ void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dst
         dstCtx.branch_lineage.insert({branch_obj->parent_id, current});
         current = branch_obj->parent_id;
     }
+    dstCtx.lineage_branch = branch;
+
+    dstCtx.branch_labels[branch] = _identL[_branches[branch]->ident];
+    dstCtx.reader_label = dstCtx.branch_labels[branch];
+    dstCtx.ident_l = _identL.data();
+    dstCtx.ident_r = _identR.data();
+}
+
+ident_t Database::newIdent(ident_t parent) {
+    ident_t id = static_cast<ident_t>(_identParent.size());
+    _identParent.push_back(parent);
+    _identL.push_back(0);
+    _identR.push_back(0);
+    _identNextFree.push_back(0);
+
+    if (parent == invalid_ident) {
+        _identL[id] = 0;
+        _identR[id] = (uint64_t(1) << 62) - 1;
+        _identNextFree[id] = 1;
+        return id;
+    }
+    // a new child takes half of the labels its parent has left
+    const uint64_t left = _identR[parent] >= _identNextFree[parent] ? _identR[parent] - _identNextFree[parent] + 1 : 0;
+    if (left < 4) {
+        relabel();
+        return id;
+    }
+    _identL[id] = _identNextFree[parent];
+    _identR[id] = _identL[id] + left / 2 - 1;
+    _identNextFree[id] = _identL[id] + 1;
+    _identNextFree[parent] = _identR[id] + 1;
+    return id;
+}
+
+void Database::relabel() {
+    // every identifier receives a range proportional to its subtree, leaving gap - 1 free labels
+    // in each; identifiers are created after their parents, so a reverse pass sums the subtrees
+    const size_t count = _identParent.size();
+    std::vector<uint64_t> size(count, 1);
+    std::vector<std::vector<ident_t>> children(count);
+    for (size_t i = count; i-- > 0; ) {
+        if (_identParent[i] != invalid_ident) {
+            size[_identParent[i]] += size[i];
+        }
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (_identParent[i] != invalid_ident) {
+            children[_identParent[i]].push_back(static_cast<ident_t>(i));
+        }
+    }
+    const uint64_t gap = std::min<uint64_t>(uint64_t(1) << 20, ((uint64_t(1) << 62) - 1) / size[0]);
+    std::vector<std::pair<ident_t, uint64_t>> stack = {{0, 0}};
+    while (!stack.empty()) {
+        auto [id, start] = stack.back();
+        stack.pop_back();
+        _identL[id] = start;
+        _identR[id] = start + size[id] * gap - 1;
+        uint64_t next = start + 1;
+        for (ident_t child : children[id]) {
+            stack.push_back({child, next});
+            next += size[child] * gap;
+        }
+        _identNextFree[id] = next;
+    }
+    ++_relabelCount;
 }

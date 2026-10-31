@@ -472,6 +472,21 @@ public:
         ) );
     }
 
+    void visit(Logical::BranchAggregation & op) override
+    {
+        std::vector<physical_expression_op_t> predicates;
+        for (auto & predicate : op._predicates) {
+            ExpressionTranslator translator(*predicate);
+            predicates.push_back(translator.getResult());
+        }
+
+        _translated.push( std::make_unique<Physical::BranchAggregation>(
+            op,
+            std::move(predicates),
+            _queryContext
+        ) );
+    }
+
 };
 
 std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Operator & resultOperator, QueryContext &queryContext)

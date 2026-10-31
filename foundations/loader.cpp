@@ -1,7 +1,7 @@
 #include "loader.hpp"
 
 #include <fstream>
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
 #include "foundations/Database.hpp"
@@ -91,8 +91,8 @@ llvm::Function * genLoadRowFunction(Table & table)
         llvm::Value * lengthPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 0);
         llvm::Value * strPtr = codeGen->CreateStructGEP(rowItemTy, itemPtr, 1);
 
-        llvm::Value * length = codeGen->CreateLoad(lengthPtr);
-        llvm::Value * str = codeGen->CreateLoad(strPtr);
+        llvm::Value * length = codeGen->CreateLoad(llvm::cast<llvm::StructType>(rowItemTy)->getElementType(0), lengthPtr);
+        llvm::Value * str = codeGen->CreateLoad(llvm::cast<llvm::StructType>(rowItemTy)->getElementType(1), strPtr);
 
         genLoadValue(cg_ptr8_t(str), cg_size_t(length), ci->type, *ci->column);
 

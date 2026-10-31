@@ -370,6 +370,78 @@ void TableScan::computeRequired()
     required.insert(expected.begin(), expected.end());
 }
 //-----------------------------------------------------------------------------
+// BranchAggregation operator
+
+BranchAggregation::Strategy BranchAggregation::_strategy = Strategy::Shared;
+
+BranchAggregation::BranchAggregation(IUFactory &iuFactory, Table & table, std::vector<branch_id_t> branches) :
+        NullaryOperator(iuFactory),
+        _table(table),
+        _branches(std::move(branches))
+{ }
+
+void BranchAggregation::accept(OperatorVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+iu_p_t BranchAggregation::getColumnIU(const std::string & columnName)
+{
+    auto it = _columnIUs.find(columnName);
+    if (it != _columnIUs.end()) {
+        return it->second;
+    }
+    iu_p_t iu = _iuFactory.createIU(getUID(), _table.getCI(columnName));
+    _columnIUs[columnName] = iu;
+    return iu;
+}
+
+iu_p_t BranchAggregation::addBranchOutput()
+{
+    if (_branchIU == nullptr) {
+        _branchIU = _iuFactory.createIU(Sql::getTextTy(false));
+    }
+    return _branchIU;
+}
+
+iu_p_t BranchAggregation::addAggregate(Function function, iu_p_t input)
+{
+    // counts and sums of integers are 64-bit numerics without fractional digits (results cannot
+    // hold long integers); the other aggregates keep the type of their input
+    Sql::SqlType type = Sql::getNumericFullLengthTy(0, false);
+    const auto inputType = (input != nullptr) ? input->sqlType.typeID : Sql::SqlType::TypeID::UnknownID;
+    if (function != Function::Count && inputType != Sql::SqlType::TypeID::LongIntegerID &&
+        !(function == Function::Sum && inputType == Sql::SqlType::TypeID::IntegerID)) {
+        type = Sql::toNotNullableTy(input->sqlType);
+    }
+    iu_p_t produced = _iuFactory.createIU(type);
+    _aggregates.push_back({function, input, produced});
+    return produced;
+}
+
+void BranchAggregation::addPredicate(logical_exp_op_t predicate)
+{
+    _predicates.push_back(std::move(predicate));
+}
+
+void BranchAggregation::computeProduced()
+{
+    produced.clear();
+    if (_branchIU != nullptr) {
+        produced.insert(_branchIU);
+    }
+    for (auto & aggregate : _aggregates) {
+        produced.insert(aggregate.produced);
+    }
+}
+
+void BranchAggregation::computeRequired()
+{
+    // the scanned columns are read by the operator itself
+    required.clear();
+}
+
+//-----------------------------------------------------------------------------
 // Delete operator
 
 Delete::Delete(std::unique_ptr<Operator> child, iu_p_t &tidIU, Table & table, branch_id_t branchId) :
@@ -639,6 +711,11 @@ struct Verifier : public OperatorVisitor {
     }
 
     void visit(TableScan & op) override
+    {
+        // NOP
+    }
+
+    void visit(BranchAggregation & op) override
     {
         // NOP
     }

@@ -19,6 +19,15 @@ public:
 
 #if USE_DATA_VERSIONING
     void produce(cg_tid_t tid, branch_id_t branchId);
+
+    /// What the workers of a parallel scan share; owned by the execution context
+    struct ParallelState : public ExecutionResource {
+        Table * table;
+        branch_id_t branch;
+        size_t tuples;
+        uint64_t label = 0;                                                      // interval visibility
+        const std::unordered_map<branch_id_t, branch_id_t> * lineage = nullptr;  // otherwise; set at run time
+    };
 #else
     void produce(cg_tid_t tid);
 #endif
@@ -27,6 +36,14 @@ private:
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, Sql::value_op_t>;
 
     cg_voidptr_t genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId);
+    llvm::Value * genChainWalkCall(cg_tid_t tid, branch_id_t branchId);
+
+#if USE_DATA_VERSIONING
+    /// The scan runs morsel-driven if only selections lie between it and the result
+    bool isParallelPipeline();
+    void produceParallel();
+    ParallelState * _parallel = nullptr;
+#endif
     cg_bool_t nullPointerCheck(cg_voidptr_t &pointer);
     llvm::Value *tupleToElemPtr(cg_voidptr_t &ptr, column_t &column);
 

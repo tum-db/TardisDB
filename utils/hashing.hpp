@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <tuple>
 
 using hash_t = uint64_t;

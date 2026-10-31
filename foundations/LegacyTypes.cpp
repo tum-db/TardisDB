@@ -1,7 +1,7 @@
 #include "foundations/LegacyTypes.hpp"
 //---------------------------------------------------------------------------
 #include <ctime>
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 //---------------------------------------------------------------------------
 // HyPer
 // (c) Thomas Neumann 2010

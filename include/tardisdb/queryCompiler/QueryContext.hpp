@@ -23,6 +23,9 @@ struct QueryContext {
 
     ExecutionContext executionContext;
     semanticalAnalysis::AnalyzingContext analyzingContext;
+
+    /// set while code is generated into a morsel function that several workers run
+    bool parallelPipeline = false;
 #if USE_HYRISE
     hsql::SQLParserResult hyriseResult;
 

@@ -8,6 +8,7 @@ set(ENABLE_PERFBENCHMARKING false)
 set(USE_DATA_VERSIONING true)
 set(USE_HYRISE false)
 set(TUPLE_STREAM_REQUIRED true)
+option(INTERVAL_VISIBILITY "decide version visibility with interval labels of branch identifiers instead of the lineage map" OFF)
 
 ### common flags
 # TODO add -Wall -Wextra
@@ -26,12 +27,14 @@ INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIRS} )
 ##################
 ### llvm #########
 ##################
-if(APPLE)
-	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt/llvm@7)
-	find_package(LLVM 7.1 REQUIRED CONFIG)
-else(NOT APPLE)
-	find_package(LLVM 7 REQUIRED CONFIG)
-endif(APPLE)
+# LLVM 7 is the original target; newer versions work through codegen/LLVMCompat.hpp (tested: 18)
+set(TARDISDB_LLVM_VERSION 7 CACHE STRING "major version of LLVM to build against")
+find_package(LLVM REQUIRED CONFIG HINTS
+		/usr/lib/llvm-${TARDISDB_LLVM_VERSION}/lib/cmake/llvm
+		/usr/local/opt/llvm@${TARDISDB_LLVM_VERSION}/lib/cmake/llvm)
+if(NOT LLVM_VERSION_MAJOR EQUAL TARDISDB_LLVM_VERSION)
+	message(FATAL_ERROR "found LLVM ${LLVM_PACKAGE_VERSION}, but TARDISDB_LLVM_VERSION is ${TARDISDB_LLVM_VERSION}")
+endif()
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 llvm_map_components_to_libnames(LLVM_LIBS
@@ -107,6 +110,8 @@ target_link_libraries(server dblib queryCompiler queryExecutor pistache pthread)
 ##################
 ### benchmark ####
 ##################
+add_executable(branchBench benchmark/branchBench.cpp)
+target_link_libraries(branchBench dblib queryCompiler queryExecutor gflags pthread)
 add_executable(semanticalBench benchmark/semanticalBench.cpp)
 target_link_libraries(semanticalBench dblib queryCompiler queryExecutor gflags pthread)
 if(LIBXML_AVAILABLE)
@@ -184,6 +189,9 @@ if(USE_DATA_VERSIONING)
 	target_compile_definitions(dblib PUBLIC -D USE_DATA_VERSIONING=true)
 endif(USE_DATA_VERSIONING)
 target_link_libraries(dblib semanticalAnalyser LLVM dl)
+if(INTERVAL_VISIBILITY)
+	target_compile_definitions(dblib PUBLIC -D INTERVAL_VISIBILITY=1)
+endif(INTERVAL_VISIBILITY)
 if(USE_HYRISE)
 	target_compile_definitions(dblib PUBLIC -D USE_HYRISE=true)
 	target_link_libraries(dblib hyriselib)

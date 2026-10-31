@@ -579,6 +579,11 @@ namespace tardisParser {
             case State::SelectProjectionAttrSeparator:
                 if (token.equalsControlSymbol(controlSymbols::star)) {
                     context.state = State::SelectProjectionStar;
+                } else if (token.equalsKeyword(Keyword::Branch)) {
+                    // the branch in which a tuple is visible
+                    context.selectStmt->projections.push_back(Column());
+                    context.selectStmt->projections.back().name = Keyword::Branch;
+                    context.state = SelectProjectionAttrName;
                 } else if (token.type == Type::identifier) {
                     BindingAttribute columnBinding = parse_binding_attribute(token.value);
                     context.selectStmt->projections.push_back(Column());
@@ -601,8 +606,41 @@ namespace tardisParser {
                     context.state = State::SelectFrom;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectProjectionAttrSeparator;
+                } else if (token.equalsControlSymbol(controlSymbols::openBracket) &&
+                           context.selectStmt->projections.back().aggregate.empty() &&
+                           context.selectStmt->projections.back().table.empty()) {
+                    // the identifier was the name of an aggregate function
+                    Column &column = context.selectStmt->projections.back();
+                    std::string function;
+                    std::transform(column.name.begin(), column.name.end(), std::back_inserter(function), ::tolower);
+                    if (function != "count" && function != "sum" && function != "min" && function != "max" && function != "avg") {
+                        throw syntactical_error("Unknown aggregate function '" + column.name + "'");
+                    }
+                    column.aggregate = function;
+                    column.name = "";
+                    context.state = State::SelectProjectionAggBegin;
                 } else {
                     throw syntactical_error("Expected ',' or 'FROM', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectProjectionAggBegin:
+                if (token.equalsControlSymbol(controlSymbols::star) && context.selectStmt->projections.back().aggregate == "count") {
+                    context.selectStmt->projections.back().name = "*";
+                    context.state = State::SelectProjectionAggArg;
+                } else if (token.type == Type::identifier) {
+                    BindingAttribute columnBinding = parse_binding_attribute(token.value);
+                    context.selectStmt->projections.back().name = columnBinding.second;
+                    context.selectStmt->projections.back().table = columnBinding.first;
+                    context.state = State::SelectProjectionAggArg;
+                } else {
+                    throw syntactical_error("Expected column name, found '" + token.value + "'");
+                }
+                break;
+            case State::SelectProjectionAggArg:
+                if (token.equalsControlSymbol(controlSymbols::closeBracket)) {
+                    context.state = State::SelectProjectionAttrName;
+                } else {
+                    throw syntactical_error("Expected ')', found '" + token.value + "'");
                 }
                 break;
             case SelectFrom:
@@ -627,6 +665,8 @@ namespace tardisParser {
                     context.state = State::SelectFromBindingName;
                 } else if (token.equalsKeyword(Keyword::Where)) {
                     context.state = State::SelectWhere;
+                } else if (token.equalsKeyword(Keyword::Group)) {
+                    context.state = State::SelectGroup;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectFromSeparator;
                 } else {
@@ -637,6 +677,64 @@ namespace tardisParser {
                 if (token.type == Type::identifier) {
                     context.selectStmt->relations.back().version = token.value;
                     context.state = SelectFromTag;
+                } else if (token.equalsControlSymbol(controlSymbols::openBracket)) {
+                    // VERSION ( b1 , b2 , ... )
+                    context.selectStmt->relations.back().versionScope = "set";
+                    context.state = SelectFromVersionSetBegin;
+                } else if (token.equalsKeyword(Keyword::All)) {
+                    // VERSION ALL [ DESCENDANTS | LEAVES OF b ]
+                    context.selectStmt->relations.back().versionScope = "all";
+                    context.state = SelectFromVersionAll;
+                } else {
+                    throw syntactical_error("Expected version name, '(' or 'ALL', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectFromVersionSetBegin:
+            case State::SelectFromVersionSetSeparator:
+                if (token.type == Type::identifier) {
+                    context.selectStmt->relations.back().versionSet.push_back(token.value);
+                    context.state = SelectFromVersionSetName;
+                } else {
+                    throw syntactical_error("Expected version name, found '" + token.value + "'");
+                }
+                break;
+            case State::SelectFromVersionSetName:
+                if (token.equalsControlSymbol(controlSymbols::separator)) {
+                    context.state = SelectFromVersionSetSeparator;
+                } else if (token.equalsControlSymbol(controlSymbols::closeBracket)) {
+                    context.state = SelectFromTag;
+                } else {
+                    throw syntactical_error("Expected ',' or ')', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectFromVersionAll:
+                if (token.equalsKeyword(Keyword::Descendants) || token.equalsKeyword(Keyword::Leaves)) {
+                    std::string scope;
+                    std::transform(token.value.begin(), token.value.end(), std::back_inserter(scope), ::tolower);
+                    context.selectStmt->relations.back().versionScope = scope;
+                    context.state = SelectFromVersionAllScope;
+                } else if (token.equalsKeyword(Keyword::Where)) {
+                    context.state = State::SelectWhere;
+                } else if (token.equalsKeyword(Keyword::Group)) {
+                    context.state = State::SelectGroup;
+                } else if (token.type == Type::identifier) {
+                    context.selectStmt->relations.back().alias = token.value;
+                    context.state = State::SelectFromBindingName;
+                } else {
+                    throw syntactical_error("Expected 'DESCENDANTS', 'LEAVES', binding name, 'WHERE' or 'GROUP', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectFromVersionAllScope:
+                if (token.equalsKeyword(Keyword::Of)) {
+                    context.state = SelectFromVersionAllOf;
+                } else {
+                    throw syntactical_error("Expected 'OF', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectFromVersionAllOf:
+                if (token.type == Type::identifier) {
+                    context.selectStmt->relations.back().version = token.value;
+                    context.state = SelectFromTag;
                 } else {
                     throw syntactical_error("Expected version name, found '" + token.value + "'");
                 }
@@ -644,6 +742,8 @@ namespace tardisParser {
             case State::SelectFromTag:
                 if (token.equalsKeyword(Keyword::Where)) {
                     context.state = State::SelectWhere;
+                } else if (token.equalsKeyword(Keyword::Group)) {
+                    context.state = State::SelectGroup;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectFromSeparator;
                 } else if (token.type == Type::identifier) {
@@ -656,6 +756,8 @@ namespace tardisParser {
             case State::SelectFromBindingName:
                 if (token.equalsKeyword(Keyword::Where)) {
                     context.state = State::SelectWhere;
+                } else if (token.equalsKeyword(Keyword::Group)) {
+                    context.state = State::SelectGroup;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectFromSeparator;
                 } else {
@@ -699,8 +801,40 @@ namespace tardisParser {
             case State::SelectWhereExprRhs:
                 if (token.equalsKeyword(Keyword::And)) {
                     context.state = State::SelectWhereAnd;
+                } else if (token.equalsKeyword(Keyword::Group)) {
+                    context.state = State::SelectGroup;
                 } else {
-                    throw syntactical_error("Expected 'AND', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'AND' or 'GROUP', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectGroup:
+                if (token.equalsKeyword(Keyword::By)) {
+                    context.state = State::SelectGroupBy;
+                } else {
+                    throw syntactical_error("Expected 'BY', found '" + token.value + "'");
+                }
+                break;
+            case State::SelectGroupBy:
+            case State::SelectGroupBySeparator:
+                if (token.equalsKeyword(Keyword::Branch)) {
+                    context.selectStmt->groupBy.push_back(Column());
+                    context.selectStmt->groupBy.back().name = Keyword::Branch;
+                    context.state = State::SelectGroupByName;
+                } else if (token.type == Type::identifier) {
+                    BindingAttribute columnBinding = parse_binding_attribute(token.value);
+                    context.selectStmt->groupBy.push_back(Column());
+                    context.selectStmt->groupBy.back().name = columnBinding.second;
+                    context.selectStmt->groupBy.back().table = columnBinding.first;
+                    context.state = State::SelectGroupByName;
+                } else {
+                    throw syntactical_error("Expected 'BRANCH' or column name, found '" + token.value + "'");
+                }
+                break;
+            case State::SelectGroupByName:
+                if (token.equalsControlSymbol(controlSymbols::separator)) {
+                    context.state = State::SelectGroupBySeparator;
+                } else {
+                    throw syntactical_error("Expected ',', found '" + token.value + "'");
                 }
                 break;
             default:

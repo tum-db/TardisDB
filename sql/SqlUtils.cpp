@@ -1,6 +1,6 @@
 #include "sql/SqlUtils.hpp"
 
-#include <llvm/IR/TypeBuilder.h>
+#include "codegen/LLVMCompat.hpp"
 
 #include "foundations/LegacyTypes.hpp"
 #include "sql/SqlValues.hpp"

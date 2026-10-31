@@ -10,6 +10,10 @@ namespace semanticalAnalysis {
         Database &db = _context.db;
         SelectStatement* stmt = _context.parserResult.selectStmt;
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+        if (isBranchQuery(stmt)) {
+            verifyBranchQuery();
+            return;
+        }
 
         std::set<std::string> unbindedColumns;
         std::set<std::string> relations;
@@ -87,6 +91,10 @@ namespace semanticalAnalysis {
 //TODO: Check physical tree projections do not work after joining
     void SelectAnalyser::constructTree() {
         SelectStatement *stmt = _context.parserResult.selectStmt;
+        if (isBranchQuery(stmt)) {
+            constructBranchQuery();
+            return;
+        }
 
         construct_scans(_context, stmt->relations);
         construct_selects(_context, stmt->selections);
@@ -114,6 +122,140 @@ namespace semanticalAnalysis {
         }
 
         _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
+    }
+
+    bool SelectAnalyser::isBranchQuery(SelectStatement *stmt) {
+        for (auto &column : stmt->projections) {
+            if (!column.aggregate.empty() || (column.table.empty() && column.name == "branch")) return true;
+        }
+        for (auto &relation : stmt->relations) {
+            if (!relation.versionScope.empty()) return true;
+        }
+        return !stmt->groupBy.empty();
+    }
+
+    std::vector<branch_id_t> SelectAnalyser::resolveBranches(Database &db, Relation &relation) {
+        auto lookup = [&](const std::string &name) {
+            auto it = db._branchMapping.find(name);
+            if (it == db._branchMapping.end()) throw semantic_sql_error("version '" + name + "' does not exist");
+            return it->second;
+        };
+        std::vector<branch_id_t> branches;
+        if (relation.versionScope.empty()) {
+            branches.push_back(lookup(relation.version));
+        } else if (relation.versionScope == "set") {
+            for (auto &name : relation.versionSet) {
+                branch_id_t branch = lookup(name);
+                if (std::find(branches.begin(), branches.end(), branch) == branches.end()) branches.push_back(branch);
+            }
+        } else {
+            const branch_id_t root = lookup(relation.version);
+            std::set<branch_id_t> parents;
+            for (auto &[id, branch] : db._branches) parents.insert(branch->parent_id);
+            for (auto &[id, branch] : db._branches) {
+                bool selected = (relation.versionScope == "all");
+                if (!selected) {
+                    // a descendant of the root, without the root itself
+                    for (branch_id_t b = branch->parent_id; b != invalid_branch_id; b = db._branches.at(b)->parent_id) {
+                        if (b == root) { selected = true; break; }
+                    }
+                    if (relation.versionScope == "leaves" && parents.count(id) > 0) selected = false;
+                }
+                if (selected) branches.push_back(id);
+            }
+            std::sort(branches.begin(), branches.end());
+        }
+        if (branches.empty()) throw semantic_sql_error("no branch matches the version of '" + relation.name + "'");
+        return branches;
+    }
+
+    void SelectAnalyser::verifyBranchQuery() {
+        Database &db = _context.db;
+        SelectStatement *stmt = _context.parserResult.selectStmt;
+        if (stmt->relations.size() != 1 || !stmt->joinConditions.empty())
+            throw semantic_sql_error("queries over several branches read exactly one table");
+        Relation &relation = stmt->relations.front();
+        if (!db.hasTable(relation.name)) throw semantic_sql_error("table '" + relation.name + "' does not exist");
+        Table *table = db.getTable(relation.name);
+        const size_t branchCount = resolveBranches(db, relation).size();
+
+        auto checkColumn = [&](const Column &column) {
+            if (!column.table.empty() && column.table != relation.name && column.table != relation.alias)
+                throw semantic_sql_error("binding '" + column.table + "' is not specified");
+            const auto columnNames = table->getColumnNames();
+            if (std::find(columnNames.begin(), columnNames.end(), column.name) == columnNames.end())
+                throw semantic_sql_error("column '" + column.name + "' is not specified");
+            ci_p_t ci = table->getCI(column.name);
+            if (ci->type.nullable) throw semantic_sql_error("column '" + column.name + "' is nullable, which queries over several branches do not support yet");
+            return ci;
+        };
+
+        bool groupByBranch = false;
+        for (auto &column : stmt->groupBy) {
+            if (!column.table.empty() || column.name != "branch")
+                throw semantic_sql_error("only GROUP BY branch is supported");
+            groupByBranch = true;
+        }
+        bool projectsBranch = false;
+        bool aggregates = false;
+        for (auto &column : stmt->projections) {
+            if (column.aggregate.empty()) {
+                if (!column.table.empty() || column.name != "branch")
+                    throw semantic_sql_error("column '" + column.name + "' must be aggregated, since only GROUP BY branch is supported");
+                projectsBranch = true;
+                continue;
+            }
+            aggregates = true;
+            if (column.name == "*") continue;
+            ci_p_t ci = checkColumn(column);
+            auto type = ci->type.typeID;
+            if (column.aggregate != "count" && type != Sql::SqlType::TypeID::IntegerID &&
+                type != Sql::SqlType::TypeID::LongIntegerID && type != Sql::SqlType::TypeID::NumericID)
+                throw semantic_sql_error(column.aggregate + "(" + column.name + ") needs a numeric column");
+        }
+        if (stmt->projections.empty()) throw semantic_sql_error("queries over several branches need aggregates or GROUP BY branch, not *");
+        if (projectsBranch && !groupByBranch) throw semantic_sql_error("column 'branch' must appear in GROUP BY");
+        if (!aggregates && !groupByBranch) throw semantic_sql_error("queries over several branches need aggregates or GROUP BY branch");
+        if (branchCount > 1 && !groupByBranch) throw semantic_sql_error("aggregates over several branches need GROUP BY branch");
+        for (auto &selection : stmt->selections) checkColumn(selection.first);
+    }
+
+    void SelectAnalyser::constructBranchQuery() {
+        Database &db = _context.db;
+        SelectStatement *stmt = _context.parserResult.selectStmt;
+        Relation &relation = stmt->relations.front();
+        Table *table = db.getTable(relation.name);
+
+        std::vector<branch_id_t> branches = resolveBranches(db, relation);
+        _context.branchIds.insert(branches.begin(), branches.end());
+        auto aggregation = std::make_unique<BranchAggregation>(_context.iuFactory, *table, branches);
+
+        std::vector<iu_p_t> projectedIUs;
+        for (auto &column : stmt->projections) {
+            if (column.aggregate.empty()) {
+                projectedIUs.push_back(aggregation->addBranchOutput());
+                continue;
+            }
+            BranchAggregation::Function function = BranchAggregation::Function::Count;
+            if (column.aggregate == "sum") function = BranchAggregation::Function::Sum;
+            else if (column.aggregate == "min") function = BranchAggregation::Function::Min;
+            else if (column.aggregate == "max") function = BranchAggregation::Function::Max;
+            else if (column.aggregate == "avg") function = BranchAggregation::Function::Avg;
+            // count(x) of a column without nulls counts the tuples
+            iu_p_t input = (function == BranchAggregation::Function::Count) ? nullptr : aggregation->getColumnIU(column.name);
+            projectedIUs.push_back(aggregation->addAggregate(function, input));
+        }
+
+        for (auto &[column, valueString] : stmt->selections) {
+            iu_p_t iu = aggregation->getColumnIU(column.name);
+            aggregation->addPredicate(std::make_unique<Expressions::Comparison>(
+                    Expressions::ComparisonMode::eq,
+                    std::make_unique<Expressions::Identifier>(iu),
+                    std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type)
+            ));
+        }
+
+        _context.joinedTree = std::make_unique<Result>(std::move(aggregation), projectedIUs);
     }
 
     void SelectAnalyser::construct_join_graph(AnalyzingContext & context, SelectStatement *stmt) {
