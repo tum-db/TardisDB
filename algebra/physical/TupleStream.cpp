@@ -36,7 +36,7 @@ namespace Algebra {
             auto counter = std::make_unique<CounterResource>();
             tupleCount = &counter->value;
             _context.executionContext.acquireResource(std::move(counter));
-            _codeGen->CreateStore(cg_size_t(0ul), cg_ptr8_t::fromRawPointer(tupleCount));
+            _codeGen->CreateStore(cg_size_t(0ul), _codeGen->CreatePointerCast(cg_ptr8_t::fromRawPointer(tupleCount), llvm::PointerType::getUnqual(cg_size_t::getType())));
 
             child->produce();
         }

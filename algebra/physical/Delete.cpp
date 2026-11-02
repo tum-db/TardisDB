@@ -61,7 +61,7 @@ namespace Algebra {
         }
 
         void Delete::genDeleteCall(void* funcPtr, cg_size_t tid) {
-            llvm::FunctionType * funcDeleteTupleTy = llvm::TypeBuilder<void (size_t, void *, void *), false>::get(_codeGen.getLLVMContext());
+            llvm::FunctionType * funcDeleteTupleTy = llvm::TypeBuilder<void (size_t, branch_id_t, void *, void *), false>::get(_codeGen.getLLVMContext());
             llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "delete_tuple_with_branchId", funcDeleteTupleTy);
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,funcPtr);
             _codeGen->CreateCall(func, {tid, cg_u32_t(branchId), cg_ptr8_t::fromRawPointer(&table), _codeGen.getCurrentFunctionGen().getArg(1)});

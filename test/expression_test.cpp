@@ -281,7 +281,8 @@ static llvm::Function *genIntegerOverflowTestFunc() {
     auto &llvmContext = codeGen.getLLVMContext();
     auto &moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType *funcTy = llvm::TypeBuilder<void(), false>::get(llvmContext);
+    // returns whether the addition overflowed
+    llvm::FunctionType *funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(llvmContext), false);
     FunctionGen funcGen(moduleGen, "integerOverflowTest", funcTy);
 
     iu_value_mapping_t emptyMapping;

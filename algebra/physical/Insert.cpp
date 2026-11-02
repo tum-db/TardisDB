@@ -47,7 +47,7 @@ namespace Algebra {
         }
 
         void Insert::genInsertCall(void *funcPtr) {
-            llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, void *), false>::get(_codeGen.getLLVMContext());
+            llvm::FunctionType * funcTy = llvm::TypeBuilder<tid_t (void *, void *, void *, branch_id_t), false>::get(_codeGen.getLLVMContext());
             llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "insert_tuple_with_binding", funcTy);
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,funcPtr);
             // call insert for every single tuple

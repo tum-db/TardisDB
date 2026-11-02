@@ -33,7 +33,7 @@ llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType 
 
     // intrinsic lookup
     llvm::Function * fun = llvm::Intrinsic::getDeclaration(&module,
-        opIntrinsic, { lhs->getType(), rhs->getType() });
+        opIntrinsic, { lhs->getType() }); // overloaded on the type of the operands
     assert(fun);
 
     // performe the binary operation
@@ -350,12 +350,19 @@ value_op_t sqlDiv(const Value & outerLhs, const Value & outerRhs)
         llvm::Value * zero = codeGen->getIntN( raw->getType()->getPrimitiveSizeInBits(), 0 );
         cg_bool_t isZero( codeGen->CreateICmpEQ(raw, zero) );
 
-        IfGen zeroCheck(isZero);
-        {
-            Functions::genPrintfCall("division by zero\n");
+        // a division by zero ends the generated function; the return needs a block of its own
+        llvm::Function * function = codeGen->GetInsertBlock()->getParent();
+        llvm::BasicBlock * zeroBlock = llvm::BasicBlock::Create(codeGen.getLLVMContext(), "division_by_zero", function);
+        llvm::BasicBlock * nonZeroBlock = llvm::BasicBlock::Create(codeGen.getLLVMContext(), "divisor_not_zero", function);
+        codeGen->CreateCondBr(isZero.llvmValue, zeroBlock, nonZeroBlock);
+        codeGen->SetInsertPoint(zeroBlock);
+        Functions::genPrintfCall("division by zero\n");
+        if (function->getReturnType()->isVoidTy()) {
             codeGen->CreateRetVoid();
+        } else {
+            codeGen->CreateRet(llvm::Constant::getNullValue(function->getReturnType()));
         }
-        zeroCheck.EndIf();
+        codeGen->SetInsertPoint(nonZeroBlock);
 
         // only values with the same type can be added
         if (lhs.type.typeID == TypeID::IntegerID && rhs.type.typeID == TypeID::IntegerID) {
@@ -619,27 +626,23 @@ value_op_t sqlNot(const Value & value)
     return Utils::nullHandler(action, value, value.type);
 }
 
+        // overflowFlag is a bool: one byte, accessed as i8
+        static llvm::Value * overflowFlagPtr()
+        {
+            auto & codeGen = getThreadLocalCodeGen();
+            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
+            return codeGen->CreateIntToPtr(ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), 8));
+        }
+
         void genOverflowException()
         {
             auto & codeGen = getThreadLocalCodeGen();
-
-            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
-            llvm::Value * ptrVal = codeGen->CreateIntToPtr(
-                    ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
-            llvm::Value * value = codeGen->getInt1(true);
-            codeGen->CreateStore(value, ptrVal);
+            codeGen->CreateStore(codeGen->getInt8(1), overflowFlagPtr());
         }
 
         void genOverflowEvaluation()
         {
-            auto & codeGen = getThreadLocalCodeGen();
-
-            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
-            llvm::Value * ptrVal = codeGen->CreateIntToPtr(
-                    ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
-            llvm::Value * obit = codeGen->CreateLoad(codeGen->getIntNTy(TypeWrappers::ptrBitSize), ptrVal);
-
-            IfGen overflowCheck(obit);
+            IfGen overflowCheck(genEvaluateOverflow());
             {
                 Functions::genPrintfCall("numerical overflow\n");
             }
@@ -649,14 +652,8 @@ value_op_t sqlNot(const Value & value)
         cg_bool_t genEvaluateOverflow()
         {
             auto & codeGen = getThreadLocalCodeGen();
-
-            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
-            llvm::Value * ptrVal = codeGen->CreateIntToPtr(
-                    ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), TypeWrappers::ptrBitSize) );
-
-            Sql::value_op_t boolResult = Sql::LongInteger::load(ptrVal);
-
-            return boolResult->equals(*Sql::LongInteger::castString("1"));
+            llvm::Value * flag = codeGen->CreateLoad(codeGen->getInt8Ty(), overflowFlagPtr());
+            return cg_bool_t(codeGen->CreateICmpNE(flag, codeGen->getInt8(0)));
         }
 
 } // end namespace Operators
