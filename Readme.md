@@ -18,6 +18,12 @@ make
 Remember to put a directory named `tables` with the database data inside the build directory.
 Invoke the llvm-prototype executable without any additional arguments.
 
+## SQL shell:
+`sql` starts an empty in-memory database with an interactive prompt; `sql FILE...` executes the files and quits.
+Statements end with `;` and may span several lines. The arrow keys scroll through earlier statements,
+which are kept in `~/.tardisdb_history`. `\?` lists the backslash commands: `\q` (quit), `\i FILE`
+(execute a file), `\d` and `\d TABLE` (tables and their columns), `\b` (branches) and `\timing`.
+
 ## Using Schemas:
 The default SQL Schema, namely `schema.sql`, resides inside the 'schemas' directory.
 This file will be treated like any other source file,
