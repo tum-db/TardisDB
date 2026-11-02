@@ -120,12 +120,12 @@ static cg_bool_t isSet_gen(BitmapTable & table, cg_tid_t tid, cg_unsigned_t colu
     cg_ptr8_t tablePtr = cg_ptr8_t::fromRawPointer(table.data());
 
     // section index within the row
-    cg_size_t sectionIndex( codeGen->CreateLShr(column, 3) );
+    cg_size_t sectionIndex( codeGen->CreateZExt(codeGen->CreateLShr(column, 3), cg_size_t::getType()) );
 
     cg_size_t bytesPerRow = table.getRowSize();
     cg_size_t offset = tid * bytesPerRow;
 
-    llvm::Value * indicatorIndex = codeGen->CreateAnd(column, cg_unsigned_t(7));
+    llvm::Value * indicatorIndex = codeGen->CreateTrunc(codeGen->CreateAnd(column, cg_unsigned_t(7)), cg_u8_t::getType());
     cg_size_t byteIndex = sectionIndex + offset;
 
     // calculate section
@@ -141,9 +141,211 @@ cg_bool_t genNullIndicatorLoad(BitmapTable & table, cg_tid_t tid, cg_unsigned_t 
     return isSet_gen(table, tid, column);
 }
 
-cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_id_t branchId)
+//-----------------------------------------------------------------------------
+// BranchMembership
+
+BranchMembership::BranchMembership() : _bitmap(8) { }
+
+void BranchMembership::addBranch(branch_id_t branch, branch_id_t parent)
 {
-    return isSet_gen(branchBitmap, tid, branchId);
+#if LAZY_MEMBERSHIP
+    _branches += 1;
+#else
+    assert(_bitmap.getColumnCount() == branch);
+    if (parent == invalid_branch_id) {
+        _bitmap.addColumn();
+    } else {
+        _bitmap.cloneColumn(parent);
+    }
+#endif
+}
+
+void BranchMembership::removeBranch(branch_id_t branch)
+{
+#if LAZY_MEMBERSHIP
+    _branches -= 1;
+#else
+    for (tid_t tid = 0, rows = size(); tid < rows; ++tid) {
+        _bitmap.set(tid, branch, false);
+    }
+#endif
+}
+
+void BranchMembership::removeEntries(const std::vector<bool> & droppedIdents)
+{
+    for (auto it = _entries.begin(); it != _entries.end(); ) {
+        auto & entries = it->second;
+        entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const Entry & entry) {
+            return droppedIdents[entry.ident];
+        }), entries.end());
+        if (entries.empty()) {
+            _states[it->first] &= ~diverged;
+            it = _entries.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void BranchMembership::addRow(branch_id_t branch)
+{
+#if LAZY_MEMBERSHIP
+    _states.push_back(branch == master_branch_id ? (inRoot | inBranches) : inBranches);
+#else
+    _bitmap.addRow();
+    _bitmap.set(size() - 1, branch, true);
+#endif
+}
+
+size_t BranchMembership::size() const
+{
+#if LAZY_MEMBERSHIP
+    return _states.size();
+#else
+    return _bitmap.getColumnCount() == 0 ? 0 : _bitmap.size();
+#endif
+}
+
+bool BranchMembership::containsForLabel(tid_t tid, uint64_t label) const
+{
+    const uint8_t state = _states[tid];
+    if ((state & diverged) != 0) {
+        // the entry of the deepest identifier whose label contains the reader's
+        const Entry * newest = nullptr;
+        uint64_t newestL = 0;
+        for (const Entry & entry : _entries.at(tid)) {
+            const uint64_t l = _db->_identL[entry.ident];
+            if (l <= label && label <= _db->_identR[entry.ident] && (newest == nullptr || l > newestL)) {
+                newest = &entry;
+                newestL = l;
+            }
+        }
+        if (newest != nullptr) {
+            return newest->value;
+        }
+    }
+    return state & inBranches;
+}
+
+bool BranchMembership::contains(tid_t tid, branch_id_t branch) const
+{
+#if LAZY_MEMBERSHIP
+    if (branch == master_branch_id) {
+        return _states[tid] & inRoot;
+    }
+    return containsForLabel(tid, _db->_identL[_db->getIdent(branch)]);
+#else
+    return _bitmap.isSet(tid, branch);
+#endif
+}
+
+void BranchMembership::set(tid_t tid, branch_id_t branch, bool value)
+{
+#if LAZY_MEMBERSHIP
+    if (contains(tid, branch) == value) {
+        return;
+    }
+    if (branch == master_branch_id) {
+        _states[tid] = value ? (_states[tid] | inRoot) : (_states[tid] & ~inRoot);
+        if (_branches == 1) {
+            // there is no other branch (any more); those forked later start from the new value,
+            // and older entries, all of the root, would hide it
+            _states[tid] = value ? (_states[tid] | inBranches) : (_states[tid] & ~inBranches);
+            _states[tid] &= ~diverged;
+            _entries.erase(tid);
+            return;
+        }
+    }
+    // the entry of the identifier the branch writes with; branches forked earlier do not see it
+    const ident_t ident = _db->getIdent(branch);
+    auto & entries = _entries[tid];
+    auto it = std::find_if(entries.begin(), entries.end(), [&](const Entry & entry) { return entry.ident == ident; });
+    if (it != entries.end()) {
+        it->value = value;
+    } else {
+        entries.push_back({ident, value});
+    }
+    _states[tid] |= diverged;
+#else
+    _bitmap.set(tid, branch, value);
+#endif
+}
+
+size_t BranchMembership::bytes() const
+{
+#if LAZY_MEMBERSHIP
+    // buckets, and per tuple with entries a node with the key, the vector and a link
+    size_t bytes = _states.capacity() + _entries.bucket_count() * sizeof(void *) +
+                   _entries.size() * (sizeof(tid_t) + sizeof(std::vector<Entry>) + sizeof(void *));
+    for (auto & [tid, entries] : _entries) {
+        bytes += entries.capacity() * sizeof(Entry);
+    }
+    return bytes;
+#else
+    return size() * _bitmap.getRowSize();
+#endif
+}
+
+size_t BranchMembership::entries() const
+{
+    size_t count = 0;
+    for (auto & [tid, entries] : _entries) {
+        count += entries.size();
+    }
+    return count;
+}
+
+#if LAZY_MEMBERSHIP
+static size_t branch_membership_contains(void * membership, size_t tid, uint32_t branch)
+{
+    return static_cast<BranchMembership *>(membership)->contains(tid, branch);
+}
+
+static size_t branch_membership_contains_label(void * membership, size_t tid, uint64_t label)
+{
+    return static_cast<BranchMembership *>(membership)->containsForLabel(tid, label);
+}
+#endif
+
+cg_bool_t genMembershipTest(BranchMembership & membership, cg_tid_t tid, llvm::Value * branch, branch_id_t constantBranch)
+{
+#if LAZY_MEMBERSHIP
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+    llvm::Type * i8Ty = llvm::Type::getInt8Ty(context);
+    llvm::Type * i64Ty = llvm::Type::getInt64Ty(context);
+
+    // the states do not move while the query runs
+    cg_ptr8_t states = cg_ptr8_t::fromRawPointer(membership.states());
+    llvm::Value * state = codeGen->CreateLoad(i8Ty, codeGen->CreateGEP(i8Ty, states, tid.getValue()));
+    if (constantBranch == master_branch_id) {
+        return cg_bool_t(codeGen->CreateICmpNE(codeGen->CreateAnd(state, BranchMembership::inRoot), llvm::ConstantInt::get(i8Ty, 0)));
+    }
+    // a branch other than the root (branch may be the root if not known at compile time)
+    llvm::Value * isRoot = codeGen->CreateICmpEQ(branch, llvm::ConstantInt::get(branch->getType(), master_branch_id));
+    llvm::Value * bit = codeGen->CreateSelect(isRoot, llvm::ConstantInt::get(i8Ty, BranchMembership::inRoot), llvm::ConstantInt::get(i8Ty, BranchMembership::inBranches));
+    llvm::Value * member = codeGen->CreateZExt(codeGen->CreateICmpNE(codeGen->CreateAnd(state, bit), llvm::ConstantInt::get(i8Ty, 0)), i64Ty);
+    llvm::Value * isDiverged = codeGen->CreateICmpNE(codeGen->CreateAnd(state, BranchMembership::diverged), llvm::ConstantInt::get(i8Ty, 0));
+    IfGen slowPath(codeGen.getCurrentFunctionGen(), codeGen->CreateAnd(isDiverged, codeGen->CreateNot(isRoot)), {{"member", cg_size_t(member)}});
+    if (constantBranch != invalid_branch_id) {
+        // the label of the reader does not change while the query runs
+        const Database & db = *membership.getDatabase();
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<size_t (void *, size_t, uint64_t), false>::get(context);
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(codeGen.getCurrentModuleGen().getModule(), "branch_membership_contains_label", funcTy);
+        codeGen.getCurrentModuleGen().addFunctionMapping(func, (void *) &branch_membership_contains_label);
+        slowPath.setVar(0, codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(&membership).getValue(), tid.getValue(),
+                                                      cg_size_t(db._identL[db.getIdent(constantBranch)]).getValue()}));
+    } else {
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<size_t (void *, size_t, uint32_t), false>::get(context);
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(codeGen.getCurrentModuleGen().getModule(), "branch_membership_contains", funcTy);
+        codeGen.getCurrentModuleGen().addFunctionMapping(func, (void *) &branch_membership_contains);
+        slowPath.setVar(0, codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(&membership).getValue(), tid.getValue(), branch}));
+    }
+    slowPath.EndIf();
+    return cg_bool_t(codeGen->CreateICmpNE(slowPath.getResult(0), llvm::ConstantInt::get(i64Ty, 0)));
+#else
+    return isSet_gen(membership.bitmap(), tid, cg_unsigned_t(branch));
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -168,13 +370,14 @@ const std::vector<tid_t> * BranchIndex::lookup(uint64_t hash) const
 // Table
 
 Table::Table(Database & db) : _db(db) {
+    _membership.setDatabase(&db);
 
     //Create TID column information
     _tidColumn = std::make_unique<ColumnInformation>();
     _tidColumn->columnName = "tid";
     _tidColumn->type = Sql::getLongIntegerTy(false);
 
-    createBranch(invalid_branch_id);
+    createBranch(master_branch_id, invalid_branch_id);
 }
 
 Table::~Table()
@@ -229,8 +432,7 @@ void Table::addRow(branch_id_t branchId)
     }
 #if USE_DATA_VERSIONING
     _nullIndicatorTable.addRow();
-    _branchBitmap.addRow();
-    _branchBitmap.set(_columns.front().second->size() - 1,branchId,1);
+    _membership.addRow(branchId);
 #endif
 }
 
@@ -243,17 +445,12 @@ void Table::removeRow(tid_t tid) {
 }
 
 void Table::removeRowForBranch(tid_t tid, branch_id_t branchId) {
-    _branchBitmap.set(tid,branchId,0);
+    _membership.set(tid, branchId, false);
 }
 
-void Table::createBranch(branch_id_t parent)
+void Table::createBranch(branch_id_t branch, branch_id_t parent)
 {
-    if (parent == invalid_branch_id) {
-        _branchBitmap.addColumn();
-    } else {
-        _branchBitmap.cloneColumn(parent);
-    }
-
+    _membership.addBranch(branch, parent);
 }
 
 ci_p_t Table::getCI(const std::string & columnName) const
@@ -366,9 +563,13 @@ Database::Database() :
 Table & Database::createTable(const std::string & name) {
     auto [it, ok] = _tables.emplace(name, std::make_unique<Table>(*this));
     assert(ok);
-    // one bitmap column per branch identifier, including those of dropped branches
+    // one entry per branch identifier, including those of dropped branches; parents come first
     for (branch_id_t i = 1; i < _next_branch_id; i++) {
-        it->second->createBranch(invalid_branch_id);
+        auto branch = _branches.find(i);
+        it->second->createBranch(i, branch != _branches.end() ? branch->second->parent_id : invalid_branch_id);
+        if (branch == _branches.end()) {
+            it->second->getMembership().removeBranch(i);
+        }
     }
     return *it->second;
 }
@@ -389,10 +590,10 @@ branch_id_t Database::getLargestBranchId() const {
 }
 
 branch_id_t Database::createBranch(const std::string & name, branch_id_t parent) {
-    for (auto &[tablename,table] : _tables) {
-        table->createBranch(parent);
-    }
     branch_id_t branch_id = _next_branch_id++;
+    for (auto &[tablename,table] : _tables) {
+        table->createBranch(branch_id, parent);
+    }
     auto branch = std::make_unique<Branch>();
     branch->id = branch_id;
     branch->name = name;
@@ -403,8 +604,10 @@ branch_id_t Database::createBranch(const std::string & name, branch_id_t parent)
         // the parent continues under a new identifier, so that its later writes are not inherited
         ident_t old = _branches[parent]->ident;
         _branches[parent]->ident = newIdent(old);
+        _identBranch[_branches[parent]->ident] = parent;
         branch->ident = newIdent(old);
     }
+    _identBranch[branch->ident] = branch_id;
     _branches.insert({branch_id, std::move(branch)});
     _branchMapping[name] = branch_id;
     return branch_id;
@@ -427,13 +630,15 @@ std::vector<branch_id_t> Database::getSubtree(branch_id_t branch) const {
 }
 
 void Database::removeBranches(const std::vector<branch_id_t> & branches) {
+    std::vector<bool> droppedIdents(_identBranch.size(), false);
+    for (ident_t ident = 0; ident < _identBranch.size(); ++ident) {
+        droppedIdents[ident] = std::find(branches.begin(), branches.end(), _identBranch[ident]) != branches.end();
+    }
     for (auto & [name, table] : _tables) {
-        auto & bitmap = table->getBranchBitmap();
         for (branch_id_t branch : branches) {
-            for (tid_t tid = 0, size = table->size(); tid < size; ++tid) {
-                bitmap.set(tid, branch, false);
-            }
+            table->getMembership().removeBranch(branch);
         }
+        table->getMembership().removeEntries(droppedIdents);
         auto & indexes = table->_indexes;
         indexes.erase(std::remove_if(indexes.begin(), indexes.end(), [&](auto & index) {
             return std::find(branches.begin(), branches.end(), index->branch) != branches.end();
@@ -479,6 +684,7 @@ void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dst
 ident_t Database::newIdent(ident_t parent) {
     ident_t id = static_cast<ident_t>(_identParent.size());
     _identParent.push_back(parent);
+    _identBranch.push_back(invalid_branch_id); // set by createBranch()
     _identL.push_back(0);
     _identR.push_back(0);
     _identNextFree.push_back(0);

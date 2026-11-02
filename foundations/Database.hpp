@@ -63,6 +63,8 @@ public:
     /// \returns Bytes per row
     size_t getRowSize() const { return _data->getElementSize(); }
 
+    size_t size() const { return _data->size(); }
+
     void set(tid_t tid, unsigned column, bool value);
 
     bool isSet(tid_t tid, unsigned column) const;
@@ -80,7 +82,87 @@ private:
 /// \param columnAddr The raw address obtained through NullIndicatorColumn::data()
 cg_bool_t genNullIndicatorLoad(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column);
 
-cg_bool_t isVisibleInBranch(BitmapTable & branchBitmap, cg_tid_t tid, cg_branch_id_t branchId);
+//-----------------------------------------------------------------------------
+// BranchMembership
+
+class Database;
+
+/// Which tuples of a table belong to which branch; the version chain decides which version a
+/// member reads. Two implementations, chosen by the CMake option LAZY_MEMBERSHIP (the layout of
+/// the class does not depend on it):
+///
+/// Eager (TardisDB): one bitmap column per branch; a fork copies the column of its parent.
+///
+/// Lazy: a fork copies nothing. A change of membership (a delete, or an insert by a merge) is an
+/// entry (identifier, value) of the tuple, under the identifier the branch writes with. A fork
+/// gives the parent and the child new identifiers, so later changes of the parent do not reach the
+/// child, as for versions. A branch sees the entries of the ancestors of its identifier, and the
+/// newest of them, the one of the deepest identifier, decides; with interval labels, that is the
+/// containing label with the largest left end, independent of the depth. Inserts need no entry:
+/// the versions decide who sees an inserted tuple, so a branch contains the tuples others inserted,
+/// and scans skip members without a visible version. One byte per tuple holds the membership of the
+/// root and of the other branches without entries, and whether the tuple has entries, so that the
+/// compiled scan looks up entries only for the few tuples that were deleted somewhere.
+class BranchMembership {
+public:
+    static constexpr uint8_t inRoot = 1;     // the tuple belongs to the root branch
+    static constexpr uint8_t diverged = 2;   // the tuple has entries
+    static constexpr uint8_t inBranches = 4; // the tuple belongs to the other branches, unless entries say otherwise
+
+    BranchMembership();
+
+    void setDatabase(const Database * db) { _db = db; }
+    const Database * getDatabase() const { return _db; }
+
+    /// Adds a branch with the identifier that follows all others
+    void addBranch(branch_id_t branch, branch_id_t parent);
+
+    void removeBranch(branch_id_t branch);
+
+    /// Removes the entries of the identifiers of dropped branches
+    void removeEntries(const std::vector<bool> & droppedIdents);
+
+    /// Adds a tuple, which the branch has inserted
+    void addRow(branch_id_t branch);
+
+    bool contains(tid_t tid, branch_id_t branch) const;
+
+    /// As contains() for a branch other than the root with the given label
+    bool containsForLabel(tid_t tid, uint64_t label) const;
+
+    void set(tid_t tid, branch_id_t branch, bool value);
+
+    size_t size() const;
+
+    /// \returns The memory held by the membership structures
+    size_t bytes() const;
+
+    /// \returns The number of entries (lazy)
+    size_t entries() const;
+
+    /// Lazy: per tuple, inRoot | diverged | inBranches
+    const uint8_t * states() const { return _states.data(); }
+
+    /// Eager: one column per branch
+    BitmapTable & bitmap() { return _bitmap; }
+
+private:
+    struct Entry {
+        ident_t ident;
+        bool value;
+    };
+
+    const Database * _db = nullptr;
+    BitmapTable _bitmap;
+    std::vector<uint8_t> _states;
+    std::unordered_map<tid_t, std::vector<Entry>> _entries;
+    size_t _branches = 0;
+};
+
+/// \returns Whether the branch contains the tuple; branch is an i32 value, constantBranch its value
+/// if known at compile time
+cg_bool_t genMembershipTest(BranchMembership & membership, cg_tid_t tid, llvm::Value * branch,
+                            branch_id_t constantBranch = invalid_branch_id);
 
 //-----------------------------------------------------------------------------
 // Table
@@ -130,7 +212,7 @@ public:
 
     void removeRowForBranch(tid_t tid, branch_id_t branchId);
 
-    void createBranch(branch_id_t parent);
+    void createBranch(branch_id_t branch, branch_id_t parent);
 
 //    const std::string & getName() const;
 
@@ -148,7 +230,7 @@ public:
 
     BitmapTable & getNullIndicatorTable() { return _nullIndicatorTable; }
 
-    BitmapTable & getBranchBitmap() { return _branchBitmap; }
+    BranchMembership & getMembership() { return _membership; }
 
     Database & getDatabase() const;
 
@@ -170,7 +252,7 @@ private:
         > _columns;
 
     BitmapTable _nullIndicatorTable;
-    BitmapTable _branchBitmap;
+    BranchMembership _membership;
 
     std::unique_ptr<ColumnInformation> _tidColumn;
 
@@ -250,6 +332,8 @@ public:
     void constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx);
 
     ident_t getIdent(branch_id_t branch) const { return _branches.at(branch)->ident; }
+    /// \returns The branch that writes or wrote under the identifier
+    branch_id_t getIdentBranch(ident_t ident) const { return _identBranch[ident]; }
     size_t getIdentCount() const { return _identParent.size(); }
     size_t getRelabelCount() const { return _relabelCount; }
 
@@ -264,6 +348,7 @@ private:
     void relabel();
 
     std::vector<ident_t> _identParent;
+    std::vector<branch_id_t> _identBranch;
     std::vector<uint64_t> _identNextFree; // first label not yet given to a child
     size_t _relabelCount = 0;
 

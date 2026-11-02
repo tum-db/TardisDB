@@ -404,14 +404,22 @@ void BranchAggregation::genPerBranchScan(State & state, llvm::Value * begin, llv
                 chain.setVar(0, _codeGen->CreatePtrToInt(result, i64Ty));
             }
             chain.EndIf();
-            llvm::Value * ptr = _codeGen->CreateIntToPtr(chain.getResult(0), i8PtrTy);
+            llvm::Value * latestEntry = chain.getResult(0); // each call creates a phi node
+            llvm::Value * ptr = _codeGen->CreateIntToPtr(latestEntry, i8PtrTy);
 
+#if LAZY_MEMBERSHIP
+            // the branch contains tuples of its parent whose versions it does not see
+            IfGen seesVersion(_codeGen->CreateICmpNE(latestEntry, llvm::ConstantInt::get(i64Ty, 1)));
+#endif
             auto values = genLoad(tid, ptr);
             IfGen match(genPredicate(values));
             {
                 genAccumulate(state, _position, values);
             }
             match.EndIf();
+#if LAZY_MEMBERSHIP
+            seesVersion.EndIf();
+#endif
         }
         visible.EndIf();
     }
@@ -466,8 +474,11 @@ void BranchAggregation::genOutput(State & state)
 
 llvm::Value * BranchAggregation::genIsInBranch(cg_tid_t tid, llvm::Value * branch)
 {
+#if LAZY_MEMBERSHIP
+    return genMembershipTest(_table.getMembership(), tid, branch).llvmValue;
+#else
     auto & context = _codeGen.getLLVMContext();
-    auto & bitmap = _table.getBranchBitmap();
+    auto & bitmap = _table.getMembership().bitmap();
     llvm::Type * i8Ty = llvm::Type::getInt8Ty(context);
     llvm::Type * i64Ty = llvm::Type::getInt64Ty(context);
     llvm::Value * column = _codeGen->CreateZExt(branch, i64Ty);
@@ -476,12 +487,37 @@ llvm::Value * BranchAggregation::genIsInBranch(cg_tid_t tid, llvm::Value * branc
     llvm::Value * byte = _codeGen->CreateLoad(i8Ty, _codeGen->CreateGEP(i8Ty, rawPointer(static_cast<uint8_t *>(bitmap.data()), i8Ty), byteIndex));
     llvm::Value * shift = _codeGen->CreateTrunc(_codeGen->CreateAnd(column, 7), i8Ty);
     return _codeGen->CreateTrunc(_codeGen->CreateLShr(byte, shift), llvm::Type::getInt1Ty(context));
+#endif
 }
 
 std::pair<llvm::Value *, llvm::Value *> BranchAggregation::genPresence(State & state, cg_tid_t tid)
 {
     auto & context = _codeGen.getLLVMContext();
-    auto & bitmap = _table.getBranchBitmap();
+    llvm::Type * i8Ty = llvm::Type::getInt8Ty(context);
+#if LAZY_MEMBERSHIP
+    // a tuple that no branch treats differently from the root is in all readers or in none;
+    // otherwise get_visible_ranges() tests the readers one by one
+    llvm::Value * states = rawPointer(const_cast<uint8_t *>(_table.getMembership().states()), i8Ty);
+    llvm::Value * tupleState = _codeGen->CreateLoad(i8Ty, _codeGen->CreateGEP(i8Ty, states, tid.getValue()));
+    llvm::Value * zero = llvm::ConstantInt::get(i8Ty, 0);
+    const bool readsRoot = std::find(state.set.branches.begin(), state.set.branches.end(), master_branch_id) != state.set.branches.end();
+    const bool readsOthers = state.set.branches.size() > (readsRoot ? 1u : 0u);
+    llvm::Value * inRoot = _codeGen->CreateICmpNE(_codeGen->CreateAnd(tupleState, BranchMembership::inRoot), zero);
+    llvm::Value * inBranches = _codeGen->CreateICmpNE(_codeGen->CreateAnd(tupleState, BranchMembership::inBranches), zero);
+    llvm::Value * isDiverged = _codeGen->CreateICmpNE(_codeGen->CreateAnd(tupleState, BranchMembership::diverged), zero);
+    llvm::Value * all = _codeGen->CreateNot(isDiverged);
+    llvm::Value * any = isDiverged;
+    if (readsRoot) {
+        all = _codeGen->CreateAnd(all, inRoot);
+        any = _codeGen->CreateOr(any, inRoot);
+    }
+    if (readsOthers) {
+        all = _codeGen->CreateAnd(all, inBranches);
+        any = _codeGen->CreateOr(any, inBranches);
+    }
+    return {all, any};
+#else
+    auto & bitmap = _table.getMembership().bitmap();
     const size_t rowSize = bitmap.getRowSize();
     const size_t chunkBytes = (rowSize % 8 == 0) ? 8 : 1;
     const size_t chunkBits = 8 * chunkBytes;
@@ -493,7 +529,6 @@ std::pair<llvm::Value *, llvm::Value *> BranchAggregation::genPresence(State & s
     }
 
     llvm::Type * chunkTy = llvm::Type::getIntNTy(context, chunkBits);
-    llvm::Type * i8Ty = llvm::Type::getInt8Ty(context);
     llvm::Value * row = _codeGen->CreateGEP(i8Ty, rawPointer(static_cast<uint8_t *>(bitmap.data()), i8Ty),
                                             _codeGen->CreateMul(tid.getValue(), cg_size_t(rowSize).getValue()));
     llvm::Value * all = llvm::ConstantInt::getTrue(context);
@@ -507,6 +542,7 @@ std::pair<llvm::Value *, llvm::Value *> BranchAggregation::genPresence(State & s
         any = _codeGen->CreateOr(any, _codeGen->CreateICmpNE(bits, llvm::ConstantInt::get(chunkTy, 0)));
     }
     return {all, any};
+#endif
 }
 
 iu_value_mapping_t BranchAggregation::genLoad(cg_tid_t tid, llvm::Value * tuplePtr)

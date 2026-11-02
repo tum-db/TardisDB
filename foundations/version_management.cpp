@@ -328,7 +328,11 @@ const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, Que
     const auto version_entry = get_version_entry(tid, table);
     const void * element = get_latest_chain_element(version_entry, table, ctx);
     if (element == nullptr) {
+#if LAZY_MEMBERSHIP
+        return invisible_version;
+#else
         throw std::runtime_error("no such tuple in the given branch");
+#endif
     } else if (element == version_entry) {
         return nullptr;
     } else {
@@ -364,7 +368,11 @@ const void * get_latest_entry_of_reader(tid_t tid, Table & table, branch_id_t br
             next = storage->next;
         }
     }
+#if LAZY_MEMBERSHIP
+    return invisible_version;
+#else
     throw std::runtime_error("no such tuple in the given branch");
+#endif
 }
 
 uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, bool all_present,
@@ -376,9 +384,9 @@ uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, boo
     if (all_present) {
         pending.emplace_back(0, k - 1);
     } else {
-        auto & bitmap = table.getBranchBitmap();
+        auto & membership = table.getMembership();
         for (uint32_t p = 0; p < k; ++p) {
-            if (!bitmap.isSet(tid, set.branches[p])) continue;
+            if (!membership.contains(tid, set.branches[p])) continue;
             if (!pending.empty() && pending.back().second + 1 == p) pending.back().second = p;
             else pending.emplace_back(p, p);
         }
@@ -420,9 +428,12 @@ uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, boo
         }
         std::swap(pending, rest);
     }
+#if !LAZY_MEMBERSHIP
+    // with lazy membership, the remaining readers contain tuples of their parents that they do not see
     if (!pending.empty()) {
         throw std::runtime_error("no such tuple in the given branch");
     }
+#endif
     return parts;
 }
 
@@ -530,9 +541,9 @@ static bool equal_tuples(const Native::Sql::SqlTuple & a, const Native::Sql::Sql
 
 void build_index(Table & table, BranchIndex & index) {
     BranchReader reader(table.getDatabase(), index.branch);
-    auto & bitmap = table.getBranchBitmap();
+    auto & membership = table.getMembership();
     for (tid_t tid = 0, size = table._version_mgmt_column.size(); tid < size; ++tid) {
-        if (!bitmap.isSet(tid, index.branch)) continue;
+        if (!membership.contains(tid, index.branch)) continue;
         const VersionEntry * entry = table._version_mgmt_column[tid].get();
         const void * element = reader.visible(entry);
         if (element == nullptr) continue;
@@ -578,7 +589,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
     std::sort(tables.begin(), tables.end());
 
     for (auto & [name, table] : tables) {
-        auto & bitmap = table->getBranchBitmap();
+        auto & membership = table->getMembership();
         const auto columnNames = table->getColumnNames();
         const auto types = table->getTupleType();
         auto & tableBases = bases[table];
@@ -588,8 +599,8 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
 
         for (tid_t tid = 0, size = table->_version_mgmt_column.size(); tid < size; ++tid) {
             const VersionEntry * entry = table->_version_mgmt_column[tid].get();
-            const void * inSource = bitmap.isSet(tid, src) ? source.visible(entry) : nullptr;
-            const void * inTarget = bitmap.isSet(tid, dst) ? target.visible(entry) : nullptr;
+            const void * inSource = membership.contains(tid, src) ? source.visible(entry) : nullptr;
+            const void * inTarget = membership.contains(tid, dst) ? target.visible(entry) : nullptr;
             if (inSource == nullptr && inTarget == nullptr) continue;
             if (inSource == inTarget) continue; // both see the same version
 
@@ -669,11 +680,11 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
                 break;
             case Kind::Insert:
                 write_version(action.tid, dst, *action.tuple, table, nullptr);
-                table.getBranchBitmap().set(action.tid, dst, true);
+                table.getMembership().set(action.tid, dst, true);
                 result.inserted += 1;
                 break;
             case Kind::Delete:
-                table.getBranchBitmap().set(action.tid, dst, false);
+                table.getMembership().set(action.tid, dst, false);
                 bases[&table].erase(action.tid);
                 result.deleted += 1;
                 break;
@@ -745,12 +756,12 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
 void diff_branches(Table & table, branch_id_t a, branch_id_t b, std::vector<DiffEntry> & out) {
     Database & db = table.getDatabase();
     const BranchReader readers[2] = {BranchReader(db, a), BranchReader(db, b)};
-    auto & bitmap = table.getBranchBitmap();
+    auto & membership = table.getMembership();
     for (tid_t tid = 0, size = table._version_mgmt_column.size(); tid < size; ++tid) {
         const VersionEntry * entry = table._version_mgmt_column[tid].get();
         const void * seen[2];
         for (int side = 0; side < 2; ++side) {
-            seen[side] = bitmap.isSet(tid, readers[side].branch) ? readers[side].visible(entry) : nullptr;
+            seen[side] = membership.contains(tid, readers[side].branch) ? readers[side].visible(entry) : nullptr;
         }
         if (seen[0] == seen[1]) continue; // the same version, or in neither branch
         if (seen[0] != nullptr && seen[1] != nullptr &&

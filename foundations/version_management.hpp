@@ -76,6 +76,12 @@ void delete_tuple_with_branchId(tid_t tid, branch_id_t branchId, Table & table, 
 tid_t merge_tuple(branch_id_t src_branch, branch_id_t dst_branch, tid_t tid, QueryContext ctx);
 
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx);
+
+/// Returned by get_latest_entry() and get_latest_entry_of_reader() if the branch sees no version of
+/// the tuple. With lazy membership, a branch also contains the tuples its parent inserted after the
+/// fork, whose versions it does not see; with eager membership, this is an error.
+inline const void * const invisible_version = reinterpret_cast<const void *>(uintptr_t(1));
+
 const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx);
 
 /// As get_latest_entry, but leaves the context unchanged, so that threads can share it. The reader is

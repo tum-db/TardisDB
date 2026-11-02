@@ -49,6 +49,7 @@ DEFINE_string(topology, "mcts", "agentic mode: mcts | beam | bisect");
 DEFINE_uint64(iterations, 200, "agentic mode: MCTS iterations, beam rounds or bisected snapshots");
 DEFINE_uint64(width, 8, "agentic mode: children per node (mcts) or candidates per round (beam)");
 DEFINE_uint64(mutations, 1000, "agentic mode: tuples updated per mutation");
+DEFINE_uint64(churn, 0, "agentic mode: tuples deleted and tuples inserted per mutation, in addition to the updates");
 DEFINE_bool(deep, false, "verify mode: always fork the newest branch, which builds deep chains");
 DEFINE_uint64(threads, 0, "threads per query (0: all hardware threads; 1: serial code paths)");
 DEFINE_uint64(morsel, 16384, "tuples per morsel");
@@ -169,8 +170,27 @@ static void forkBranch(Database & db, const std::string & name, const std::strin
 
 static void mutate(Database & db, Table & table, const std::string & name, std::mt19937_64 & rng, Phases & ph) {
     auto start = Clock::now();
-    updateRandom(db, table, db._branchMapping[name], FLAGS_n, double(FLAGS_mutations) / FLAGS_n, rng, rng() % 1000);
+    branch_id_t branch = db._branchMapping[name];
+    updateRandom(db, table, branch, FLAGS_n, double(FLAGS_mutations) / FLAGS_n, rng, rng() % 1000);
+    if (FLAGS_churn > 0) {
+        // deletes change the membership of tuples the branch shares; inserts add tuples of its own
+        QueryContext ctx(db);
+        ctx.executionContext.branchId = branch;
+        db.constructBranchLineage(branch, ctx.executionContext);
+        for (uint64_t i = 0; i < FLAGS_churn; ++i) {
+            delete_tuple(rng() % FLAGS_n, table, ctx);
+            auto tuple = makeTuple(table, table._version_mgmt_column.size(), rng() % 1000);
+            insert_tuple(tuple, table, ctx);
+        }
+    }
     ph.mutate += msSince(start);
+}
+
+/// \returns The memory of the membership structures of all tables in MiB
+static double membershipMiB(Database & db) {
+    size_t bytes = 0;
+    for (auto & [name, table] : db.getTables()) bytes += table->getMembership().bytes();
+    return bytes / (1024.0 * 1024.0);
 }
 
 // the agent's objective: a full scan of the branch (a point predicate, so the scan dominates);
@@ -268,11 +288,11 @@ static void agenticMode() {
     }
 
     double totalMs = msSince(total);
-    std::cout << "topology,n,iterations,width,mutations,branches,max_depth,fork_ms,mutate_ms,evaluate_ms,total_ms,eval_ms_avg,rss_mib,identifiers,relabels" << std::endl;
+    std::cout << "topology,n,iterations,width,mutations,branches,max_depth,fork_ms,mutate_ms,evaluate_ms,total_ms,eval_ms_avg,rss_mib,identifiers,relabels,churn,membership_mib" << std::endl;
     std::cout << FLAGS_topology << "," << FLAGS_n << "," << FLAGS_iterations << "," << FLAGS_width << "," << FLAGS_mutations << ","
               << db._branches.size() << "," << maxDepth << "," << ph.fork << "," << ph.mutate << "," << ph.evaluate << ","
               << totalMs << "," << ph.evaluate / std::max<uint64_t>(ph.evaluations, 1) << "," << rssMiB() << ","
-              << db.getIdentCount() << "," << db.getRelabelCount() << std::endl;
+              << db.getIdentCount() << "," << db.getRelabelCount() << "," << FLAGS_churn << "," << membershipMiB(db) << std::endl;
 }
 
 // crossbranch mode ----------------------------------------------------------
@@ -603,7 +623,7 @@ static void verifyMode() {
 }
 
 static void forkMode() {
-    std::cout << "n,fork_us_median,rss_mib" << std::endl;
+    std::cout << "n,fork_us_median,rss_mib,membership_mib" << std::endl;
     for (uint64_t n : parseList(FLAGS_sizes)) {
         Database db;
         load(db, n);
@@ -615,7 +635,7 @@ static void forkMode() {
             times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() / 1000.0);
         }
         std::sort(times.begin(), times.end());
-        std::cout << n << "," << times[times.size() / 2] << "," << rssMiB() << std::endl;
+        std::cout << n << "," << times[times.size() / 2] << "," << rssMiB() << "," << membershipMiB(db) << std::endl;
     }
 }
 

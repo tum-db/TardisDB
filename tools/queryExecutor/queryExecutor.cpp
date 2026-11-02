@@ -82,6 +82,12 @@ namespace QueryExecutor {
         llvm::outs().flush();
 #endif
 
+        // TARDISDB_VERIFY_IR=1 checks the generated code before it is compiled
+        if (std::getenv("TARDISDB_VERIFY_IR") != nullptr && llvm::verifyModule(moduleGen.getModule(), &llvm::errs())) {
+            llvm::errs() << moduleGen.getModule();
+            throw std::runtime_error("invalid IR");
+        }
+
 #ifndef DISABLE_OPTIMIZATIONS
         optimize(moduleGen.getModule());
 

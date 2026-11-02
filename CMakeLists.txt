@@ -9,6 +9,7 @@ set(USE_DATA_VERSIONING true)
 set(USE_HYRISE false)
 set(TUPLE_STREAM_REQUIRED true)
 option(INTERVAL_VISIBILITY "decide version visibility with interval labels of branch identifiers instead of the lineage map" OFF)
+option(LAZY_MEMBERSHIP "keep the membership of a branch as its changes against its parent instead of one bitmap column per branch" OFF)
 
 ### common flags
 # TODO add -Wall -Wextra
@@ -192,6 +193,9 @@ target_link_libraries(dblib semanticalAnalyser LLVM dl)
 if(INTERVAL_VISIBILITY)
 	target_compile_definitions(dblib PUBLIC -D INTERVAL_VISIBILITY=1)
 endif(INTERVAL_VISIBILITY)
+if(LAZY_MEMBERSHIP)
+	target_compile_definitions(dblib PUBLIC -D LAZY_MEMBERSHIP=1)
+endif(LAZY_MEMBERSHIP)
 if(USE_HYRISE)
 	target_compile_definitions(dblib PUBLIC -D USE_HYRISE=true)
 	target_link_libraries(dblib hyriselib)

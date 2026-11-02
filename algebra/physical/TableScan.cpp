@@ -148,9 +148,15 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
 
     cg_voidptr_t resultPtr;
     cg_bool_t ptrIsNotNull(false);
+    std::unique_ptr<IfGen> seesVersion;
     if (branchId != master_branch_id) {
         resultPtr = genGetLatestEntryCall(tid,branchId);
         ptrIsNotNull = nullPointerCheck(resultPtr);
+#if LAZY_MEMBERSHIP
+        // the branch contains tuples of its parent whose versions it does not see
+        seesVersion = std::make_unique<IfGen>(_codeGen->CreateICmpNE(resultPtr.getValue(),
+                _codeGen->CreateIntToPtr(cg_size_t(1ul).getValue(), resultPtr.getValue()->getType())));
+#endif
     }
 
 
@@ -199,6 +205,9 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
     }
 
     _parent->consume(values, *this);
+    if (seesVersion) {
+        seesVersion->EndIf();
+    }
 }
 #else
 void TableScan::produce(cg_tid_t tid) {
@@ -380,7 +389,7 @@ llvm::Value * TableScan::genChainWalkCall(cg_tid_t tid, branch_id_t branchId) {
         return _codeGen->CreateCall(func, {tid.getValue(), cg_ptr8_t::fromRawPointer(_parallel).getValue()});
     }
 #endif
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void * , void* , void *), false>::get(_codeGen.getLLVMContext());
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void *, branch_id_t, void *), false>::get(_codeGen.getLLVMContext());
     llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "get_latest_entry", funcTy);
     getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
     return _codeGen->CreateCall(func, {tid, cg_ptr8_t::fromRawPointer(&table), cg_u32_t(branchId), _codeGen.getCurrentFunctionGen().getArg(1)});
@@ -446,8 +455,8 @@ llvm::Value *TableScan::tupleToElemPtr(cg_voidptr_t &ptr, column_t &column) {
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)
 {
-    auto & branchBitmap = table.getBranchBitmap();
-    return isVisibleInBranch(branchBitmap, tid, branchId);
+    // the parameter is the scanned branch, which is known when the scan is compiled
+    return genMembershipTest(table.getMembership(), tid, branchId.getValue(), this->branchId);
 }
 
 } // end namespace Physical
