@@ -39,7 +39,8 @@
 
 #include "gflags/gflags.h"
 
-DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | verify");
+DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | diffmerge | verify");
+DEFINE_string(divergences, "10,100,1000,10000,100000", "tuples updated by the branch and by main (diffmerge mode)");
 DEFINE_string(ks, "1,2,4,8,16,32,64,128,256,512,1024", "branch counts (crossbranch mode)");
 DEFINE_string(aggregates, "sum(b)", "aggregates per branch (crossbranch mode)");
 DEFINE_uint64(maxk_baseline, 256, "crossbranch mode: largest k for which the per-branch baselines run");
@@ -622,6 +623,45 @@ static void verifyMode() {
     if (!ok) std::exit(1);
 }
 
+// diffmerge mode -----------------------------------------------------------
+
+static size_t diffRows;
+static void countDiffRow(Native::Sql::SqlTuple *) { ++diffRows; }
+
+// DIFF and MERGE of a branch forked from main after the branch and main each updated d tuples (to
+// the same value, so that the merge has no conflicts); over the diverging tuples and over the table
+static void diffmergeMode() {
+    std::cout << "divergence,n,threads,diff_rows,diff_ms,diff_scan_ms,merge_ms,merge_scan_ms" << std::endl;
+    for (uint64_t d : parseList(FLAGS_divergences)) {
+        std::vector<double> times[2][2]; // [scan][diff, merge]
+        size_t rows[2] = {0, 0};
+        for (uint64_t r = 0; r < FLAGS_runs; ++r) {
+            for (int scan = 0; scan < 2; ++scan) {
+                std::mt19937_64 rng(FLAGS_seed + r);
+                Database db;
+                Table & table = load(db, FLAGS_n);
+                QueryCompiler::compileAndExecute("CREATE BRANCH b FROM master;", db);
+                updateRandom(db, table, db._branchMapping["b"], FLAGS_n, double(d) / FLAGS_n, rng, 7);
+                updateRandom(db, table, master_branch_id, FLAGS_n, double(d) / FLAGS_n, rng, 7);
+                diff_scans_whole_table = (scan == 1);
+                diffRows = 0;
+                auto start = Clock::now();
+                QueryCompiler::compileAndExecute("SELECT * FROM DIFF(t VERSION b, t VERSION master);", db, (void *) &countDiffRow);
+                times[scan][0].push_back(msSince(start));
+                rows[scan] = diffRows;
+                start = Clock::now();
+                QueryCompiler::compileAndExecute("MERGE BRANCH b INTO master;", db);
+                times[scan][1].push_back(msSince(start));
+                diff_scans_whole_table = false;
+            }
+        }
+        if (rows[0] != rows[1]) throw std::runtime_error("DIFF over the diverging tuples and over the table differ");
+        auto median = [](std::vector<double> v) { std::sort(v.begin(), v.end()); return v[v.size() / 2]; };
+        std::cout << d << "," << FLAGS_n << "," << Parallel::threads << "," << rows[0] << "," << median(times[0][0]) << ","
+                  << median(times[1][0]) << "," << median(times[0][1]) << "," << median(times[1][1]) << std::endl;
+    }
+}
+
 static void forkMode() {
     std::cout << "n,fork_us_median,rss_mib,membership_mib" << std::endl;
     for (uint64_t n : parseList(FLAGS_sizes)) {
@@ -652,6 +692,7 @@ int main(int argc, char * argv[]) {
     else if (FLAGS_mode == "verify") verifyMode();
     else if (FLAGS_mode == "crossbranch") crossbranchMode();
     else if (FLAGS_mode == "agentic") agenticMode();
+    else if (FLAGS_mode == "diffmerge") diffmergeMode();
     else { std::cerr << "unknown mode" << std::endl; return 1; }
 
     llvm::llvm_shutdown();

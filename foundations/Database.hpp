@@ -261,6 +261,9 @@ public:
     /// per tuple: the identifier of the in-place version if it heads the chain, otherwise invalid_ident;
     /// lets the compiled scan decide visibility without dereferencing the version entry
     std::vector<ident_t> _head_ident;
+    /// per identifier: the tuples written under it (versions, deletes, inserts); two branches can
+    /// differ only in tuples written under an identifier that is an ancestor of one of them only
+    std::vector<std::vector<tid_t>> _writes;
     std::vector<std::unique_ptr<VersionEntry>> _dangling_version_mgmt_column;
 };
 
@@ -334,6 +337,7 @@ public:
     ident_t getIdent(branch_id_t branch) const { return _branches.at(branch)->ident; }
     /// \returns The branch that writes or wrote under the identifier
     branch_id_t getIdentBranch(ident_t ident) const { return _identBranch[ident]; }
+    ident_t getIdentParent(ident_t ident) const { return _identParent[ident]; }
     size_t getIdentCount() const { return _identParent.size(); }
     size_t getRelabelCount() const { return _relabelCount; }
 

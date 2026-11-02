@@ -157,6 +157,13 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst);
 /// they wrote and removes them from the catalogue. \returns The number of freed versions
 size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches);
 
+/// \returns The tuples in which the branches may differ, ascending: those written under an identifier
+/// that is an ancestor of one of the branches only, i.e. after the fork at which their paths split
+std::vector<tid_t> diverging_tuples(Table & table, branch_id_t a, branch_id_t b);
+
+/// DIFF and MERGE scan the whole table instead of the diverging tuples (for comparisons)
+extern bool diff_scans_whole_table;
+
 /// One side of a difference: the version of tuple tid seen in one of two branches
 struct DiffEntry {
     tid_t tid;

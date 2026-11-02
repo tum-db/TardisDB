@@ -1,6 +1,7 @@
 #include "foundations/version_management.hpp"
 
 #include <algorithm>
+#include <numeric>
 #include <iostream>
 #include <unordered_set>
 
@@ -39,6 +40,23 @@ inline void * get_tuple_ptr(VersionedTupleStorage * storage) {
 
 inline const void * get_tuple_ptr(const VersionedTupleStorage * storage) {
     return storage->data;
+}
+
+bool diff_scans_whole_table = false;
+
+// remembers that the branch wrote the tuple under its current identifier
+static void record_write(Table & table, branch_id_t branch, tid_t tid) {
+    if (is_marked_as_dangling_tid(tid)) {
+        return;
+    }
+    const ident_t ident = table.getDatabase().getIdent(branch);
+    if (table._writes.size() <= ident) {
+        table._writes.resize(ident + 1);
+    }
+    auto & tids = table._writes[ident];
+    if (tids.empty() || tids.back() != tid) {
+        tids.push_back(tid);
+    }
 }
 
 void index_tuple(Table & table, branch_id_t branch, tid_t tid, const Native::Sql::SqlTuple & tuple) {
@@ -80,6 +98,7 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
         column_idx += 1;
     }
     index_tuple(table, branch, tid, tuple);
+    record_write(table, branch, tid);
 
     return tid;
 }
@@ -160,6 +179,7 @@ static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tab
         update_master(tid, tuple, table);
     }
     index_tuple(table, branch, tid, tuple);
+    record_write(table, branch, tid);
 }
 
 // other branches prepend their version to the chain; predecessor is the version the branch saw before
@@ -193,6 +213,7 @@ static void prepend_version(tid_t tid, branch_id_t branch, Native::Sql::SqlTuple
         }
     }
     index_tuple(table, branch, tid, tuple);
+    record_write(table, branch, tid);
 }
 
 void update_tuple(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
@@ -223,6 +244,7 @@ void delete_tuple(tid_t tid, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
 
     table.removeRowForBranch(tid,branch);
+    record_write(table, branch, tid);
 }
 
 void delete_tuple_with_branchId(tid_t tid, branch_id_t branchId, Table & table, QueryContext & ctx) {
@@ -566,6 +588,41 @@ static std::vector<uint8_t> tuple_bytes(Native::Sql::SqlTuple & tuple) {
     return bytes;
 }
 
+std::vector<tid_t> diverging_tuples(Table & table, branch_id_t a, branch_id_t b) {
+    const Database & db = table.getDatabase();
+    auto path = [&](branch_id_t branch) {
+        std::unordered_set<ident_t> idents;
+        for (ident_t ident = db.getIdent(branch); ident != invalid_ident; ident = db.getIdentParent(ident)) {
+            idents.insert(ident);
+        }
+        return idents;
+    };
+    const auto pathA = path(a), pathB = path(b);
+    std::vector<tid_t> tids;
+    auto add = [&](const std::unordered_set<ident_t> & own, const std::unordered_set<ident_t> & other) {
+        for (ident_t ident : own) {
+            if (other.count(ident) == 0 && ident < table._writes.size()) {
+                tids.insert(tids.end(), table._writes[ident].begin(), table._writes[ident].end());
+            }
+        }
+    };
+    add(pathA, pathB);
+    add(pathB, pathA);
+    std::sort(tids.begin(), tids.end());
+    tids.erase(std::unique(tids.begin(), tids.end()), tids.end());
+    return tids;
+}
+
+// the tuples DIFF and MERGE look at
+static std::vector<tid_t> candidates(Table & table, branch_id_t a, branch_id_t b) {
+    if (!diff_scans_whole_table) {
+        return diverging_tuples(table, a, b);
+    }
+    std::vector<tid_t> all(table._version_mgmt_column.size());
+    std::iota(all.begin(), all.end(), 0);
+    return all;
+}
+
 MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
     BranchReader source(db, src);
     BranchReader target(db, dst);
@@ -597,7 +654,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
             result.conflicts.push_back("table " + name + ", tuple " + std::to_string(tid) + ": " + what);
         };
 
-        for (tid_t tid = 0, size = table->_version_mgmt_column.size(); tid < size; ++tid) {
+        for (tid_t tid : candidates(*table, src, dst)) {
             const VersionEntry * entry = table->_version_mgmt_column[tid].get();
             const void * inSource = membership.contains(tid, src) ? source.visible(entry) : nullptr;
             const void * inTarget = membership.contains(tid, dst) ? target.visible(entry) : nullptr;
@@ -685,6 +742,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
                 break;
             case Kind::Delete:
                 table.getMembership().set(action.tid, dst, false);
+                record_write(table, dst, action.tid);
                 bases[&table].erase(action.tid);
                 result.deleted += 1;
                 break;
@@ -745,6 +803,13 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
             freed += garbage.size();
         }
     }
+    for (auto & [name, table] : db.getTables()) {
+        for (ident_t ident = 0; ident < table->_writes.size(); ++ident) {
+            if (dropped.count(db.getIdentBranch(ident)) > 0) {
+                std::vector<tid_t>().swap(table->_writes[ident]);
+            }
+        }
+    }
     for (auto it = db._mergeBases.begin(); it != db._mergeBases.end(); ) {
         bool obsolete = dropped.count(it->first.first) > 0 || dropped.count(it->first.second) > 0;
         it = obsolete ? db._mergeBases.erase(it) : std::next(it);
@@ -757,7 +822,7 @@ void diff_branches(Table & table, branch_id_t a, branch_id_t b, std::vector<Diff
     Database & db = table.getDatabase();
     const BranchReader readers[2] = {BranchReader(db, a), BranchReader(db, b)};
     auto & membership = table.getMembership();
-    for (tid_t tid = 0, size = table._version_mgmt_column.size(); tid < size; ++tid) {
+    for (tid_t tid : candidates(table, a, b)) {
         const VersionEntry * entry = table._version_mgmt_column[tid].get();
         const void * seen[2];
         for (int side = 0; side < 2; ++side) {
