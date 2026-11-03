@@ -153,9 +153,22 @@ struct MergeResult {
 /// is applied only if there are no conflicts.
 MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst);
 
-/// Drops the branches (a branch with all its descendants): clears their bitmaps, frees the versions
-/// they wrote and removes them from the catalogue. \returns The number of freed versions
+/// Drops the branches (a branch with all its descendants) and removes them from the catalogue.
+/// Frees the versions they wrote and then, unless collect_garbage is off, every version of the
+/// tuples they or their parent wrote since the fork that no remaining branch needs: a version is
+/// needed if a branch sees it, or if it is the newest version two branches share, the base of a
+/// merge. Looks only at the tuples written since the fork. \returns The number of freed versions
 size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches);
+
+/// DROP BRANCH collects the versions no branch needs (switch for comparisons)
+extern bool collect_garbage;
+
+/// A branch that writes a tuple again under the same identifier overwrites its version instead of
+/// adding one: no other branch sees it (switch for comparisons)
+extern bool overwrite_own_versions;
+
+/// \returns The number of versions in chains (all tables of all databases)
+size_t live_versions();
 
 /// \returns The tuples in which the branches may differ, ascending: those written under an identifier
 /// that is an ancestor of one of the branches only, i.e. after the fork at which their paths split

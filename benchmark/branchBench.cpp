@@ -39,8 +39,10 @@
 
 #include "gflags/gflags.h"
 
-DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | diffmerge | verify");
+DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | diffmerge | cycles | verify");
 DEFINE_string(divergences, "10,100,1000,10000,100000", "tuples updated by the branch and by main (diffmerge mode)");
+DEFINE_bool(gc, true, "collect versions no branch needs (DROP BRANCH) and overwrite versions of the current identifier");
+DEFINE_bool(keep, false, "cycles mode: a branch forked from main before the cycles lives through them");
 DEFINE_string(ks, "1,2,4,8,16,32,64,128,256,512,1024", "branch counts (crossbranch mode)");
 DEFINE_string(aggregates, "sum(b)", "aggregates per branch (crossbranch mode)");
 DEFINE_uint64(maxk_baseline, 256, "crossbranch mode: largest k for which the per-branch baselines run");
@@ -623,6 +625,39 @@ static void verifyMode() {
     if (!ok) std::exit(1);
 }
 
+// cycles mode --------------------------------------------------------------
+
+// R3: create-and-drop cycles: fork a branch from main, the branch and main each update frac of the
+// tuples, scan the branch, drop it; memory must not grow with the number of cycles
+static void cyclesMode() {
+    std::mt19937_64 rng(FLAGS_seed);
+    Database db;
+    Table & table = load(db, FLAGS_n);
+    if (FLAGS_keep) QueryCompiler::compileAndExecute("CREATE BRANCH keep FROM master;", db);
+    std::cout << "cycle,n,frac,gc,keep,versions,rss_mib,membership_mib,drop_ms,cycle_ms,scan_main_ms" << std::endl;
+    double dropMs = 0, cycleMs = 0;
+    uint64_t since = 0;
+    for (uint64_t cycle = 1; cycle <= FLAGS_iterations; ++cycle) {
+        auto start = Clock::now();
+        QueryCompiler::compileAndExecute("CREATE BRANCH c FROM master;", db);
+        updateRandom(db, table, db._branchMapping["c"], FLAGS_n, FLAGS_frac, rng, rng() % 1000);
+        updateRandom(db, table, master_branch_id, FLAGS_n, FLAGS_frac, rng, rng() % 1000);
+        scanMicros(db, "c");
+        auto drop = Clock::now();
+        QueryCompiler::compileAndExecute("DROP BRANCH c;", db);
+        dropMs += msSince(drop);
+        cycleMs += msSince(start);
+        ++since;
+        if (cycle % 20 == 0 || cycle == FLAGS_iterations) {
+            std::cout << cycle << "," << FLAGS_n << "," << FLAGS_frac << "," << FLAGS_gc << "," << FLAGS_keep << ","
+                      << live_versions() << "," << rssMiB() << "," << membershipMiB(db) << "," << dropMs / since << ","
+                      << cycleMs / since << "," << scanMicros(db, "master") / 1000.0 << std::endl;
+            dropMs = cycleMs = 0;
+            since = 0;
+        }
+    }
+}
+
 // diffmerge mode -----------------------------------------------------------
 
 static size_t diffRows;
@@ -683,6 +718,7 @@ int main(int argc, char * argv[]) {
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     if (FLAGS_threads > 0) Parallel::threads = FLAGS_threads;
     Parallel::morselSize = FLAGS_morsel;
+    collect_garbage = overwrite_own_versions = FLAGS_gc;
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
     llvm::InitializeNativeTargetAsmParser();
@@ -693,6 +729,7 @@ int main(int argc, char * argv[]) {
     else if (FLAGS_mode == "crossbranch") crossbranchMode();
     else if (FLAGS_mode == "agentic") agenticMode();
     else if (FLAGS_mode == "diffmerge") diffmergeMode();
+    else if (FLAGS_mode == "cycles") cyclesMode();
     else { std::cerr << "unknown mode" << std::endl; return 1; }
 
     llvm::llvm_shutdown();

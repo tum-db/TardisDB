@@ -27,11 +27,26 @@ static bool is_visible(const T & elem, QueryContext & ctx) {
     return false;
 }
 
+static size_t version_count = 0;
+
+size_t live_versions() {
+    return version_count;
+}
+
+bool collect_garbage = true;
+bool overwrite_own_versions = true;
+
 static VersionedTupleStorage * create_chain_element(Table & table, size_t tuple_size) {
     size_t size = sizeof(VersionedTupleStorage) + tuple_size;
     void * mem = std::malloc(size);
     VersionedTupleStorage * storage = new (mem) VersionedTupleStorage();
+    ++version_count;
     return storage;
+}
+
+static void free_chain_element(const void * element) {
+    std::free(const_cast<void *>(element));
+    --version_count;
 }
 
 inline void * get_tuple_ptr(VersionedTupleStorage * storage) {
@@ -141,7 +156,10 @@ static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tab
     const branch_id_t branch = master_branch_id;
     Database & db = table.getDatabase();
     auto version_entry = get_version_entry(tid, table);
-    {
+    if (overwrite_own_versions && version_entry->ident == db.getIdent(branch)) {
+        // written under the current identifier, which has no descendants: no other branch sees it
+        update_master(tid, tuple, table);
+    } else {
         auto old_tuple = get_current_master(tid, table);
 
         auto storage = create_chain_element(table, old_tuple->getSize());
@@ -186,7 +204,14 @@ static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tab
 static void prepend_version(tid_t tid, branch_id_t branch, Native::Sql::SqlTuple & tuple, Table & table, const void * predecessor) {
     Database & db = table.getDatabase();
     auto version_entry = get_version_entry(tid, table);
-    {
+    const ident_t ident = db.getIdent(branch);
+    if (overwrite_own_versions && predecessor == version_entry && version_entry->ident == ident) {
+        // the branch inserted the tuple under its current identifier, which no other branch sees
+        update_master(tid, tuple, table);
+    } else if (overwrite_own_versions && predecessor != nullptr && predecessor != version_entry &&
+               static_cast<const VersionedTupleStorage *>(predecessor)->ident == ident) {
+        tuple.store(get_tuple_ptr(const_cast<VersionedTupleStorage *>(static_cast<const VersionedTupleStorage *>(predecessor))));
+    } else {
         auto storage = create_chain_element(table, tuple.getSize());
 
         // branch visibility
@@ -491,7 +516,7 @@ void destroy_chain(VersionEntry * version_entry) {
         } else {
             const auto storage = static_cast<const VersionedTupleStorage *>(next);
             next = storage->next;
-            std::free(const_cast<VersionedTupleStorage *>(storage));
+            free_chain_element(storage);
         }
     }
     version_entry->first = version_entry;
@@ -754,52 +779,151 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
     return result;
 }
 
+// removes the elements in garbage from the chain of the tuple and frees them
+static void unlink_versions(Table & table, tid_t tid, const std::unordered_set<const void *> & garbage) {
+    VersionEntry * entry = table._version_mgmt_column[tid].get();
+    std::vector<void *> kept;
+    for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+        if (garbage.count(element) == 0) kept.push_back(const_cast<void *>(element));
+    }
+    // a reference to a freed version continues with the version its branch saw before it
+    auto skipGarbage = [&](const void * element) {
+        while (element != nullptr && garbage.count(element) > 0) {
+            element = static_cast<const VersionedTupleStorage *>(element)->next_in_branch;
+        }
+        return element;
+    };
+    for (size_t i = 0; i < kept.size(); ++i) {
+        void * next = (i + 1 < kept.size()) ? kept[i + 1] : nullptr;
+        if (kept[i] == entry) {
+            entry->next = next;
+            entry->next_in_branch = static_cast<VersionedTupleStorage *>(const_cast<void *>(skipGarbage(entry->next_in_branch)));
+            entry->prev = (i > 0) ? kept[i - 1] : nullptr;
+        } else {
+            auto storage = static_cast<VersionedTupleStorage *>(kept[i]);
+            storage->next = next;
+            storage->next_in_branch = skipGarbage(storage->next_in_branch);
+        }
+    }
+    entry->first = kept.front();
+    table._head_ident[tid] = (entry->first == entry) ? entry->ident : invalid_ident;
+    for (const void * element : garbage) {
+        free_chain_element(element);
+    }
+}
+
+// the readers whose versions must be kept, as labels in ascending order: the current identifier of
+// every branch, and every identifier with descendants of branches in at least two of its subtrees,
+// the newest version of which is the base of a merge of branches below them
+static std::vector<uint64_t> needed_readers(const Database & db) {
+    const size_t count = db.getIdentCount();
+    std::vector<bool> current(count, false);
+    for (auto & [id, branch] : db._branches) current[branch->ident] = true;
+    std::vector<uint32_t> below(count, 0);    // current identifiers in the subtree
+    std::vector<uint32_t> children(count, 0); // children whose subtrees hold some
+    // children are created after their parents
+    for (size_t ident = count; ident-- > 0; ) {
+        below[ident] += current[ident];
+        ident_t parent = db.getIdentParent(ident);
+        if (parent != invalid_ident && below[ident] > 0) {
+            below[parent] += below[ident];
+            children[parent] += 1;
+        }
+    }
+    std::vector<uint64_t> labels;
+    for (size_t ident = 0; ident < count; ++ident) {
+        if (current[ident] || children[ident] >= 2) labels.push_back(db._identL[ident]);
+    }
+    std::sort(labels.begin(), labels.end());
+    return labels;
+}
+
+// the elements of the chain that some reader sees as its newest version
+static void needed_versions(const Database & db, const VersionEntry * entry, const std::vector<uint64_t> & labels,
+                            std::unordered_set<const void *> & needed) {
+    if (labels.empty()) return;
+    std::vector<std::pair<uint32_t, uint32_t>> pending = {{0, static_cast<uint32_t>(labels.size() - 1)}}, rest;
+    for (const void * element = entry->first; element != nullptr && !pending.empty(); element = next_chain_element(entry, element)) {
+        const ident_t ident = (element == entry) ? entry->ident : static_cast<const VersionedTupleStorage *>(element)->ident;
+        const uint32_t a = std::lower_bound(labels.begin(), labels.end(), db._identL[ident]) - labels.begin();
+        const uint32_t b = std::upper_bound(labels.begin(), labels.end(), db._identR[ident]) - labels.begin();
+        if (a >= b) continue;
+        bool seen = false;
+        rest.clear();
+        for (auto [l, r] : pending) {
+            if (r < a || l >= b) {
+                rest.emplace_back(l, r);
+                continue;
+            }
+            seen = true;
+            if (l < a) rest.emplace_back(l, a - 1);
+            if (r >= b) rest.emplace_back(b, r);
+        }
+        if (seen) needed.insert(element);
+        std::swap(pending, rest);
+    }
+}
+
+// the writes of an identifier tell two branches apart only if its subtree holds the current
+// identifiers of some branches but not of all; frees the other lists
+static void prune_writes(Database & db) {
+    const size_t count = db.getIdentCount();
+    std::vector<uint32_t> below(count, 0);
+    for (auto & [id, branch] : db._branches) below[branch->ident] += 1;
+    for (size_t ident = count; ident-- > 0; ) {
+        ident_t parent = db.getIdentParent(ident);
+        if (parent != invalid_ident) below[parent] += below[ident];
+    }
+    const uint32_t live = db._branches.size();
+    for (auto & [name, table] : db.getTables()) {
+        for (ident_t ident = 0; ident < table->_writes.size(); ++ident) {
+            if (below[ident] == 0 || below[ident] == live) {
+                std::vector<tid_t>().swap(table->_writes[ident]);
+            }
+        }
+    }
+}
+
 size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
     std::unordered_set<branch_id_t> dropped(branches.begin(), branches.end());
     size_t freed = 0;
-    for (auto & [name, table] : db.getTables()) {
-        for (tid_t tid = 0, size = table->_version_mgmt_column.size(); tid < size; ++tid) {
-            VersionEntry * entry = table->_version_mgmt_column[tid].get();
 
-            // the versions written by dropped branches are seen by dropped branches only
-            std::vector<void *> kept;
-            std::unordered_map<const void *, const void *> garbage; // freed version -> its next_in_branch
+    // the identifiers under which tuples were written since the fork of the subtree: those of the
+    // dropped branches and those of the parent after the fork
+    const branch_id_t root = branches.front();
+    const branch_id_t parent = db._branches.at(root)->parent_id;
+    std::unordered_set<ident_t> rootPath;
+    for (ident_t ident = db.getIdent(root); ident != invalid_ident; ident = db.getIdentParent(ident)) rootPath.insert(ident);
+    std::vector<ident_t> written;
+    for (ident_t ident = 0; ident < db.getIdentCount(); ++ident) {
+        if (dropped.count(db.getIdentBranch(ident)) > 0) written.push_back(ident);
+    }
+    for (ident_t ident = db.getIdent(parent); ident != invalid_ident && rootPath.count(ident) == 0; ident = db.getIdentParent(ident)) {
+        written.push_back(ident);
+    }
+    std::unordered_map<Table *, std::vector<tid_t>> candidates;
+    for (auto & [name, table] : db.getTables()) {
+        auto & tids = candidates[table.get()];
+        for (ident_t ident : written) {
+            if (ident < table->_writes.size()) tids.insert(tids.end(), table->_writes[ident].begin(), table->_writes[ident].end());
+        }
+        std::sort(tids.begin(), tids.end());
+        tids.erase(std::unique(tids.begin(), tids.end()), tids.end());
+    }
+
+    // the versions written by dropped branches are seen by dropped branches only
+    std::unordered_set<const void *> garbage;
+    for (auto & [table, tids] : candidates) {
+        for (tid_t tid : tids) {
+            const VersionEntry * entry = table->_version_mgmt_column[tid].get();
+            garbage.clear();
             for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
-                if (element != entry) {
-                    auto storage = static_cast<const VersionedTupleStorage *>(element);
-                    if (dropped.count(storage->branch_id) > 0) {
-                        garbage[element] = storage->next_in_branch;
-                        continue;
-                    }
+                if (element != entry && dropped.count(static_cast<const VersionedTupleStorage *>(element)->branch_id) > 0) {
+                    garbage.insert(element);
                 }
-                kept.push_back(const_cast<void *>(element));
             }
             if (garbage.empty()) continue;
-
-            auto skipGarbage = [&](const void * element) {
-                for (auto it = garbage.find(element); it != garbage.end(); it = garbage.find(element)) {
-                    element = it->second;
-                }
-                return element;
-            };
-            for (size_t i = 0; i < kept.size(); ++i) {
-                void * next = (i + 1 < kept.size()) ? kept[i + 1] : nullptr;
-                if (kept[i] == entry) {
-                    entry->next = next;
-                    entry->next_in_branch = static_cast<VersionedTupleStorage *>(const_cast<void *>(skipGarbage(entry->next_in_branch)));
-                    entry->prev = (i > 0) ? kept[i - 1] : nullptr;
-                } else {
-                    auto storage = static_cast<VersionedTupleStorage *>(kept[i]);
-                    storage->next = next;
-                    storage->next_in_branch = skipGarbage(storage->next_in_branch);
-                }
-            }
-            entry->first = kept.front();
-            table->_head_ident[tid] = (entry->first == entry) ? entry->ident : invalid_ident;
-
-            for (auto & [element, _] : garbage) {
-                std::free(const_cast<void *>(element));
-            }
+            unlink_versions(*table, tid, garbage);
             freed += garbage.size();
         }
     }
@@ -815,6 +939,27 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
         it = obsolete ? db._mergeBases.erase(it) : std::next(it);
     }
     db.removeBranches(branches);
+
+    // versions the remaining branches do not need, such as those the parent kept for the dropped ones
+    if (collect_garbage) {
+        prune_writes(db);
+        const auto labels = needed_readers(db);
+        std::unordered_set<const void *> needed;
+        for (auto & [table, tids] : candidates) {
+            for (tid_t tid : tids) {
+                const VersionEntry * entry = table->_version_mgmt_column[tid].get();
+                needed.clear();
+                needed_versions(db, entry, labels, needed);
+                garbage.clear();
+                for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+                    if (element != entry && needed.count(element) == 0) garbage.insert(element);
+                }
+                if (garbage.empty()) continue;
+                unlink_versions(*table, tid, garbage);
+                freed += garbage.size();
+            }
+        }
+    }
     return freed;
 }
 
