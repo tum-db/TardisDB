@@ -6,7 +6,8 @@
 /// tuples; workers of a persistent pool take morsels from a shared counter.
 namespace Parallel {
 
-/// workers per query (default: all hardware threads); 1 keeps the serial code paths
+/// workers per query (default: all hardware threads); 1 keeps the serial code paths. Queries that run
+/// at the same time share one pool of threads.
 extern size_t threads;
 
 /// tuples per morsel

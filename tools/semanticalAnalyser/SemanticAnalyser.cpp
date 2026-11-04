@@ -22,7 +22,7 @@ namespace semanticalAnalysis {
             std::string &branchName = relation.version;
             branch_id_t branchId;
             if (branchName.compare("master") != 0) {
-                branchId = context.db._branchMapping[branchName];
+                branchId = context.db._branchMapping.at(branchName);
             } else {
                 branchId = master_branch_id;
             }

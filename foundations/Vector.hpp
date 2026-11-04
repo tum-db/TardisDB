@@ -27,6 +27,11 @@ public:
 
     void * reserve_back();
 
+    /// Makes room for count elements, so that appending up to count elements does not move the array
+    void reserve(size_type count);
+
+    size_type capacity() const { return _capacity; }
+
     void pop_back();
 
     void * operator[](size_type index);

@@ -34,7 +34,7 @@ namespace semanticalAnalysis {
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
         branch_id_t branchId = (stmt->relation.version.compare("master") != 0) ?
-                               _context.db._branchMapping[stmt->relation.version] :
+                               _context.db._branchMapping.at(stmt->relation.version) :
                                master_branch_id;
 
         Table* table = _context.db.getTable(stmt->relation.name);

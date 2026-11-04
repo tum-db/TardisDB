@@ -2,7 +2,9 @@
 
 #include <cstdint>
 #include <tuple>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <unordered_set>
 #include <vector>
 
@@ -25,5 +27,7 @@ private:
     using pool_t = std::unordered_set<sql_string_t, SqlStringHash, SqlStringEqual>;
     pool_t pool;
 */
-    std::vector<sql_string_t> pool;
+    // a deque keeps the returned references valid; statements on different tables may add at once
+    std::deque<sql_string_t> pool;
+    std::mutex mutex;
 };

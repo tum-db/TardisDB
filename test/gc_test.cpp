@@ -66,3 +66,35 @@ namespace {
     }
 
 }
+
+namespace {
+
+    // a branch with a version map keeps reading its versions while main merges, writes in place and drops
+    TEST(VersionMapTest, MergeAndInPlaceWrites) {
+        version_map_after_scans = 1;
+        Database db;
+        QueryCompiler::compileAndExecute("create table t ( k integer not null , x integer not null );", db);
+        QueryCompiler::compileAndExecute("insert into t ( k , x ) values ( 1 , 10 );", db);
+        QueryCompiler::compileAndExecute("insert into t ( k , x ) values ( 2 , 20 );", db);
+        QueryCompiler::compileAndExecute("create branch a from main;", db);
+        QueryCompiler::compileAndExecute("create branch b from main;", db);
+        QueryCompiler::compileAndExecute("insert into t version b ( k , x ) values ( 3 , 30 );", db);
+        // version maps of a and b
+        EXPECT_EQ(query(db, "select k , x from t version a;"), std::vector<std::string>({"(1, 10)", "(2, 20)"}));
+        EXPECT_EQ(query(db, "select k , x from t version b;"), std::vector<std::string>({"(1, 10)", "(2, 20)", "(3, 30)"}));
+        // main writes in place: a and b read the old versions from their copies
+        QueryCompiler::compileAndExecute("update t version main set x = 11 where k = 1;", db);
+        QueryCompiler::compileAndExecute("update t version a set x = 22 where k = 2;", db);
+        // the merge moves the tuple b inserted into main's in-place storage
+        QueryCompiler::compileAndExecute("merge branch b into main;", db);
+        QueryCompiler::compileAndExecute("update t version main set x = 31 where k = 3;", db);
+        QueryCompiler::compileAndExecute("insert into t ( k , x ) values ( 4 , 40 );", db);
+        EXPECT_EQ(query(db, "select k , x from t version a;"), std::vector<std::string>({"(1, 10)", "(2, 22)"}));
+        EXPECT_EQ(query(db, "select k , x from t version b;"), std::vector<std::string>({"(1, 10)", "(2, 20)", "(3, 30)"}));
+        EXPECT_EQ(query(db, "select k , x from t version main;"), std::vector<std::string>({"(1, 11)", "(2, 20)", "(3, 31)", "(4, 40)"}));
+        QueryCompiler::compileAndExecute("drop branch b;", db);
+        EXPECT_EQ(query(db, "select k , x from t version a;"), std::vector<std::string>({"(1, 10)", "(2, 22)"}));
+        version_map_after_scans = 0;
+    }
+
+}

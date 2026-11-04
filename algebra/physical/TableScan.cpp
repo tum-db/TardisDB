@@ -102,6 +102,7 @@ void TableScan::produce()
     size_t tableSize = table.size();
     if (tableSize < 1) return;  // nothing to produce
 #if USE_DATA_VERSIONING
+    prepare_scan(table, branchId);
     auto & logicalScan = static_cast<const Logical::TableScan &>(_logicalOperator);
     if (logicalScan.getIndex() != nullptr) {
         produceIndexProbe(*logicalScan.getIndex(), logicalScan.getIndexKeyHash());
@@ -396,8 +397,20 @@ llvm::Value * TableScan::genChainWalkCall(cg_tid_t tid, branch_id_t branchId) {
 }
 
 cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId) {
+    std::unique_lock<std::mutex> scanLatch(table._scanLatch);
+    auto versionMap = table._versionMaps.find(branchId);
+    const bool hasVersionMap = (versionMap != table._versionMaps.end());
+    scanLatch.unlock();
+    if (hasVersionMap) {
+        // the version map names the version of every tuple; it does not move while the query runs
+        llvm::Type * i64Ty = llvm::Type::getInt64Ty(_codeGen.getLLVMContext());
+        llvm::Value * versions = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(versionMap->second.data())).getValue(), llvm::PointerType::getUnqual(i64Ty));
+        // main may redirect an entry from its in-place version to a copy meanwhile (InPlaceWrites)
+        llvm::Value * version = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, versions, tid.getValue())), sizeof(uintptr_t));
+        return cg_voidptr_t( _codeGen->CreateIntToPtr(version, LLVMCompat::getInt8PtrTy(_codeGen.getLLVMContext())) );
+    }
 #if INTERVAL_VISIBILITY
-    if (table._head_ident.size() != table._version_mgmt_column.size()) {
+    if (!table.headsKnown()) {
         // rows were loaded without maintaining the head identifiers: always walk the chain
         return cg_voidptr_t( genChainWalkCall(tid, branchId) );
     }
@@ -414,7 +427,8 @@ cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId
     const uint64_t readerLabel = db._identL[db.getIdent(branchId)];
 
     llvm::Value * heads = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(table._head_ident.data())).getValue(), llvm::PointerType::getUnqual(i32Ty));
-    llvm::Value * head = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, heads, tid.getValue()));
+    // writers of other branches may store invalid_ident meanwhile (prepend_version)
+    llvm::Value * head = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, heads, tid.getValue())), sizeof(ident_t));
     llvm::Value * headIsInPlace = _codeGen->CreateICmpNE(head, llvm::ConstantInt::get(i32Ty, invalid_ident));
     llvm::Value * ident = _codeGen->CreateZExt(_codeGen->CreateSelect(headIsInPlace, head, llvm::ConstantInt::get(i32Ty, 0)), i64Ty);
     llvm::Value * labelsL = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(db._identL.data())).getValue(), llvm::PointerType::getUnqual(i64Ty));

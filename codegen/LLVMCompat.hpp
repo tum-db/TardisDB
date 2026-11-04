@@ -114,6 +114,19 @@ constexpr auto codeGenOptNone = llvm::CodeGenOpt::None;
 constexpr auto codeGenOptNone = llvm::CodeGenOptLevel::None;
 #endif
 
+/// Makes the load atomic (monotonic), for values that other threads may store meanwhile
+inline llvm::Value * makeMonotonic(llvm::Value * load, unsigned alignment)
+{
+    auto * inst = llvm::cast<llvm::LoadInst>(load);
+#if LLVM_VERSION_MAJOR < 10
+    inst->setAlignment(alignment);
+#else
+    inst->setAlignment(llvm::Align(alignment));
+#endif
+    inst->setAtomic(llvm::AtomicOrdering::Monotonic);
+    return inst;
+}
+
 /// memcpy without alignment guarantees
 inline llvm::CallInst * createMemCpy(llvm::IRBuilder<> & builder, llvm::Value * dst, llvm::Value * src, llvm::Value * size)
 {

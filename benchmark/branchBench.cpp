@@ -8,6 +8,9 @@
 //   crossbranch: k branches forked from main update a fraction of the tuples each; one
 //           aggregate per branch is computed by k queries, by one query with k scans and by
 //           one query with the branch-shared scan
+//   concurrent: clients run statements at the same time, each in its own branch: agents (update, then
+//           scan) and a reader beside a sibling branch that is written, read or inserted into, or beside
+//           updates of main
 //   verify: random forks, updates, inserts and deletes; every branch is scanned and
 //           compared with a reference model in which a fork copies its parent's state;
 //           aggregates over sets of branches are checked with both strategies
@@ -15,6 +18,7 @@
 // Output is CSV on stdout.
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -25,6 +29,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <llvm/Support/ManagedStatic.h>
@@ -39,10 +44,11 @@
 
 #include "gflags/gflags.h"
 
-DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | diffmerge | cycles | verify");
+DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | diffmerge | cycles | concurrent | verify");
 DEFINE_string(divergences, "10,100,1000,10000,100000", "tuples updated by the branch and by main (diffmerge mode)");
 DEFINE_bool(gc, true, "collect versions no branch needs (DROP BRANCH) and overwrite versions of the current identifier");
 DEFINE_bool(keep, false, "cycles mode: a branch forked from main before the cycles lives through them");
+DEFINE_uint64(version_map, 0, "build the version map of a branch once this many scans of it were compiled (0: never)");
 DEFINE_string(ks, "1,2,4,8,16,32,64,128,256,512,1024", "branch counts (crossbranch mode)");
 DEFINE_string(aggregates, "sum(b)", "aggregates per branch (crossbranch mode)");
 DEFINE_uint64(maxk_baseline, 256, "crossbranch mode: largest k for which the per-branch baselines run");
@@ -63,6 +69,9 @@ DEFINE_string(sizes, "10000,100000,1000000,10000000", "table sizes (fork mode)")
 DEFINE_double(frac, 0.01, "fraction of tuples updated per branch and by main after each fork");
 DEFINE_uint64(runs, 5, "repetitions per measurement (median reported)");
 DEFINE_uint64(seed, 42, "random seed");
+DEFINE_string(clients, "1,2,4,8,16", "concurrent mode: numbers of agents");
+DEFINE_double(seconds, 3, "concurrent mode: duration of a measurement");
+DEFINE_string(latching, "branch", "concurrent mode: serial (one statement at a time) | table (latches per table) | branch (and per branch)");
 
 static void noop(Native::Sql::SqlTuple *) {}
 
@@ -128,8 +137,13 @@ static double scanMicros(Database & db, const std::string & branch) {
     return times[times.size() / 2];
 }
 
+using Clock = std::chrono::high_resolution_clock;
+static double msSince(Clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+}
+
 static void depthMode() {
-    std::cout << "depth,n,frac,scan_leaf_ms,scan_main_ms,leaf_mtuples_per_s,main_mtuples_per_s,rss_mib,identifiers,relabels" << std::endl;
+    std::cout << "depth,n,frac,scan_leaf_ms,scan_main_ms,leaf_mtuples_per_s,main_mtuples_per_s,rss_mib,identifiers,relabels,version_map_ms" << std::endl;
     for (uint64_t depth : parseList(FLAGS_depths)) {
         std::mt19937_64 rng(FLAGS_seed);
         Database db;
@@ -143,12 +157,19 @@ static void depthMode() {
             updateRandom(db, table, master_branch_id, FLAGS_n, FLAGS_frac, rng, 1000000 + i);
             parent = name;
         }
+        double versionMapMs = 0;
+        if (FLAGS_version_map > 0 && depth > 0) {
+            // the leaf reads its recorded versions instead of walking the chains
+            auto start = Clock::now();
+            build_version_map(table, db._branchMapping[parent]);
+            versionMapMs = msSince(start);
+        }
         double leaf = scanMicros(db, parent);
         double main = scanMicros(db, "master");
         std::cout << depth << "," << FLAGS_n << "," << FLAGS_frac << ","
                   << leaf / 1000.0 << "," << main / 1000.0 << ","
                   << FLAGS_n / leaf << "," << FLAGS_n / main << ","
-                  << rssMiB() << "," << db.getIdentCount() << "," << db.getRelabelCount() << std::endl;
+                  << rssMiB() << "," << db.getIdentCount() << "," << db.getRelabelCount() << "," << versionMapMs << std::endl;
     }
 }
 
@@ -159,10 +180,6 @@ struct Phases {
     uint64_t forks = 0, evaluations = 0;
 };
 
-using Clock = std::chrono::high_resolution_clock;
-static double msSince(Clock::time_point start) {
-    return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
-}
 
 static void forkBranch(Database & db, const std::string & name, const std::string & parent, Phases & ph) {
     auto start = Clock::now();
@@ -697,6 +714,128 @@ static void diffmergeMode() {
     }
 }
 
+// concurrent mode ----------------------------------------------------------
+
+// t ( a, b, g ): the n / mutations tuples with the same g form the target of an update
+static void loadGrouped(Database & db, uint64_t n, uint64_t groups) {
+    QueryCompiler::compileAndExecute("CREATE TABLE t ( a INTEGER NOT NULL, b INTEGER NOT NULL, g INTEGER NOT NULL );", db);
+    Table & table = *db.getTable("t");
+    QueryContext ctx(db);
+    ctx.executionContext.branchId = master_branch_id;
+    db.constructBranchLineage(master_branch_id, ctx.executionContext);
+    for (uint64_t i = 0; i < n; ++i) {
+        std::vector<std::unique_ptr<Native::Sql::Value>> values;
+        values.push_back(Native::Sql::Value::castString(std::to_string(i), table.getCI("a")->type));
+        values.push_back(Native::Sql::Value::castString("0", table.getCI("b")->type));
+        values.push_back(Native::Sql::Value::castString(std::to_string(i % groups), table.getCI("g")->type));
+        Native::Sql::SqlTuple tuple(std::move(values));
+        insert_tuple(tuple, table, ctx);
+    }
+}
+
+// per statement: the time until it returned and the time its compiled code ran
+struct Latencies {
+    std::vector<double> eval, mutate, evalExec, mutateExec;
+    void add(const Latencies & other) {
+        eval.insert(eval.end(), other.eval.begin(), other.eval.end());
+        mutate.insert(mutate.end(), other.mutate.begin(), other.mutate.end());
+        evalExec.insert(evalExec.end(), other.evalExec.begin(), other.evalExec.end());
+        mutateExec.insert(mutateExec.end(), other.mutateExec.begin(), other.mutateExec.end());
+    }
+};
+
+static double percentile(std::vector<double> v, double p) {
+    if (v.empty()) return 0;
+    std::sort(v.begin(), v.end());
+    return v[std::min(v.size() - 1, static_cast<size_t>(p * v.size()))];
+}
+
+/// Runs the clients for FLAGS_seconds; client i works in branch c<i>. Roles: 'a' agent (update, then
+/// scan), 'r' reader (scans), 'w' writer (updates), 'm' writer of main, 'i' inserter. \returns The latencies per client
+static std::vector<Latencies> runClients(Database & db, const std::string & roles, uint64_t groups) {
+    std::atomic<bool> stop(false);
+    std::vector<Latencies> latencies(roles.size());
+    std::vector<std::thread> threads;
+    for (size_t c = 0; c < roles.size(); ++c) {
+        threads.emplace_back([&, c] {
+            const std::string branch = (roles[c] == 'm') ? "main" : "c" + std::to_string(c);
+            std::mt19937_64 rng(FLAGS_seed + c);
+            for (uint64_t inserted = 0; !stop; ) {
+                if (roles[c] == 'i') {
+                    // keys above those of the table, distinct per client
+                    const uint64_t key = FLAGS_n * (c + 1) + inserted++;
+                    auto start = Clock::now();
+                    auto result = QueryCompiler::compileAndBenchmark("INSERT INTO t VERSION " + branch + " ( a , b , g ) VALUES ( " + std::to_string(key) + " , 0 , " + std::to_string(key % groups) + " );", db, (void *) &noop);
+                    latencies[c].mutate.push_back(msSince(start));
+                    latencies[c].mutateExec.push_back(result.executionTime / 1000.0);
+                    continue;
+                }
+                if (roles[c] != 'r') {
+                    auto start = Clock::now();
+                    auto result = QueryCompiler::compileAndBenchmark("UPDATE t VERSION " + branch + " SET b = b + 1 WHERE g = " + std::to_string(rng() % groups) + ";", db, (void *) &noop);
+                    latencies[c].mutate.push_back(msSince(start));
+                    latencies[c].mutateExec.push_back(result.executionTime / 1000.0);
+                }
+                if (roles[c] != 'w' && roles[c] != 'm') {
+                    auto start = Clock::now();
+                    auto result = QueryCompiler::compileAndBenchmark("SELECT b FROM t VERSION " + branch + " WHERE a = " + std::to_string(rng() % FLAGS_n) + ";", db, (void *) &noop);
+                    latencies[c].eval.push_back(msSince(start));
+                    latencies[c].evalExec.push_back(result.executionTime / 1000.0);
+                }
+            }
+        });
+    }
+    std::this_thread::sleep_for(std::chrono::duration<double>(FLAGS_seconds));
+    stop = true;
+    for (auto & thread : threads) thread.join();
+    return latencies;
+}
+
+static void concurrentMode() {
+    if (FLAGS_latching == "serial") QueryCompiler::latching = QueryCompiler::Latching::Serial;
+    else if (FLAGS_latching == "table") QueryCompiler::latching = QueryCompiler::Latching::Table;
+    else if (FLAGS_latching == "branch") QueryCompiler::latching = QueryCompiler::Latching::Branch;
+    else throw std::runtime_error("unknown latching " + FLAGS_latching);
+    const uint64_t groups = std::max<uint64_t>(1, FLAGS_n / FLAGS_mutations);
+    std::cout << "scenario,latching,clients,threads,n,iterations_per_s,eval_ms_p50,eval_ms_p99,mutate_ms_p50,mutate_ms_p99,"
+                 "eval_exec_ms_p50,mutate_exec_ms_p50,sibling_per_s" << std::endl;
+    auto run = [&](const std::string & scenario, const std::string & roles) {
+        Database db;
+        loadGrouped(db, FLAGS_n, groups);
+        for (size_t c = 0; c < roles.size(); ++c) {
+            QueryCompiler::compileAndExecute("CREATE BRANCH c" + std::to_string(c) + " FROM master;", db);
+        }
+        auto latencies = runClients(db, roles, groups);
+        // agents: all clients; isolation: client 0 is measured, client 1 is the sibling
+        Latencies measured;
+        size_t iterations = 0;
+        for (size_t c = 0; c < roles.size(); ++c) {
+            if (roles[c] == 'a' || c == 0) {
+                measured.add(latencies[c]);
+                iterations += std::max(latencies[c].eval.size(), latencies[c].mutate.size());
+            }
+        }
+        // the sibling, or the client beside agents
+        const bool besideAgents = (roles[0] == 'a' && roles.back() != 'a');
+        const size_t other = besideAgents ? roles.size() - 1 : 1;
+        const double sibling = (roles.size() > 1 && (roles[0] != 'a' || besideAgents))
+                ? std::max(latencies[other].eval.size(), latencies[other].mutate.size()) / FLAGS_seconds : 0;
+        std::cout << scenario << "," << FLAGS_latching << "," << roles.size() << "," << Parallel::threads << ","
+                  << FLAGS_n << "," << iterations / FLAGS_seconds << "," << percentile(measured.eval, 0.5) << ","
+                  << percentile(measured.eval, 0.99) << "," << percentile(measured.mutate, 0.5) << ","
+                  << percentile(measured.mutate, 0.99) << "," << percentile(measured.evalExec, 0.5) << ","
+                  << percentile(measured.mutateExec, 0.5) << "," << sibling << std::endl;
+    };
+    for (uint64_t k : parseList(FLAGS_clients)) run("agents", std::string(k, 'a'));
+    run("reader_alone", "r");
+    run("reader_sibling_reads", "rr");
+    run("reader_sibling_writes", "rw");
+    run("reader_main_writes", "rm");
+    run("agents_main_writes", std::string(16, 'a') + "m");
+    run("reader_sibling_inserts", "ri");
+    run("agents_sibling_inserts", std::string(16, 'a') + "i");
+}
+
 static void forkMode() {
     std::cout << "n,fork_us_median,rss_mib,membership_mib" << std::endl;
     for (uint64_t n : parseList(FLAGS_sizes)) {
@@ -719,6 +858,7 @@ int main(int argc, char * argv[]) {
     if (FLAGS_threads > 0) Parallel::threads = FLAGS_threads;
     Parallel::morselSize = FLAGS_morsel;
     collect_garbage = overwrite_own_versions = FLAGS_gc;
+    version_map_after_scans = FLAGS_version_map;
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
     llvm::InitializeNativeTargetAsmParser();
@@ -730,6 +870,7 @@ int main(int argc, char * argv[]) {
     else if (FLAGS_mode == "agentic") agenticMode();
     else if (FLAGS_mode == "diffmerge") diffmergeMode();
     else if (FLAGS_mode == "cycles") cyclesMode();
+    else if (FLAGS_mode == "concurrent") concurrentMode();
     else { std::cerr << "unknown mode" << std::endl; return 1; }
 
     llvm::llvm_shutdown();

@@ -5,6 +5,11 @@
 #include <unordered_map>
 #include <set>
 #include <limits>
+#include <atomic>
+#include <mutex>
+#include <shared_mutex>
+
+#include "utils/shared_latch.hpp"
 
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
@@ -59,6 +64,9 @@ public:
     void addRow();
 
     void removeRow();
+
+    /// Makes room for the rows, so that adding up to that many rows does not move them
+    void reserve(size_t rows) { _data->reserve(rows); }
 
     /// \returns Bytes per row
     size_t getRowSize() const { return _data->getElementSize(); }
@@ -125,6 +133,9 @@ public:
     /// Adds a tuple, which the branch has inserted
     void addRow(branch_id_t branch);
 
+    /// Makes room for the rows, so that adding up to that many rows does not move the membership
+    void reserve(size_t rows);
+
     bool contains(tid_t tid, branch_id_t branch) const;
 
     /// As contains() for a branch other than the root with the given label
@@ -169,6 +180,26 @@ cg_bool_t genMembershipTest(BranchMembership & membership, cg_tid_t tid, llvm::V
 
 class Database;
 struct VersionEntry;
+struct InPlaceWrites;
+
+/// Grace periods for the in-place writes of main (see InPlaceWrites in version_management.hpp): a
+/// statement that may read the tuples of a table in place enters its epochs once it holds its
+/// latches and leaves them at its end; synchronize() returns once every statement that entered
+/// before it was called has left. A statement that has entered never waits for another one.
+class ReaderEpochs {
+public:
+    /// \returns The slot to pass to leave()
+    unsigned enter();
+
+    void leave(unsigned slot);
+
+    /// Waits for the statements that have entered; one thread at a time
+    void synchronize();
+
+private:
+    std::atomic<uint64_t> _phase{0};
+    std::atomic<size_t> _active[2] = {{0}, {0}};
+};
 
 /// A hash index on one column of a table, local to one branch: CREATE INDEX ON t (c) VERSION b.
 /// It covers the tuples of the branch and is maintained by the writes of the branch only, since
@@ -206,7 +237,27 @@ public:
 
     void addColumn(const std::string & columnName, Sql::SqlType type);
 
+    /// Adds a row and counts it in size()
     void addRow(branch_id_t branchId);
+
+    /// Adds a row without counting it in size(): statements that read the table meanwhile do not see it
+    void appendRow(branch_id_t branchId);
+
+    /// Counts the rows appended so far in size(), once they are complete
+    void publishRows();
+
+    /// Makes room for the rows in every array with an element per tuple (see _capacity); moves them,
+    /// so no other statement may use the table
+    void reserveRows(size_t rows);
+
+    /// Makes room for the rows if there is not enough, see reserveRows()
+    void ensureCapacity(size_t rows);
+
+    /// \returns The rows the arrays with an element per tuple hold without moving
+    size_t capacity() const { return _capacity; }
+
+    /// \returns Whether every tuple has a head identifier (rows loaded otherwise have none)
+    bool headsKnown();
 
     void removeRow(tid_t tid);
 
@@ -236,7 +287,8 @@ public:
 
     std::vector<Sql::SqlType> getTupleType() const;
 
-    size_t size() const;
+    /// \returns The rows published so far; statements compile their scans for this many rows
+    size_t size() const { return _published.load(std::memory_order_acquire); }
 
     /// \returns The index of the branch on the column, or nullptr
     BranchIndex * getIndex(size_t column, branch_id_t branch) const;
@@ -256,6 +308,13 @@ private:
 
     std::unique_ptr<ColumnInformation> _tidColumn;
 
+    size_t _appended = 0; // the rows appended, by the statement that inserts
+    std::atomic<size_t> _published{0};
+    /// the columns, the null indicators, the membership, the version entries, the head identifiers and the
+    /// version maps hold this many rows without moving, so that a statement can insert beside others
+    /// that read them through pointers compiled into their code
+    size_t _capacity = 0;
+
 public:
     std::vector<std::unique_ptr<VersionEntry>> _version_mgmt_column;
     /// per tuple: the identifier of the in-place version if it heads the chain, otherwise invalid_ident;
@@ -264,7 +323,25 @@ public:
     /// per identifier: the tuples written under it (versions, deletes, inserts); two branches can
     /// differ only in tuples written under an identifier that is an ancestor of one of them only
     std::vector<std::vector<tid_t>> _writes;
+    /// per branch with a version map, per tuple the version the branch reads: 0 in place, 1 none (the tuple
+    /// belongs to the branch, but it sees no version), otherwise the tuple data of the version.
+    /// Only the writes of the branch change what it reads; see build_version_map()
+    std::unordered_map<branch_id_t, std::vector<uintptr_t>> _versionMaps;
+    std::unordered_map<branch_id_t, size_t> _scans; // per branch, the scans compiled so far
     std::vector<std::unique_ptr<VersionEntry>> _dangling_version_mgmt_column;
+
+    /// held shared by the statements that read the table and exclusive by those that write it; with
+    /// QueryCompiler::Latching::Branch, updates and eager deletes hold it shared and latch their branch
+    SharedLatch _latch;
+    /// guards _scans, the map _versionMaps and _inPlaceWrites while scans of several branches are compiled at once
+    std::mutex _scanLatch;
+    /// the statements that may read tuples in place while main writes the table
+    ReaderEpochs _readers;
+    /// the in-place writes of the statement of main that writes the table beside readers of other
+    /// branches, completed at the end of the statement; nullptr if there is none
+    InPlaceWrites * _inPlaceWrites = nullptr;
+    /// held by the statement that inserts into the table, from before its table latch to its end
+    std::mutex _insertLatch;
 };
 
 void genTableAddRowCall(cg_voidptr_t table);
@@ -296,6 +373,9 @@ struct Branch {
     branch_id_t parent_id;
     std::string name;
     ident_t ident; // current identifier
+    /// held shared by the statements that read the branch and exclusive by those that update or delete
+    /// in it while they hold the tables shared (see QueryCompiler::Latching::Branch)
+    SharedLatch latch;
 };
 
 //-----------------------------------------------------------------------------
@@ -366,4 +446,8 @@ public:
     /// which is the base of the next merge of the pair
     std::map<std::pair<branch_id_t, branch_id_t>,
              std::unordered_map<const Table *, std::unordered_map<tid_t, std::vector<uint8_t>>>> _mergeBases;
+
+    /// held exclusive by the statements that change tables or branches (CREATE, DROP, MERGE, COPY),
+    /// shared by all others, which then latch the tables they access
+    SharedLatch _catalogLatch;
 };

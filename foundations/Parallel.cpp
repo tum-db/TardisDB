@@ -17,7 +17,9 @@ size_t morselSize = 16384;
 
 namespace {
 
-/// Threads that stay alive between queries, so that short queries do not pay for starting threads
+/// Threads that stay alive between queries, so that short queries do not pay for starting threads.
+/// Queries that run at the same time share the threads: a free thread joins the job with the fewest
+/// workers that still has morsels and stays with it until its morsels are gone.
 class WorkerPool {
 public:
     ~WorkerPool() {
@@ -29,38 +31,56 @@ public:
         for (auto & thread : _threads) thread.join();
     }
 
-    /// Runs job(worker) for worker = 0 .. workers - 1; worker 0 is the calling thread
+    /// Runs job(worker) on the calling thread (worker 0) and on up to workers - 1 threads of the pool
+    /// (workers 1 ..); job returns once no morsel is left
     void run(size_t workers, const std::function<void(size_t)> & job) {
+        Job current{&job, workers};
         std::unique_lock<std::mutex> lock(_mutex);
         while (_threads.size() + 1 < workers) {
-            _threads.emplace_back(&WorkerPool::loop, this, _threads.size() + 1);
+            _threads.emplace_back(&WorkerPool::loop, this);
         }
-        _job = &job;
-        _workers = workers;
-        _pending = workers - 1;
-        ++_generation;
+        _jobs.push_back(&current);
         lock.unlock();
         _wake.notify_all();
         job(0);
         lock.lock();
-        _done.wait(lock, [&] { return _pending == 0; });
-        _job = nullptr;
+        current.exhausted = true;
+        _jobs.erase(std::find(_jobs.begin(), _jobs.end(), &current));
+        _done.wait(lock, [&] { return current.running == 0; });
     }
 
 private:
-    void loop(size_t worker) {
-        uint64_t seen = 0;
+    struct Job {
+        const std::function<void(size_t)> * function;
+        size_t workers;
+        size_t joined = 1;      // worker numbers handed out; 0 is the calling thread
+        size_t running = 0;     // threads of the pool inside function
+        bool exhausted = false; // a worker has returned from function
+    };
+
+    /// \returns The job with the fewest workers that still takes workers, or nullptr
+    Job * pick() {
+        Job * best = nullptr;
+        for (Job * job : _jobs) {
+            if (job->exhausted || job->joined >= job->workers) continue;
+            if (best == nullptr || job->joined < best->joined) best = job;
+        }
+        return best;
+    }
+
+    void loop() {
         std::unique_lock<std::mutex> lock(_mutex);
         for (;;) {
-            _wake.wait(lock, [&] { return _stop || _generation != seen; });
+            Job * job = nullptr;
+            _wake.wait(lock, [&] { return _stop || (job = pick()) != nullptr; });
             if (_stop) return;
-            seen = _generation;
-            if (worker >= _workers) continue;
-            const auto * job = _job;
+            const size_t worker = job->joined++;
+            ++job->running;
             lock.unlock();
-            (*job)(worker);
+            (*job->function)(worker);
             lock.lock();
-            if (--_pending == 0) _done.notify_one();
+            job->exhausted = true;
+            if (--job->running == 0) _done.notify_all();
         }
     }
 
@@ -68,10 +88,7 @@ private:
     std::condition_variable _wake;
     std::condition_variable _done;
     std::vector<std::thread> _threads;
-    const std::function<void(size_t)> * _job = nullptr;
-    size_t _workers = 0;
-    size_t _pending = 0;
-    uint64_t _generation = 0;
+    std::vector<Job *> _jobs;
     bool _stop = false;
 };
 

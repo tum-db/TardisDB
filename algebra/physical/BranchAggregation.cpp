@@ -285,7 +285,7 @@ void BranchAggregation::genSharedScan(State & state, llvm::Value * begin, llvm::
     llvm::Type * i64Ty = llvm::Type::getInt64Ty(context);
     Database & db = _table.getDatabase();
     const size_t k = state.set.branches.size();
-    const bool headsKnown = (_table._head_ident.size() == _table._version_mgmt_column.size());
+    const bool headsKnown = _table.headsKnown();
 
     llvm::Function * ranges = declareFunction("branch_aggregation_ranges",
             llvm::TypeBuilder<uint32_t (size_t, void *, void *, size_t, size_t), false>::get(context), (void *) &visible_ranges);
@@ -306,7 +306,7 @@ void BranchAggregation::genSharedScan(State & state, llvm::Value * begin, llvm::
             llvm::Value * readByAll = llvm::ConstantInt::getFalse(context);
             if (headsKnown) {
                 llvm::Value * heads = rawPointer(_table._head_ident.data(), i32Ty);
-                llvm::Value * head = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, heads, tid.getValue()));
+                llvm::Value * head = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, heads, tid.getValue())), sizeof(ident_t));
                 llvm::Value * headIsInPlace = _codeGen->CreateICmpNE(head, llvm::ConstantInt::get(i32Ty, invalid_ident));
                 llvm::Value * ident = _codeGen->CreateZExt(_codeGen->CreateSelect(headIsInPlace, head, llvm::ConstantInt::get(i32Ty, 0)), i64Ty);
                 llvm::Value * l = _codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, rawPointer(db._identL.data(), i64Ty), ident));
@@ -371,7 +371,7 @@ void BranchAggregation::genPerBranchScan(State & state, llvm::Value * begin, llv
     llvm::Value * branch = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, rawPointer(state.set.branches.data(), i32Ty), _position));
     llvm::Value * isMaster = _codeGen->CreateICmpEQ(branch, llvm::ConstantInt::get(i32Ty, master_branch_id));
 #if INTERVAL_VISIBILITY
-    const bool headsKnown = (_table._head_ident.size() == _table._version_mgmt_column.size());
+    const bool headsKnown = _table.headsKnown();
     Database & db = _table.getDatabase();
     llvm::Value * readerLabel = _codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, rawPointer(state.set.labels.data(), i64Ty), _position));
 #endif
@@ -387,7 +387,7 @@ void BranchAggregation::genPerBranchScan(State & state, llvm::Value * begin, llv
             llvm::Value * walk = _codeGen->CreateNot(isMaster);
 #if INTERVAL_VISIBILITY
             if (headsKnown) {
-                llvm::Value * head = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, rawPointer(_table._head_ident.data(), i32Ty), tid.getValue()));
+                llvm::Value * head = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, rawPointer(_table._head_ident.data(), i32Ty), tid.getValue())), sizeof(ident_t));
                 llvm::Value * headIsInPlace = _codeGen->CreateICmpNE(head, llvm::ConstantInt::get(i32Ty, invalid_ident));
                 llvm::Value * ident = _codeGen->CreateZExt(_codeGen->CreateSelect(headIsInPlace, head, llvm::ConstantInt::get(i32Ty, 0)), i64Ty);
                 llvm::Value * l = _codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, rawPointer(db._identL.data(), i64Ty), ident));

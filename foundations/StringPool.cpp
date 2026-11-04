@@ -25,6 +25,7 @@ StringPool & StringPool::instance() {
 
 const sql_string_t & StringPool::put(sql_string_t && str) {
 //    return *pool.insert(std::move(str)).first;
+    std::lock_guard<std::mutex> lock(mutex);
     pool.push_back(std::move(str));
     return pool.back();
 }

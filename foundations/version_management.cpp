@@ -1,5 +1,8 @@
 #include "foundations/version_management.hpp"
 
+#include <atomic>
+#include <mutex>
+
 #include <algorithm>
 #include <numeric>
 #include <iostream>
@@ -27,7 +30,7 @@ static bool is_visible(const T & elem, QueryContext & ctx) {
     return false;
 }
 
-static size_t version_count = 0;
+static std::atomic<size_t> version_count(0);
 
 size_t live_versions() {
     return version_count;
@@ -35,6 +38,7 @@ size_t live_versions() {
 
 bool collect_garbage = true;
 bool overwrite_own_versions = true;
+size_t version_map_after_scans = 0;
 
 static VersionedTupleStorage * create_chain_element(Table & table, size_t tuple_size) {
     size_t size = sizeof(VersionedTupleStorage) + tuple_size;
@@ -89,9 +93,11 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
     size_t branch_cnt = 1 + db.getLargestBranchId();
 
     tid = table._version_mgmt_column.size();
+    // grows only if the statement holds the table exclusive; otherwise it made sure there is room
+    table.ensureCapacity(tid + 1);
 
-    table._version_mgmt_column.push_back(std::make_unique<VersionEntry>());
-    VersionEntry * version_entry = table._version_mgmt_column.back().get();
+    auto entry = std::make_unique<VersionEntry>();
+    VersionEntry * version_entry = entry.get();
     version_entry->first = version_entry;
     version_entry->next = nullptr;
     version_entry->next_in_branch = nullptr;
@@ -102,10 +108,19 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
     version_entry->branch_visibility.set(branch);
     version_entry->creation_ts = db.getLargestBranchId();
     version_entry->ident = db.getIdent(branch);
-    table._head_ident.push_back(version_entry->ident);
+    {
+        // the arrays do not move (capacity), but scans compiled meanwhile compare their sizes and add version maps
+        std::lock_guard<std::mutex> lock(table._scanLatch);
+        table._version_mgmt_column.push_back(std::move(entry));
+        table._head_ident.push_back(version_entry->ident);
+        // only the inserting branch sees the in-place version, since its identifier has no descendants
+        for (auto & [reader, versions] : table._versionMaps) {
+            versions.push_back(reader == branch ? 0 : 1);
+        }
+    }
 
     // store tuple
-    table.addRow(branch);
+    table.appendRow(branch);
     size_t column_idx = 0;
     for (auto & value : tuple.values) {
         void * ptr = const_cast<void *>(table.getColumn(column_idx).back());
@@ -114,6 +129,8 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
     }
     index_tuple(table, branch, tid, tuple);
     record_write(table, branch, tid);
+    // statements that start from now on scan the tuple
+    table.publishRows();
 
     return tid;
 }
@@ -151,6 +168,93 @@ static void update_master(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tabl
     }
 }
 
+// replaces the in-place version in the chain by a copy, which the readers of the old version read from
+// now on, while readers of other branches may walk the chain and writers of other branches prepend to it
+static void defer_in_place_write(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table, InPlaceWrites & pending) {
+    auto version_entry = get_version_entry(tid, table);
+    auto found = pending.positions.find(tid);
+    if (found != pending.positions.end()) {
+        // written before by this statement: the copy is in the chain already
+        tuple.store(pending.tuples.data() + found->second * pending.tupleSize);
+        return;
+    }
+
+    auto old_tuple = get_current_master(tid, table);
+    auto storage = create_chain_element(table, old_tuple->getSize());
+    storage->branch_id = version_entry->branch_id;
+    storage->creation_ts = version_entry->creation_ts;
+    storage->ident = version_entry->ident;
+    storage->next = version_entry->next;
+    storage->next_in_branch = version_entry->next_in_branch;
+    old_tuple->store(get_tuple_ptr(storage));
+
+    // only main changes the element after the in-place version, and other writers only prepend
+    for (;;) {
+        void * head = __atomic_load_n(&version_entry->first, __ATOMIC_ACQUIRE);
+        if (head == version_entry) {
+            if (__atomic_compare_exchange_n(&version_entry->first, &head, static_cast<void *>(storage), false,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) break;
+            continue; // another branch has prepended a version
+        }
+        // prev may not be set yet by the writer that has just prepended to the version entry
+        auto before = static_cast<VersionedTupleStorage *>(head);
+        while (chain_next(version_entry, before) != version_entry) {
+            before = const_cast<VersionedTupleStorage *>(static_cast<const VersionedTupleStorage *>(chain_next(version_entry, before)));
+        }
+        __atomic_store_n(&before->next, static_cast<const void *>(storage), __ATOMIC_RELEASE);
+        break;
+    }
+    __atomic_store_n(&table._head_ident[tid], invalid_ident, __ATOMIC_RELAXED);
+
+    std::lock_guard<std::mutex> lock(table._scanLatch);
+    if (pending.tupleSize == 0) pending.tupleSize = tuple.getSize();
+    pending.positions.emplace(tid, pending.writes.size());
+    pending.writes.push_back({tid, storage});
+    pending.tuples.resize(pending.writes.size() * pending.tupleSize);
+    tuple.store(pending.tuples.data() + (pending.writes.size() - 1) * pending.tupleSize);
+    // the branches that read the old version in place read it from its copy now
+    const auto copy = reinterpret_cast<uintptr_t>(get_tuple_ptr(storage));
+    for (auto & [reader, versions] : table._versionMaps) {
+        if (reader != master_branch_id && versions[tid] == 0) {
+            __atomic_store_n(&versions[tid], copy, __ATOMIC_RELAXED);
+        }
+    }
+}
+
+void finish_in_place_writes(Table & table, InPlaceWrites & pending) {
+    if (!pending.writes.empty()) {
+        // afterwards, no statement reads an old version in place: those that entered later found the copies
+        table._readers.synchronize();
+        Database & db = table.getDatabase();
+        const ident_t ident = db.getIdent(master_branch_id);
+        const branch_id_t creation_ts = db.getLargestBranchId();
+        const auto types = table.getTupleType();
+        for (size_t i = 0; i < pending.writes.size(); ++i) {
+            const auto [tid, copy] = pending.writes[i];
+            auto version_entry = get_version_entry(tid, table);
+            auto tuple = Native::Sql::SqlTuple::load(pending.tuples.data() + i * pending.tupleSize, types);
+            update_master(tid, *tuple, table);
+            version_entry->next_in_branch = copy;
+            version_entry->branch_id = master_branch_id;
+            version_entry->creation_ts = creation_ts;
+            version_entry->ident = ident;
+            // no other branch sees the new version, so it may become the head before or after other
+            // branches prepend theirs
+            void * head = __atomic_load_n(&version_entry->first, __ATOMIC_ACQUIRE);
+            do {
+                version_entry->next = head;
+            } while (!__atomic_compare_exchange_n(&version_entry->first, &head, static_cast<void *>(version_entry), false,
+                                                  __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
+            __atomic_store_n(&table._head_ident[tid], ident, __ATOMIC_SEQ_CST);
+            if (__atomic_load_n(&version_entry->first, __ATOMIC_SEQ_CST) != version_entry) {
+                __atomic_store_n(&table._head_ident[tid], invalid_ident, __ATOMIC_SEQ_CST);
+            }
+        }
+    }
+    std::lock_guard<std::mutex> lock(table._scanLatch);
+    table._inPlaceWrites = nullptr;
+}
+
 // master updates in place; the previous in-place version moves into the chain
 static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & table) {
     const branch_id_t branch = master_branch_id;
@@ -159,6 +263,8 @@ static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tab
     if (overwrite_own_versions && version_entry->ident == db.getIdent(branch)) {
         // written under the current identifier, which has no descendants: no other branch sees it
         update_master(tid, tuple, table);
+    } else if (table._inPlaceWrites != nullptr) {
+        defer_in_place_write(tid, tuple, table, *table._inPlaceWrites);
     } else {
         auto old_tuple = get_current_master(tid, table);
 
@@ -179,6 +285,12 @@ static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tab
         }
 
         old_tuple->store(get_tuple_ptr(storage));
+        // the branches that read the old version in place read it from its copy now
+        for (auto & [reader, versions] : table._versionMaps) {
+            if (reader != branch && versions[tid] == 0) {
+                versions[tid] = reinterpret_cast<uintptr_t>(get_tuple_ptr(storage));
+            }
+        }
 
         // version entry update
         if (version_entry->first != version_entry) {            // next should point to the old head of the chain
@@ -214,27 +326,34 @@ static void prepend_version(tid_t tid, branch_id_t branch, Native::Sql::SqlTuple
     } else {
         auto storage = create_chain_element(table, tuple.getSize());
 
-        // branch visibility
+        // branch visibility (branch_visibility is not maintained: no visibility test reads it, and
+        // writers of several branches would change it at the same time)
         storage->branch_id = branch;
         storage->creation_ts = db.getLargestBranchId();
         storage->ident = db.getIdent(branch);
-        size_t branch_cnt = 1 + db.getLargestBranchId();
-        if (version_entry->branch_visibility.size() < branch_cnt) {
-            version_entry->branch_visibility.resize(branch_cnt, false);
-        }
-        version_entry->branch_visibility.set(branch);
 
         tuple.store(get_tuple_ptr(storage));
-
-        storage->next = version_entry->first;
+        if (!is_marked_as_dangling_tid(tid)) {
+            std::lock_guard<std::mutex> lock(table._scanLatch);
+            auto versionMap = table._versionMaps.find(branch);
+            if (versionMap != table._versionMaps.end()) {
+                versionMap->second[tid] = reinterpret_cast<uintptr_t>(get_tuple_ptr(storage));
+            }
+        }
         storage->next_in_branch = predecessor;
 
-        // If the head equals the version_entry set the prev pointer of the version_entry to the address of the
-        // created storage entry
-        if (version_entry->first == version_entry) version_entry->prev = storage;
-        version_entry->first = storage;
+        // Writers of other branches may prepend to the same chain meanwhile; none of them sees this
+        // version, nor does any reader of another branch, so publishing it needs no latch: the version
+        // is complete before it becomes the head of the chain
+        void * head = __atomic_load_n(&version_entry->first, __ATOMIC_ACQUIRE);
+        do {
+            storage->next = head;
+        } while (!__atomic_compare_exchange_n(&version_entry->first, &head, static_cast<void *>(storage), false,
+                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
+        // prev, the element before the version entry, is read only under the exclusive latch of the table
+        if (head == version_entry) version_entry->prev = storage;
         if (!is_marked_as_dangling_tid(tid)) {
-            table._head_ident[tid] = invalid_ident;
+            __atomic_store_n(&table._head_ident[tid], invalid_ident, __ATOMIC_RELAXED);
         }
     }
     index_tuple(table, branch, tid, tuple);
@@ -285,21 +404,20 @@ const void * get_latest_chain_element(const VersionEntry * version_entry, Table 
         return version_entry;
     }
 
-    const void * next = version_entry->first;
+    const void * next = chain_head(version_entry);
     while (next != nullptr) {
         if (next == version_entry) {
             // this is the current master branch
             if (is_visible(*version_entry, ctx)) {
                 return version_entry;
             }
-            next = version_entry->next;
         } else {
             const auto storage = static_cast<const VersionedTupleStorage *>(next);
             if (is_visible(*storage, ctx)) {
                 return storage;
             }
-            next = storage->next;
         }
+        next = chain_next(version_entry, next);
     }
     return nullptr;
 }
@@ -404,16 +522,15 @@ const void * get_latest_entry_of_reader(tid_t tid, Table & table, branch_id_t br
 #endif
     };
     const auto version_entry = get_version_entry(tid, table);
-    const void * next = version_entry->first;
+    const void * next = chain_head(version_entry);
     while (next != nullptr) {
         if (next == version_entry) {
             if (visible(version_entry->branch_id, version_entry->creation_ts, version_entry->ident)) return nullptr;
-            next = version_entry->next;
         } else {
             const auto storage = static_cast<const VersionedTupleStorage *>(next);
             if (visible(storage->branch_id, storage->creation_ts, storage->ident)) return get_tuple_ptr(storage);
-            next = storage->next;
         }
+        next = chain_next(version_entry, next);
     }
 #if LAZY_MEMBERSHIP
     return invisible_version;
@@ -442,20 +559,19 @@ uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, boo
     const Database & db = table.getDatabase();
     const auto version_entry = get_version_entry(tid, table);
     uint32_t parts = 0;
-    const void * next = version_entry->first;
+    const void * next = chain_head(version_entry);
     while (next != nullptr && !pending.empty()) {
         ident_t ident;
         const void * data;
         if (next == version_entry) {
             ident = version_entry->ident;
             data = nullptr;
-            next = version_entry->next;
         } else {
             const auto storage = static_cast<const VersionedTupleStorage *>(next);
             ident = storage->ident;
             data = get_tuple_ptr(storage);
-            next = storage->next;
         }
+        next = chain_next(version_entry, next);
         // the readers that see this version, unless a newer one shadows it: labels in [l, r]
         const uint32_t a = std::lower_bound(set.labels.begin(), set.labels.end(), db._identL[ident]) - set.labels.begin();
         const uint32_t b = std::upper_bound(set.labels.begin(), set.labels.end(), db._identR[ident]) - set.labels.begin();
@@ -509,7 +625,7 @@ bool is_visible(tid_t tid, Table & table, QueryContext & ctx) {
 }
 
 void destroy_chain(VersionEntry * version_entry) {
-    const void * next = version_entry->first;
+    const void * next = chain_head(version_entry);
     while (next != nullptr) {
         if (next == version_entry) {
             next = version_entry->next;
@@ -558,15 +674,11 @@ bool BranchReader::sees(const VersionEntry * entry, const void * element) const 
     return sees(storage->branch_id, storage->creation_ts, storage->ident);
 }
 
-static const void * next_chain_element(const VersionEntry * entry, const void * element) {
-    return (element == entry) ? entry->next : static_cast<const VersionedTupleStorage *>(element)->next;
-}
-
 const void * BranchReader::visible(const VersionEntry * entry) const {
     if (branch == master_branch_id) {
         return entry; // master reads in place
     }
-    for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+    for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
         if (sees(entry, element)) return element;
     }
     return nullptr;
@@ -643,7 +755,7 @@ static std::vector<tid_t> candidates(Table & table, branch_id_t a, branch_id_t b
     if (!diff_scans_whole_table) {
         return diverging_tuples(table, a, b);
     }
-    std::vector<tid_t> all(table._version_mgmt_column.size());
+    std::vector<tid_t> all(table.size());
     std::iota(all.begin(), all.end(), 0);
     return all;
 }
@@ -692,7 +804,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
             if (recorded != tableBases.end()) {
                 base = Native::Sql::SqlTuple::load(recorded->second.data(), types);
             } else {
-                for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+                for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
                     if (source.sees(entry, element) && target.sees(entry, element)) {
                         base = load_version(tid, *table, element);
                         break;
@@ -779,11 +891,56 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
     return result;
 }
 
+std::vector<uintptr_t> compute_version_map(Table & table, branch_id_t branch) {
+    BranchReader reader(table.getDatabase(), branch);
+    // tuples inserted meanwhile are added in add_version_map
+    std::vector<uintptr_t> versions(table.size());
+    versions.reserve(table.capacity());
+    for (tid_t tid = 0; tid < versions.size(); ++tid) {
+        const VersionEntry * entry = table._version_mgmt_column[tid].get();
+        const void * element = reader.visible(entry);
+        versions[tid] = (element == nullptr) ? 1 : (element == entry) ? 0
+                      : reinterpret_cast<uintptr_t>(get_tuple_ptr(static_cast<const VersionedTupleStorage *>(element)));
+    }
+    return versions;
+}
+
+void add_version_map(Table & table, branch_id_t branch, std::vector<uintptr_t> versions) {
+    std::lock_guard<std::mutex> lock(table._scanLatch);
+    // inserted after the walk by other branches, since the branch is latched: none of their versions is visible
+    versions.resize(table._version_mgmt_column.size(), 1);
+    if (table._inPlaceWrites != nullptr) {
+        // main may have moved an in-place version the walk has seen into the chain
+        for (const auto & write : table._inPlaceWrites->writes) {
+            if (versions[write.tid] == 0) versions[write.tid] = reinterpret_cast<uintptr_t>(get_tuple_ptr(write.copy));
+        }
+    }
+    // a scan compiled meanwhile may use a map built by another statement; it is maintained, so keep it
+    table._versionMaps.emplace(branch, std::move(versions));
+}
+
+// scans of other branches may be compiled meanwhile: the map is built first and then added under
+// the scan latch
+void build_version_map(Table & table, branch_id_t branch) {
+    add_version_map(table, branch, compute_version_map(table, branch));
+}
+
+void prepare_scan(Table & table, branch_id_t branch) {
+    if (branch == master_branch_id || version_map_after_scans == 0) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(table._scanLatch);
+        if (table._versionMaps.count(branch) > 0 || ++table._scans[branch] < version_map_after_scans) return;
+    }
+    build_version_map(table, branch);
+}
+
 // removes the elements in garbage from the chain of the tuple and frees them
 static void unlink_versions(Table & table, tid_t tid, const std::unordered_set<const void *> & garbage) {
     VersionEntry * entry = table._version_mgmt_column[tid].get();
     std::vector<void *> kept;
-    for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+    for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
         if (garbage.count(element) == 0) kept.push_back(const_cast<void *>(element));
     }
     // a reference to a freed version continues with the version its branch saw before it
@@ -843,7 +1000,7 @@ static void needed_versions(const Database & db, const VersionEntry * entry, con
                             std::unordered_set<const void *> & needed) {
     if (labels.empty()) return;
     std::vector<std::pair<uint32_t, uint32_t>> pending = {{0, static_cast<uint32_t>(labels.size() - 1)}}, rest;
-    for (const void * element = entry->first; element != nullptr && !pending.empty(); element = next_chain_element(entry, element)) {
+    for (const void * element = chain_head(entry); element != nullptr && !pending.empty(); element = chain_next(entry, element)) {
         const ident_t ident = (element == entry) ? entry->ident : static_cast<const VersionedTupleStorage *>(element)->ident;
         const uint32_t a = std::lower_bound(labels.begin(), labels.end(), db._identL[ident]) - labels.begin();
         const uint32_t b = std::upper_bound(labels.begin(), labels.end(), db._identR[ident]) - labels.begin();
@@ -917,7 +1074,7 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
         for (tid_t tid : tids) {
             const VersionEntry * entry = table->_version_mgmt_column[tid].get();
             garbage.clear();
-            for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+            for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
                 if (element != entry && dropped.count(static_cast<const VersionedTupleStorage *>(element)->branch_id) > 0) {
                     garbage.insert(element);
                 }
@@ -951,7 +1108,7 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
                 needed.clear();
                 needed_versions(db, entry, labels, needed);
                 garbage.clear();
-                for (const void * element = entry->first; element != nullptr; element = next_chain_element(entry, element)) {
+                for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
                     if (element != entry && needed.count(element) == 0) garbage.insert(element);
                 }
                 if (garbage.empty()) continue;

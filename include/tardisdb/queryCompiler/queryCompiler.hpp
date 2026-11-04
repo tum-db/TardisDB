@@ -34,6 +34,15 @@ namespace QueryCompiler {
         }
     };
 
+    /// Statements may run concurrently from several threads; each holds latches (see queryCompiler.cpp)
+    enum class Latching {
+        Serial, // one statement at a time
+        Table,  // on the catalog and on the tables a statement accesses
+        Branch, // in addition on the branches it accesses: updates and deletes in a branch other than
+                // main exclude only the readers and writers of that branch (the default)
+    };
+    extern Latching latching;
+
     void compileAndExecute(const std::string & query, Database &db, void *callbackFunction = nullptr);
 
     BenchmarkResult compileAndBenchmark(const std::string & query, Database &db, void *callbackFunction = nullptr);

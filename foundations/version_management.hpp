@@ -35,6 +35,40 @@ struct VersionEntry {
     boost::dynamic_bitset<> branch_visibility;
 };
 
+/// \returns The newest element of the chain. Writers of other branches may prepend to the chain at the
+/// same time (see prepend_version()), and main may replace its in-place version in the chain by a copy
+/// (see InPlaceWrites); everything else changes only under the exclusive latch of the table
+inline const void * chain_head(const VersionEntry * entry) {
+    return __atomic_load_n(&entry->first, __ATOMIC_ACQUIRE);
+}
+
+/// \returns The element after the chain element (the version entry or a VersionedTupleStorage)
+inline const void * chain_next(const VersionEntry * entry, const void * element) {
+    if (element == entry) return __atomic_load_n(&entry->next, __ATOMIC_ACQUIRE);
+    return __atomic_load_n(&static_cast<const VersionedTupleStorage *>(element)->next, __ATOMIC_ACQUIRE);
+}
+
+/// The in-place writes of a statement of main that holds the table shared, beside readers of other
+/// branches (QueryCompiler::Latching::Branch). Writing a tuple first replaces its in-place version in
+/// the chain by a copy, which the readers of the old version find from then on, also through their
+/// version maps; the in-place version leaves the chain. At the end of the statement,
+/// finish_in_place_writes() waits until the statements that may still read the old version in place
+/// have ended (ReaderEpochs) and only then overwrites it and makes it the head of the chain.
+/// A tuple main wrote under its current identifier, which no other branch sees, is overwritten at once.
+struct InPlaceWrites {
+    struct Write {
+        tid_t tid;
+        VersionedTupleStorage * copy; // of the old in-place version
+    };
+    std::vector<Write> writes;
+    std::vector<uint8_t> tuples; // the new tuples, one per write
+    size_t tupleSize = 0;
+    std::unordered_map<tid_t, size_t> positions; // tid -> its write
+};
+
+/// Completes the in-place writes of the statement and detaches them from the table
+void finish_in_place_writes(Table & table, InPlaceWrites & writes);
+
 inline tid_t mark_as_dangling_tid(tid_t tid) {
     return (tid | static_cast<decltype(tid)>(1) << (8*sizeof(decltype(tid))-1));
 }
@@ -169,6 +203,24 @@ extern bool overwrite_own_versions;
 
 /// \returns The number of versions in chains (all tables of all databases)
 size_t live_versions();
+
+/// A branch gets a version map once this many scans of it were compiled (0: never)
+extern size_t version_map_after_scans;
+
+/// Builds the version map of the branch: per tuple, a pointer to the version the branch reads, so
+/// that its scans need no chain walk; no tuple data is copied. What a branch reads changes only by its
+/// own writes, since all other branches write under identifiers it does not see; the writes of the
+/// branch, inserts and the in-place writes of the root maintain the map.
+void build_version_map(Table & table, branch_id_t branch);
+
+/// The two steps of build_version_map(): the walk over all chains, and adding the map under the scan
+/// latch, which redirects the entries of in-place versions main has moved into the chain since the
+/// walk. If the branch has a map already, it is kept.
+std::vector<uintptr_t> compute_version_map(Table & table, branch_id_t branch);
+void add_version_map(Table & table, branch_id_t branch, std::vector<uintptr_t> versions);
+
+/// Counts a compiled scan of the branch and builds its version map when version_map_after_scans is reached
+void prepare_scan(Table & table, branch_id_t branch);
 
 /// \returns The tuples in which the branches may differ, ascending: those written under an identifier
 /// that is an ancestor of one of the branches only, i.e. after the fork at which their paths split

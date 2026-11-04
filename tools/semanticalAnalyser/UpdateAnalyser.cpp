@@ -50,7 +50,7 @@ namespace semanticalAnalysis {
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
 
         branch_id_t branchId = (stmt->relation.version.compare("master") != 0) ?
-            _context.db._branchMapping[stmt->relation.version] :
+            _context.db._branchMapping.at(stmt->relation.version) :
             master_branch_id;
 
         //Check for every IU if an update is specified and set the update value to an empty string if not

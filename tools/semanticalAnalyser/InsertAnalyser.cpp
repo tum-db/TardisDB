@@ -36,7 +36,7 @@ namespace semanticalAnalysis {
 
         std::string &branchName = stmt->relation.version;
         branch_id_t branchId = (branchName.compare("master") != 0) ?
-                db._branchMapping[branchName]:
+                db._branchMapping.at(branchName):
                 master_branch_id;
 
         std::vector<std::unique_ptr<Native::Sql::Value>> sqlvalues;

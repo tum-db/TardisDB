@@ -4,6 +4,8 @@
 #include <climits>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 #include "codegen/LLVMCompat.hpp"
@@ -73,11 +75,13 @@ void BitmapTable::set(tid_t tid, unsigned column, bool value)
     size_t byte = column >> 3; // column / 8
     unsigned sectionIndex = column & 7; // column % 8
 
-    // calculate section
+    // a row holds the bits of all branches; deletes in other branches may change the same byte meanwhile
     uint8_t * sectionPtr = tuple + byte;
-    uint8_t section = *sectionPtr;
-    section ^= (-value ^ section) & (1 << sectionIndex); // set null indicator bit
-    *sectionPtr = section;
+    if (value) {
+        __atomic_fetch_or(sectionPtr, static_cast<uint8_t>(1u << sectionIndex), __ATOMIC_RELAXED);
+    } else {
+        __atomic_fetch_and(sectionPtr, static_cast<uint8_t>(~(1u << sectionIndex)), __ATOMIC_RELAXED);
+    }
 }
 
 bool BitmapTable::isSet(tid_t tid, unsigned column) const
@@ -104,6 +108,7 @@ void BitmapTable::resize()
     const size_t newBytes = 2 * oldBytes;
     const size_t rows = _data->size();
     auto data = std::make_unique<Vector>(newBytes);
+    data->reserve(_data->capacity());
     for (size_t tid = 0; tid < rows; ++tid) {
         auto * row = static_cast<uint8_t *>(data->reserve_back());
         std::memcpy(row, _data->at(tid), oldBytes);
@@ -130,7 +135,8 @@ static cg_bool_t isSet_gen(BitmapTable & table, cg_tid_t tid, cg_unsigned_t colu
 
     // calculate section
     cg_ptr8_t sectionPtr( tablePtr + byteIndex.llvmValue );
-    cg_u8_t section( codeGen->CreateLoad(cg_u8_t::getType(), sectionPtr) );
+    // deletes in other branches may change the byte meanwhile (BitmapTable::set)
+    cg_u8_t section( LLVMCompat::makeMonotonic(codeGen->CreateLoad(cg_u8_t::getType(), sectionPtr), 1) );
     cg_u8_t shifted( codeGen->CreateLShr(section, indicatorIndex) );
     cg_bool_t result( codeGen->CreateTrunc(shifted, cg_bool_t::getType()) );
     return result;
@@ -194,6 +200,15 @@ void BranchMembership::addRow(branch_id_t branch)
 #else
     _bitmap.addRow();
     _bitmap.set(size() - 1, branch, true);
+#endif
+}
+
+void BranchMembership::reserve(size_t rows)
+{
+#if LAZY_MEMBERSHIP
+    _states.reserve(rows);
+#else
+    _bitmap.reserve(rows);
 #endif
 }
 
@@ -367,6 +382,39 @@ const std::vector<tid_t> * BranchIndex::lookup(uint64_t hash) const
 }
 
 //-----------------------------------------------------------------------------
+// ReaderEpochs
+
+unsigned ReaderEpochs::enter()
+{
+    for (;;) {
+        const uint64_t phase = _phase.load();
+        const unsigned slot = phase & 1;
+        _active[slot].fetch_add(1);
+        // synchronize() may have advanced the phase before the increment and found the slot empty
+        if (_phase.load() == phase) return slot;
+        _active[slot].fetch_sub(1);
+    }
+}
+
+void ReaderEpochs::leave(unsigned slot)
+{
+    _active[slot].fetch_sub(1);
+}
+
+void ReaderEpochs::synchronize()
+{
+    // statements that enter from now on use the other slot, which the previous call has emptied
+    const unsigned slot = _phase.fetch_add(1) & 1;
+    for (unsigned spins = 0; _active[slot].load() != 0; ++spins) {
+        if (spins < 64) {
+            std::this_thread::yield();
+        } else {
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
 // Table
 
 Table::Table(Database & db) : _db(db) {
@@ -406,6 +454,7 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
 
     // set-up column
     auto column = std::make_unique<Vector>(valueSize);
+    column->reserve(_capacity);
     auto ci = std::make_unique<ColumnInformation>();
     ci->column = column.get();
     ci->columnName = columnName;
@@ -427,6 +476,13 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
 
 void Table::addRow(branch_id_t branchId)
 {
+    appendRow(branchId);
+    publishRows();
+}
+
+void Table::appendRow(branch_id_t branchId)
+{
+    ensureCapacity(_appended + 1);
     for (auto & [ci, vec] : _columns) {
         vec->reserve_back();
     }
@@ -434,6 +490,44 @@ void Table::addRow(branch_id_t branchId)
     _nullIndicatorTable.addRow();
     _membership.addRow(branchId);
 #endif
+    _appended += 1;
+}
+
+void Table::publishRows()
+{
+    _published.store(_appended, std::memory_order_release);
+}
+
+void Table::reserveRows(size_t rows)
+{
+    if (rows <= _capacity) {
+        return;
+    }
+    for (auto & [ci, vec] : _columns) {
+        vec->reserve(rows);
+    }
+    _nullIndicatorTable.reserve(rows);
+    _membership.reserve(rows);
+    _version_mgmt_column.reserve(rows);
+    _head_ident.reserve(rows);
+    for (auto & [branch, versions] : _versionMaps) {
+        versions.reserve(rows);
+    }
+    _capacity = rows;
+}
+
+void Table::ensureCapacity(size_t rows)
+{
+    if (rows > _capacity) {
+        reserveRows(std::max({rows, 2 * _capacity, size_t(1024)}));
+    }
+}
+
+bool Table::headsKnown()
+{
+    // a statement may insert meanwhile
+    std::lock_guard<std::mutex> lock(_scanLatch);
+    return _head_ident.size() == _version_mgmt_column.size();
 }
 
 void Table::removeRow(tid_t tid) {
@@ -441,6 +535,8 @@ void Table::removeRow(tid_t tid) {
     for (auto & [ci, vec] : _columns) {
         vec->remove_at(tid);
     }
+    _appended -= 1;
+    publishRows();
 #endif
 }
 
@@ -511,17 +607,6 @@ std::vector<Sql::SqlType> Table::getTupleType() const {
     return tupleType;
 }
 
-size_t Table::size() const
-{
-    if (_columns.empty()) {
-        return 0;
-    } else {
-        return _columns.begin()->second->size();
-//        return _columns.begin()->second.second->size();
-        return _version_mgmt_column.size();
-    }
-}
-
 BranchIndex * Table::getIndex(size_t column, branch_id_t branch) const
 {
     for (auto & index : _indexes) {
@@ -571,6 +656,7 @@ Table & Database::createTable(const std::string & name) {
             it->second->getMembership().removeBranch(i);
         }
     }
+    it->second->_writes.resize(_identParent.size());
     return *it->second;
 }
 
@@ -639,6 +725,10 @@ void Database::removeBranches(const std::vector<branch_id_t> & branches) {
             table->getMembership().removeBranch(branch);
         }
         table->getMembership().removeEntries(droppedIdents);
+        for (branch_id_t branch : branches) {
+            table->_versionMaps.erase(branch);
+            table->_scans.erase(branch);
+        }
         auto & indexes = table->_indexes;
         indexes.erase(std::remove_if(indexes.begin(), indexes.end(), [&](auto & index) {
             return std::find(branches.begin(), branches.end(), index->branch) != branches.end();
@@ -688,6 +778,11 @@ ident_t Database::newIdent(ident_t parent) {
     _identL.push_back(0);
     _identR.push_back(0);
     _identNextFree.push_back(0);
+    // writers of different branches record their writes at the same time, each in the list of its own
+    // identifier: the lists exist before any write
+    for (auto & [name, table] : _tables) {
+        if (table->_writes.size() <= id) table->_writes.resize(id + 1);
+    }
 
     if (parent == invalid_ident) {
         _identL[id] = 0;

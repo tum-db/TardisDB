@@ -64,6 +64,16 @@ void * Vector::reserve_back()
     return elemAddr;
 }
 
+void Vector::reserve(size_type count)
+{
+    if (count > _capacity) {
+        _capacity = count;
+        _arraySize = _elementSize*_capacity; // size in bytes
+        _array = static_cast<uint8_t *>(std::realloc(_array, _arraySize));
+        assert(_array);
+    }
+}
+
 void Vector::pop_back()
 {
     assert(_elementCount > 0);
