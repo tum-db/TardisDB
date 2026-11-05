@@ -8,7 +8,10 @@
 #include <iostream>
 #include <unordered_set>
 
+#include "codegen/CodeGen.hpp"
+#include "codegen/LLVMCompat.hpp"
 #include "foundations/exceptions.hpp"
+#include "sql/SqlTuple.hpp"
 #include "utils/general.hpp"
 
 template<typename T>
@@ -44,6 +47,8 @@ static VersionedTupleStorage * create_chain_element(Table & table, size_t tuple_
     size_t size = sizeof(VersionedTupleStorage) + tuple_size;
     void * mem = std::malloc(size);
     VersionedTupleStorage * storage = new (mem) VersionedTupleStorage();
+    // every version holds all columns of the table (complete_tuple())
+    storage->columns = table.getColumnCount();
     ++version_count;
     return storage;
 }
@@ -321,7 +326,9 @@ static void prepend_version(tid_t tid, branch_id_t branch, Native::Sql::SqlTuple
         // the branch inserted the tuple under its current identifier, which no other branch sees
         update_master(tid, tuple, table);
     } else if (overwrite_own_versions && predecessor != nullptr && predecessor != version_entry &&
-               static_cast<const VersionedTupleStorage *>(predecessor)->ident == ident) {
+               static_cast<const VersionedTupleStorage *>(predecessor)->ident == ident &&
+               static_cast<const VersionedTupleStorage *>(predecessor)->columns == table.getColumnCount()) {
+        // (a version written before a column was added is too small)
         tuple.store(get_tuple_ptr(const_cast<VersionedTupleStorage *>(static_cast<const VersionedTupleStorage *>(predecessor))));
     } else {
         auto storage = create_chain_element(table, tuple.getSize());
@@ -470,10 +477,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table
     } else if (element == version_entry) {
         return get_current_master(tid, table);
     } else {
-        const auto storage = static_cast<const VersionedTupleStorage *>(element);
-        const void * tuple_ptr = get_tuple_ptr(storage);
-        auto tuple_type = table.getTupleType();
-        return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
+        return load_tuple_data(table, get_tuple_ptr(static_cast<const VersionedTupleStorage *>(element)));
     }
 }
 
@@ -608,10 +612,7 @@ std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_of
     } else if (element == version_entry) {
         return get_current_master(tid, table);
     } else {
-        const auto storage = static_cast<const VersionedTupleStorage *>(element);
-        const void * tuple_ptr = get_tuple_ptr(storage);
-        auto tuple_type = table.getTupleType();
-        return Native::Sql::SqlTuple::load(tuple_ptr, tuple_type);
+        return load_tuple_data(table, get_tuple_ptr(static_cast<const VersionedTupleStorage *>(element)));
     }
 }
 
@@ -688,7 +689,65 @@ std::unique_ptr<Native::Sql::SqlTuple> load_version(tid_t tid, Table & table, co
     if (element == get_version_entry(tid, table)) {
         return get_current_master(tid, table);
     }
-    return Native::Sql::SqlTuple::load(get_tuple_ptr(static_cast<const VersionedTupleStorage *>(element)), table.getTupleType());
+    return load_tuple_data(table, get_tuple_ptr(static_cast<const VersionedTupleStorage *>(element)));
+}
+
+std::unique_ptr<Native::Sql::SqlTuple> load_tuple_data(const Table & table, const void * data) {
+    const auto storage = reinterpret_cast<const VersionedTupleStorage *>(
+            static_cast<const uint8_t *>(data) - offsetof(VersionedTupleStorage, data));
+    const auto types = table.getTupleType();
+    if (storage->columns >= types.size()) {
+        return Native::Sql::SqlTuple::load(data, types);
+    }
+    // the layout of the first columns does not change when columns are added
+    const std::vector<Sql::SqlType> stored(types.begin(), types.begin() + storage->columns);
+    auto values = std::move(Native::Sql::SqlTuple::load(data, stored)->values);
+    for (size_t column = storage->columns; column < types.size(); ++column) {
+        ci_p_t ci = table.getCI(column);
+        values.push_back(Native::Sql::Value::load(ci->defaultValue.data(), ci->type));
+    }
+    return std::make_unique<Native::Sql::SqlTuple>(std::move(values));
+}
+
+// read instead of the column count of a version by the in-place version, which has all columns
+static const uint32_t all_columns = std::numeric_limits<uint32_t>::max();
+
+llvm::Value * genVersionAttributePtr(const Table & table, llvm::Value * tupleData, size_t column) {
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+    llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
+    llvm::Value * typedTuple = codeGen->CreatePointerCast(tupleData, llvm::PointerType::getUnqual(tupleTy));
+    llvm::Value * attribute = codeGen->CreateStructGEP(tupleTy, typedTuple, column);
+    ci_p_t ci = table.getCI(column);
+    if (!ci->branchLocal) {
+        return attribute; // in every version
+    }
+    llvm::Type * i8Ty = llvm::Type::getInt8Ty(context);
+    llvm::Type * i32Ty = llvm::Type::getInt32Ty(context);
+    llvm::Type * i32PtrTy = llvm::PointerType::getUnqual(i32Ty);
+    const int64_t distance = offsetof(VersionedTupleStorage, data) - offsetof(VersionedTupleStorage, columns);
+    llvm::Value * bytes = codeGen->CreatePointerCast(tupleData, LLVMCompat::getInt8PtrTy(context));
+    llvm::Value * counted = codeGen->CreatePointerCast(codeGen->CreateGEP(i8Ty, bytes, llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), -distance, true)), i32PtrTy);
+    llvm::Value * countPtr = codeGen->CreateSelect(codeGen->CreateIsNull(tupleData),
+            codeGen->CreatePointerCast(createPointerValue(&all_columns, i32Ty), i32PtrTy), counted);
+    llvm::Value * hasColumn = codeGen->CreateICmpUGT(codeGen->CreateLoad(i32Ty, countPtr), llvm::ConstantInt::get(i32Ty, column));
+    llvm::Value * defaultPtr = codeGen->CreatePointerCast(createPointerValue(ci->defaultValue.data(), i8Ty), attribute->getType());
+    return codeGen->CreateSelect(hasColumn, attribute, defaultPtr);
+}
+
+std::unique_ptr<Native::Sql::SqlTuple> complete_tuple(const Table & table,
+        std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values) {
+    std::vector<Native::Sql::value_op_t> all(table.getColumnCount());
+    for (auto & [ci, value] : values) {
+        all[ci->index] = std::move(value);
+    }
+    for (size_t column = 0; column < all.size(); ++column) {
+        if (all[column] == nullptr) {
+            ci_p_t ci = table.getCI(column);
+            all[column] = Native::Sql::Value::load(ci->defaultValue.data(), ci->type);
+        }
+    }
+    return std::make_unique<Native::Sql::SqlTuple>(std::move(all));
 }
 
 static bool equal_tuples(const Native::Sql::SqlTuple & a, const Native::Sql::SqlTuple & b) {
@@ -725,16 +784,39 @@ static std::vector<uint8_t> tuple_bytes(Native::Sql::SqlTuple & tuple) {
     return bytes;
 }
 
+size_t add_branch_column(Table & table, branch_id_t branch, const std::string & name, Sql::SqlType type,
+                         const Native::Sql::Value & defaultValue) {
+    std::vector<uint8_t> bytes(defaultValue.getSize());
+    defaultValue.store(bytes.data());
+    const size_t column = table.addBranchColumn(branch, name, type, bytes);
+    // the bases of merges are tuples of all columns as well
+    const auto types = table.getTupleType();
+    const std::vector<Sql::SqlType> before(types.begin(), types.end() - 1);
+    for (auto & [branches, tables] : table.getDatabase()._mergeBases) {
+        auto recorded = tables.find(&table);
+        if (recorded == tables.end()) continue;
+        for (auto & [tid, stored] : recorded->second) {
+            auto values = std::move(Native::Sql::SqlTuple::load(stored.data(), before)->values);
+            values.push_back(defaultValue.clone());
+            Native::Sql::SqlTuple tuple(std::move(values));
+            stored = tuple_bytes(tuple);
+        }
+    }
+    return column;
+}
+
+// the identifiers of the branch and of its ancestors
+static std::unordered_set<ident_t> ident_path(const Database & db, branch_id_t branch) {
+    std::unordered_set<ident_t> idents;
+    for (ident_t ident = db.getIdent(branch); ident != invalid_ident; ident = db.getIdentParent(ident)) {
+        idents.insert(ident);
+    }
+    return idents;
+}
+
 std::vector<tid_t> diverging_tuples(Table & table, branch_id_t a, branch_id_t b) {
     const Database & db = table.getDatabase();
-    auto path = [&](branch_id_t branch) {
-        std::unordered_set<ident_t> idents;
-        for (ident_t ident = db.getIdent(branch); ident != invalid_ident; ident = db.getIdentParent(ident)) {
-            idents.insert(ident);
-        }
-        return idents;
-    };
-    const auto pathA = path(a), pathB = path(b);
+    const auto pathA = ident_path(db, a), pathB = ident_path(db, b);
     std::vector<tid_t> tids;
     auto add = [&](const std::unordered_set<ident_t> & own, const std::unordered_set<ident_t> & other) {
         for (ident_t ident : own) {
@@ -775,7 +857,9 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
         const void * predecessor;
     };
     std::vector<Action> actions;
+    std::vector<std::pair<Table *, size_t>> addedColumns; // to the schema of dst
     MergeResult result;
+    const auto targetPath = ident_path(db, dst);
 
     // tables in the order of their names, so that conflicts are reported deterministically
     std::vector<std::pair<std::string, Table *>> tables;
@@ -784,12 +868,26 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
 
     for (auto & [name, table] : tables) {
         auto & membership = table->getMembership();
-        const auto columnNames = table->getColumnNames();
         const auto types = table->getTupleType();
         auto & tableBases = bases[table];
         auto conflict = [&, &name = name](tid_t tid, const std::string & what) {
             result.conflicts.push_back("table " + name + ", tuple " + std::to_string(tid) + ": " + what);
         };
+
+        // the columns of src that the target never had, i.e. that were not added on its path: src or
+        // a branch merged into it added them; a column the target lacks otherwise was dropped there
+        // (drops are not merged)
+        const auto & targetSchema = table->getSchema(dst);
+        for (size_t column : table->getSchema(src)) {
+            ci_p_t ci = table->getCI(column);
+            if (std::find(targetSchema.begin(), targetSchema.end(), column) != targetSchema.end()) continue;
+            if (!ci->branchLocal || targetPath.count(ci->addedUnder) > 0) continue;
+            if (table->findColumn(ci->columnName, dst) != nullptr) {
+                result.conflicts.push_back("table " + name + ": column " + ci->columnName + " was added in both branches");
+                continue;
+            }
+            addedColumns.emplace_back(table, column);
+        }
 
         for (tid_t tid : candidates(*table, src, dst)) {
             const VersionEntry * entry = table->_version_mgmt_column[tid].get();
@@ -826,7 +924,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
                         merged.push_back(sv.clone());
                     } else {
                         clean = false;
-                        conflict(tid, "column " + columnNames[i] + " changed to " + Native::Sql::toString(sv) + " in the source and to " +
+                        conflict(tid, "column " + table->getCI(i)->columnName + " changed to " + Native::Sql::toString(sv) + " in the source and to " +
                                       Native::Sql::toString(dv) + " in the target" +
                                       (base ? " (was " + Native::Sql::toString(*base->values[i]) + ")" : ""));
                     }
@@ -887,6 +985,9 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
         if (action.merged) {
             bases[&table][action.tid] = tuple_bytes(*action.merged);
         }
+    }
+    for (auto & [table, column] : addedColumns) {
+        table->addToSchema(dst, column);
     }
     return result;
 }
@@ -1124,6 +1225,18 @@ void diff_branches(Table & table, branch_id_t a, branch_id_t b, std::vector<Diff
     Database & db = table.getDatabase();
     const BranchReader readers[2] = {BranchReader(db, a), BranchReader(db, b)};
     auto & membership = table.getMembership();
+    // the columns both branches have, which DIFF returns
+    std::vector<size_t> common;
+    const auto & schemaB = table.getSchema(b);
+    for (size_t column : table.getSchema(a)) {
+        if (std::find(schemaB.begin(), schemaB.end(), column) != schemaB.end()) common.push_back(column);
+    }
+    auto equal = [&](const Native::Sql::SqlTuple & x, const Native::Sql::SqlTuple & y) {
+        for (size_t column : common) {
+            if (!x.values[column]->equals(*y.values[column])) return false;
+        }
+        return true;
+    };
     for (tid_t tid : candidates(table, a, b)) {
         const VersionEntry * entry = table._version_mgmt_column[tid].get();
         const void * seen[2];
@@ -1132,8 +1245,8 @@ void diff_branches(Table & table, branch_id_t a, branch_id_t b, std::vector<Diff
         }
         if (seen[0] == seen[1]) continue; // the same version, or in neither branch
         if (seen[0] != nullptr && seen[1] != nullptr &&
-            equal_tuples(*load_version(tid, table, seen[0]), *load_version(tid, table, seen[1]))) {
-            continue; // different versions with the same values
+            equal(*load_version(tid, table, seen[0]), *load_version(tid, table, seen[1]))) {
+            continue; // different versions with the same values in the columns of both
         }
         for (uint32_t side = 0; side < 2; ++side) {
             if (seen[side] == nullptr) continue;

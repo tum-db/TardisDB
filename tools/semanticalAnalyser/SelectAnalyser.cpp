@@ -30,9 +30,11 @@ namespace semanticalAnalysis {
             }
             relations.insert(relation.name);
             Table *table = db.getTable(relation.name);
-            std::vector<std::string> columnNames = table->getColumnNames();
+            std::vector<std::string> columnNames = table->getColumnNames(db._branchMapping.at(relation.version));
+            std::vector<std::string> sortedNames = columnNames;
+            std::sort(sortedNames.begin(), sortedNames.end());
             std::vector<std::string> intersectResult;
-            std::set_intersection(unbindedColumns.begin(),unbindedColumns.end(),columnNames.begin(),columnNames.end(),std::back_inserter(intersectResult));
+            std::set_intersection(unbindedColumns.begin(),unbindedColumns.end(),sortedNames.begin(),sortedNames.end(),std::back_inserter(intersectResult));
             if (!intersectResult.empty()) throw semantic_sql_error("columns are ambiguous - use bindings!");
             if (relation.alias.compare("") == 0) {
                 unbindedColumns.insert(columnNames.begin(),columnNames.end());
@@ -124,7 +126,7 @@ namespace semanticalAnalysis {
             for (auto &relation : stmt->relations) {
                 std::string &productionName = relation.alias.empty() ? relation.name : relation.alias;
                 auto &ius = _context.ius[productionName];
-                for (auto &name : db.getTable(relation.name)->getColumnNames()) {
+                for (auto &name : db.getTable(relation.name)->getColumnNames(db._branchMapping.at(relation.version))) {
                     auto it = ius.find(name);
                     if (it != ius.end()) projectedIUs.push_back(it->second);
                 }
@@ -187,15 +189,17 @@ namespace semanticalAnalysis {
         Relation &relation = stmt->relations.front();
         if (!db.hasTable(relation.name)) throw semantic_sql_error("table '" + relation.name + "' does not exist");
         Table *table = db.getTable(relation.name);
-        const size_t branchCount = resolveBranches(db, relation).size();
+        const auto branches = resolveBranches(db, relation);
+        const size_t branchCount = branches.size();
 
         auto checkColumn = [&](const Column &column) {
             if (!column.table.empty() && column.table != relation.name && column.table != relation.alias)
                 throw semantic_sql_error("binding '" + column.table + "' is not specified");
-            const auto columnNames = table->getColumnNames();
-            if (std::find(columnNames.begin(), columnNames.end(), column.name) == columnNames.end())
-                throw semantic_sql_error("column '" + column.name + "' is not specified");
-            ci_p_t ci = table->getCI(column.name);
+            // branches may have different columns of the same name (ALTER TABLE ... VERSION)
+            ci_p_t ci = table->findColumn(column.name, branches);
+            if (ci == nullptr)
+                throw semantic_sql_error("column '" + column.name + "' is not specified" +
+                                         (branchCount > 1 ? " in every branch read" : ""));
             if (ci->type.nullable) throw semantic_sql_error("column '" + column.name + "' is nullable, which queries over several branches do not support yet");
             return ci;
         };
@@ -268,6 +272,17 @@ namespace semanticalAnalysis {
         _context.joinedTree = std::make_unique<Result>(std::move(aggregation), projectedIUs);
     }
 
+    std::vector<std::string> SelectAnalyser::diffColumnNames(Table &table, Relation &relation) {
+        // the columns both branches have, in the order of the first
+        Database &db = _context.db;
+        const std::vector<branch_id_t> branches = {db._branchMapping.at(relation.versionSet[0]), db._branchMapping.at(relation.versionSet[1])};
+        std::vector<std::string> names;
+        for (auto &name : table.getColumnNames(branches[0])) {
+            if (table.findColumn(name, branches) != nullptr) names.push_back(name);
+        }
+        return names;
+    }
+
     bool SelectAnalyser::isDiffQuery(SelectStatement *stmt) {
         for (auto &relation : stmt->relations) {
             if (relation.versionScope == "diff") return true;
@@ -288,13 +303,13 @@ namespace semanticalAnalysis {
             if (db._branchMapping.find(name) == db._branchMapping.end()) throw semantic_sql_error("version '" + name + "' does not exist");
         }
 
-        const auto columnNames = table->getColumnNames();
+        const auto columnNames = diffColumnNames(*table, relation);
         auto checkColumn = [&](const Column &column) {
             if (!column.table.empty() && column.table != relation.name && column.table != relation.alias)
                 throw semantic_sql_error("binding '" + column.table + "' is not specified");
             if (std::find(columnNames.begin(), columnNames.end(), column.name) == columnNames.end())
-                throw semantic_sql_error("column '" + column.name + "' is not specified");
-            if (table->getCI(column.name)->type.nullable)
+                throw semantic_sql_error("column '" + column.name + "' is not specified in both branches");
+            if (table->findColumn(column.name, db._branchMapping.at(relation.versionSet[0]))->type.nullable)
                 throw semantic_sql_error("column '" + column.name + "' is nullable, which DIFF does not support yet");
         };
         for (auto &column : stmt->projections) {
@@ -326,7 +341,7 @@ namespace semanticalAnalysis {
         if (stmt->projections.empty()) {
             // SELECT *: the branch, then the columns of the table
             projectedIUs.push_back(diff->getBranchIU());
-            for (auto &name : table->getColumnNames()) projectedIUs.push_back(diff->getColumnIU(name));
+            for (auto &name : diffColumnNames(*table, relation)) projectedIUs.push_back(diff->getColumnIU(name));
         }
         for (auto &column : stmt->projections) {
             if (column.table.empty() && column.name == "branch") projectedIUs.push_back(diff->getBranchIU());

@@ -40,6 +40,16 @@ struct ColumnInformation {
 
     enum class NullIndicatorType { Embedded, Column } nullIndicatorType;
     unsigned nullColumnIndex;
+
+    size_t index = 0; // position in the tuples of the table (Table::getTupleType())
+    /// added by ALTER TABLE: only the branches whose schema lists it have it, and versions written
+    /// before it was added hold no value for it
+    bool branchLocal = false;
+    /// the identifier under which the branch added it, or invalid_ident; MERGE takes over the columns
+    /// added after the source and the target diverged
+    ident_t addedUnder = invalid_ident;
+    /// the stored value a version without a value for the column reads
+    std::vector<uint8_t> defaultValue;
 };
 
 using ci_p_t = const ColumnInformation *;
@@ -235,7 +245,39 @@ public:
 
     ~Table();
 
+    /// Adds a column of every branch (CREATE TABLE)
     void addColumn(const std::string & columnName, Sql::SqlType type);
+
+    /// Adds a column to the schema of the branch only (ALTER TABLE ... ADD COLUMN): the rows hold the
+    /// default in place, and versions written before have no value for it, so they read the default.
+    /// No other statement may use the table. \returns The position of the column
+    size_t addBranchColumn(branch_id_t branch, const std::string & columnName, Sql::SqlType type,
+                           const std::vector<uint8_t> & defaultValue);
+
+    /// Removes the column from the schema of the branch (ALTER TABLE ... DROP COLUMN); its storage
+    /// stays, since other branches may have it
+    void dropBranchColumn(branch_id_t branch, size_t column);
+
+    /// Adds the column to the schema of the branch (MERGE takes over the columns of the source)
+    void addToSchema(branch_id_t branch, size_t column);
+
+    /// \returns The positions of the columns the branch has, in the order of SELECT *. A branch inherits
+    /// the schema of its parent at the fork; branches without a schema change share the columns of
+    /// CREATE TABLE
+    const std::vector<size_t> & getSchema(branch_id_t branch) const;
+
+    /// \returns The names of the columns of the branch, in the order of getSchema()
+    std::vector<std::string> getColumnNames(branch_id_t branch) const;
+
+    /// \returns The column of the branch with the name, or nullptr
+    ci_p_t findColumn(const std::string & columnName, branch_id_t branch) const;
+
+    /// \returns The column that all the branches have under the name, or nullptr; branches may have
+    /// different columns of the same name
+    ci_p_t findColumn(const std::string & columnName, const std::vector<branch_id_t> & branches) const;
+
+    /// Forgets the schema of a dropped branch
+    void removeBranch(branch_id_t branch);
 
     /// Adds a row and counts it in size()
     void addRow(branch_id_t branchId);
@@ -267,16 +309,21 @@ public:
 
 //    const std::string & getName() const;
 
+    /// \returns A column of CREATE TABLE
     ci_p_t getCI(const std::string & columnName) const;
+
+    /// \returns The column at the position
+    ci_p_t getCI(size_t idx) const;
 
     std::unique_ptr<ColumnInformation> &getTIDColumnInformation() { return _tidColumn; }
 
     const Vector & getColumn(size_t idx) const;
     const Vector & getColumn(const std::string & columnName) const;
 
-    /// The count of SQL columns without any null indicator column
+    /// The count of SQL columns without any null indicator column, of all branches
     size_t getColumnCount() const;
 
+    /// \returns The names of the columns of CREATE TABLE
     std::vector<std::string> getColumnNames() const;
 
     BitmapTable & getNullIndicatorTable() { return _nullIndicatorTable; }
@@ -298,7 +345,9 @@ public:
 private:
     Database & _db;
 
-    std::unordered_map<std::string, size_t> _columnsByName; // name -> column index
+    std::unordered_map<std::string, size_t> _columnsByName; // name -> column index, for the columns of CREATE TABLE
+    std::vector<size_t> _baseSchema; // the columns of CREATE TABLE
+    std::unordered_map<branch_id_t, std::vector<size_t>> _schemas; // per branch that differs from _baseSchema
     std::vector<
         std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>
         > _columns;

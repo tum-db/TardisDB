@@ -14,7 +14,7 @@ namespace semanticalAnalysis {
         if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
         if (db._branchMapping.find(stmt->relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + stmt->relation.version + "' does not exist");
         Table *table = db.getTable(stmt->relation.name);
-        std::vector<std::string> columnNames = table->getColumnNames();
+        std::vector<std::string> columnNames = table->getColumnNames(db._branchMapping.at(stmt->relation.version));
         for (auto &column : stmt->selections) {
             if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
                 throw semantic_sql_error("column '" + column.first.name + "' does not exist");

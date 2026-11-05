@@ -349,10 +349,10 @@ void TableScan::computeProduced()
         return;
     }
 
-    // collect the produced attributes
-    for (const std::string & columnName : _table.getColumnNames()) {
-        auto columnInformation = _table.getCI(columnName);
-        auto iu =  _iuFactory.createIU(getUID(), columnInformation);
+    // collect the produced attributes: all columns of the table, also those of other branches, which
+    // the scanned branch does not see by name but whose values its writes keep
+    for (size_t column = 0; column < _table.getColumnCount(); ++column) {
+        auto iu =  _iuFactory.createIU(getUID(), _table.getCI(column));
         produced.insert(iu);
     }
 
@@ -391,7 +391,8 @@ iu_p_t BranchAggregation::getColumnIU(const std::string & columnName)
     if (it != _columnIUs.end()) {
         return it->second;
     }
-    iu_p_t iu = _iuFactory.createIU(getUID(), _table.getCI(columnName));
+    // the analyser made sure that every branch has the column
+    iu_p_t iu = _iuFactory.createIU(getUID(), _table.findColumn(columnName, _branches));
     _columnIUs[columnName] = iu;
     return iu;
 }
@@ -462,7 +463,7 @@ iu_p_t BranchDiff::getColumnIU(const std::string & columnName)
     if (it != _columnIUs.end()) {
         return it->second;
     }
-    iu_p_t iu = _iuFactory.createIU(getUID(), _table.getCI(columnName));
+    iu_p_t iu = _iuFactory.createIU(getUID(), _table.findColumn(columnName, {_first, _second}));
     _columnIUs[columnName] = iu;
     return iu;
 }

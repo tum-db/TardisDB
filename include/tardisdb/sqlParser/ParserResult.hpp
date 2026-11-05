@@ -146,6 +146,28 @@ namespace tardisParser {
         MergeBranchInto,
         MergeBranchTarget,
 
+        Alter,
+        AlterTable,
+        AlterTableName,
+        AlterTableVersion,
+        AlterTableTag,
+        AlterTableAdd,
+        AlterTableAddColumn,
+        AlterTableColumnName,
+        AlterTableColumnType,
+        AlterTableTypeDetailBegin,
+        AlterTableTypeDetailLength,
+        AlterTableTypeDetailSeparator,
+        AlterTableTypeDetailPrecision,
+        AlterTableTypeDetailEnd,
+        AlterTableTypeNot,
+        AlterTableTypeNotNull,
+        AlterTableDefault,
+        AlterTableDefaultValue,
+        AlterTableDrop,
+        AlterTableDropColumn,
+        AlterTableDropName,
+
         Done
     } state_t;
 
@@ -230,6 +252,15 @@ namespace tardisParser {
         std::string targetBranchName;
     };
 
+    /// ALTER TABLE t [ VERSION b ] ADD [ COLUMN ] c type [ NOT NULL ] DEFAULT v, or DROP [ COLUMN ] c
+    struct AlterTableStatement {
+        Table relation;
+        bool add = true;
+        ColumnSpec column;
+        std::string defaultValue;
+        bool hasDefault = false;
+    };
+
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
 
     struct ParsingContext {
@@ -238,7 +269,7 @@ namespace tardisParser {
 
         enum OpType : unsigned int {
             Unkown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy,
-            CreateIndex, DropBranch, MergeBranch
+            CreateIndex, DropBranch, MergeBranch, AlterTable
         } opType;
 
         CreateTableStatement *createTableStmt;
@@ -251,6 +282,7 @@ namespace tardisParser {
         CreateIndexStatement *createIndexStmt;
         DropBranchStatement *dropBranchStmt;
         MergeBranchStatement *mergeBranchStmt;
+        AlterTableStatement *alterTableStmt;
 
         ParsingContext() {
             opType = Unkown;
@@ -291,6 +323,9 @@ namespace tardisParser {
                 case MergeBranch:
                     delete mergeBranchStmt;
                     break;
+                case AlterTable:
+                    delete alterTableStmt;
+                    break;
             }
         }
 
@@ -316,7 +351,12 @@ namespace tardisParser {
                                             State::CreateIndexTag,
                                             State::DropBranchName,
                                             State::DropBranchCascade,
-                                            State::MergeBranchTarget };
+                                            State::MergeBranchTarget,
+                                            State::AlterTableColumnType,
+                                            State::AlterTableTypeDetailEnd,
+                                            State::AlterTableTypeNotNull,
+                                            State::AlterTableDefaultValue,
+                                            State::AlterTableDropName };
 
             return finalStates.count(state);
         }

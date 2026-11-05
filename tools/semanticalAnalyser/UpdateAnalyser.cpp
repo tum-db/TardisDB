@@ -14,7 +14,7 @@ namespace semanticalAnalysis {
         if (!db.hasTable(stmt->relation.name)) throw semantic_sql_error("table '" + stmt->relation.name + "' does not exist");
         if (db._branchMapping.find(stmt->relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + stmt->relation.version + "' does not exist");
         Table *table = db.getTable(stmt->relation.name);
-        std::vector<std::string> columnNames = table->getColumnNames();
+        std::vector<std::string> columnNames = table->getColumnNames(db._branchMapping.at(stmt->relation.version));
         for (auto &column : stmt->updates) {
             if (std::find(columnNames.begin(),columnNames.end(),column.first.name) == columnNames.end())
                 throw semantic_sql_error("column '" + column.first.name + "' does not exist");
@@ -53,18 +53,19 @@ namespace semanticalAnalysis {
             _context.db._branchMapping.at(stmt->relation.version) :
             master_branch_id;
 
-        //Check for every IU if an update is specified and set the update value to an empty string if not
+        //Check for every IU if an update is specified and set the update value to an empty string if not;
+        //the new version has all columns of the table, also those the branch does not have
         std::vector<std::pair<iu_p_t,std::string>> updateIUs;
-        for (auto &iu : _context.ius[stmt->relation.alias]) {
+        for (iu_p_t iu : _context.scanIUs[stmt->relation.alias]) {
             bool shouldBeUpdated = false;
             for (auto &[column,value] : stmt->updates) {
-                shouldBeUpdated = iu.first.compare(column.name) == 0;
+                shouldBeUpdated = table->findColumn(column.name, branchId) == iu->columnInformation;
                 if (shouldBeUpdated) {
-                    updateIUs.emplace_back( iu.second,value);
+                    updateIUs.emplace_back(iu, value);
                     break;
                 }
             }
-            if (!shouldBeUpdated) updateIUs.emplace_back( iu.second,"");
+            if (!shouldBeUpdated) updateIUs.emplace_back(iu, "");
         }
 
         auto &production = _context.dangling_productions[stmt->relation.alias];

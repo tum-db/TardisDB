@@ -71,8 +71,170 @@ namespace tardisParser {
                     context.opType = ParsingContext::OpType::MergeBranch;
                     context.mergeBranchStmt = new MergeBranchStatement();
                     context.state = State::Merge;
+                } else if (token.equalsKeyword(Keyword::Alter)) {
+                    context.state = State::Alter;
                 } else {
-                    throw syntactical_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH', 'COPY', 'Create', 'DROP' or 'MERGE', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'Select', 'Insert', 'Update', 'Delete' , 'BRANCH', 'COPY', 'Create', 'DROP', 'MERGE' or 'ALTER', found '" + token.value + "'");
+                }
+                break;
+
+                //
+                //  ALTER TABLE t [ VERSION b ] ADD [ COLUMN ] c type [ NOT NULL ] DEFAULT v
+                //  ALTER TABLE t [ VERSION b ] DROP [ COLUMN ] c
+                //
+            case State::Alter:
+                if (token.equalsKeyword(Keyword::Table)) {
+                    context.opType = ParsingContext::OpType::AlterTable;
+                    context.alterTableStmt = new AlterTableStatement();
+                    context.alterTableStmt->relation.version = "master";
+                    context.state = State::AlterTable;
+                } else {
+                    throw syntactical_error("Expected 'TABLE', found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTable:
+                if (token.hasType(Type::identifier)) {
+                    context.alterTableStmt->relation.name = token.value;
+                    context.state = State::AlterTableName;
+                } else {
+                    throw syntactical_error("Expected table name, found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableName:
+                if (token.equalsKeyword(Keyword::Version)) {
+                    context.state = State::AlterTableVersion;
+                    break;
+                }
+                // fall through: VERSION is optional
+            case State::AlterTableTag:
+                if (token.equalsKeyword(Keyword::Add)) {
+                    context.alterTableStmt->add = true;
+                    context.state = State::AlterTableAdd;
+                } else if (token.equalsKeyword(Keyword::Drop)) {
+                    context.alterTableStmt->add = false;
+                    context.state = State::AlterTableDrop;
+                } else {
+                    throw syntactical_error("Expected 'VERSION', 'ADD' or 'DROP', found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableVersion:
+                if (token.hasType(Type::identifier)) {
+                    context.alterTableStmt->relation.version = token.value;
+                    context.state = State::AlterTableTag;
+                } else {
+                    throw syntactical_error("Expected version name, found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableAdd:
+                if (token.equalsKeyword(Keyword::Column)) {
+                    context.state = State::AlterTableAddColumn;
+                    break;
+                }
+                // fall through: COLUMN is optional
+            case State::AlterTableAddColumn:
+                if (token.hasType(Type::identifier)) {
+                    context.alterTableStmt->column.name = token.value;
+                    context.state = State::AlterTableColumnName;
+                } else {
+                    throw syntactical_error("Expected column name, found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableColumnName:
+                if (token.hasType(Type::identifier)) {
+                    auto &column = context.alterTableStmt->column;
+                    column.type.clear();
+                    std::transform(token.value.begin(), token.value.end(), std::back_inserter(column.type), tolower);
+                    column.length = 0;
+                    column.precision = 0;
+                    column.nullable = true;
+                    context.state = State::AlterTableColumnType;
+                } else {
+                    throw syntactical_error("Expected type name, found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableColumnType:
+                if (token.equalsControlSymbol(controlSymbols::openBracket)) {
+                    context.state = State::AlterTableTypeDetailBegin;
+                    break;
+                }
+                // fall through: the type details are optional
+            case State::AlterTableTypeDetailEnd:
+                if (token.equalsKeyword(Keyword::Not)) {
+                    context.state = State::AlterTableTypeNot;
+                } else if (token.equalsKeyword(Keyword::Default)) {
+                    context.state = State::AlterTableDefault;
+                } else {
+                    throw syntactical_error("Expected 'NOT' or 'DEFAULT', found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableTypeDetailBegin:
+                if (token.hasType(Type::literal) && std::isdigit(token.value[0])) {
+                    context.alterTableStmt->column.length = std::stoi(token.value);
+                    context.state = State::AlterTableTypeDetailLength;
+                } else {
+                    throw syntactical_error("Expected type length, found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableTypeDetailLength:
+                if (token.equalsControlSymbol(controlSymbols::closeBracket)) {
+                    context.state = State::AlterTableTypeDetailEnd;
+                } else if (token.equalsControlSymbol(controlSymbols::separator)) {
+                    context.state = State::AlterTableTypeDetailSeparator;
+                } else {
+                    throw syntactical_error("Expected ',' or ')', found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableTypeDetailSeparator:
+                if (token.hasType(Type::literal) && std::isdigit(token.value[0])) {
+                    context.alterTableStmt->column.precision = std::stoi(token.value);
+                    context.state = State::AlterTableTypeDetailPrecision;
+                } else {
+                    throw syntactical_error("Expected type precision, found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableTypeDetailPrecision:
+                if (token.equalsControlSymbol(controlSymbols::closeBracket)) {
+                    context.state = State::AlterTableTypeDetailEnd;
+                } else {
+                    throw syntactical_error("Expected ')', found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableTypeNot:
+                if (token.equalsKeyword(Keyword::Null)) {
+                    context.alterTableStmt->column.nullable = false;
+                    context.state = State::AlterTableTypeNotNull;
+                } else {
+                    throw syntactical_error("Expected 'NULL', found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableTypeNotNull:
+                if (token.equalsKeyword(Keyword::Default)) {
+                    context.state = State::AlterTableDefault;
+                } else {
+                    throw syntactical_error("Expected 'DEFAULT', found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableDefault:
+                if (token.hasType(Type::literal) || token.hasType(Type::identifier)) {
+                    context.alterTableStmt->defaultValue = token.value;
+                    context.alterTableStmt->hasDefault = true;
+                    context.state = State::AlterTableDefaultValue;
+                } else {
+                    throw syntactical_error("Expected default value, found '" + token.value + "'");
+                }
+                break;
+            case State::AlterTableDrop:
+                if (token.equalsKeyword(Keyword::Column)) {
+                    context.state = State::AlterTableDropColumn;
+                    break;
+                }
+                // fall through: COLUMN is optional
+            case State::AlterTableDropColumn:
+                if (token.hasType(Type::identifier)) {
+                    context.alterTableStmt->column.name = token.value;
+                    context.state = State::AlterTableDropName;
+                } else {
+                    throw syntactical_error("Expected column name, found '" + token.value + "'");
                 }
                 break;
 

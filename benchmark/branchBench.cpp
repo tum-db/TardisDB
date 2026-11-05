@@ -13,7 +13,8 @@
 //           updates of main
 //   verify: random forks, updates, inserts and deletes; every branch is scanned and
 //           compared with a reference model in which a fork copies its parent's state;
-//           aggregates over sets of branches are checked with both strategies
+//           aggregates over sets of branches are checked with both strategies; --schema adds
+//           columns to branches, drops them and updates them
 //
 // Output is CSV on stdout.
 
@@ -44,7 +45,7 @@
 
 #include "gflags/gflags.h"
 
-DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | diffmerge | cycles | concurrent | verify");
+DEFINE_string(mode, "depth", "depth | fork | agentic | crossbranch | diffmerge | cycles | concurrent | schema | verify");
 DEFINE_string(divergences, "10,100,1000,10000,100000", "tuples updated by the branch and by main (diffmerge mode)");
 DEFINE_bool(gc, true, "collect versions no branch needs (DROP BRANCH) and overwrite versions of the current identifier");
 DEFINE_bool(keep, false, "cycles mode: a branch forked from main before the cycles lives through them");
@@ -57,9 +58,9 @@ DEFINE_uint64(ops, 3000, "operations (verify mode)");
 DEFINE_string(topology, "mcts", "agentic mode: mcts | beam | bisect");
 DEFINE_uint64(iterations, 200, "agentic mode: MCTS iterations, beam rounds or bisected snapshots");
 DEFINE_uint64(width, 8, "agentic mode: children per node (mcts) or candidates per round (beam)");
-DEFINE_uint64(mutations, 1000, "agentic mode: tuples updated per mutation");
-DEFINE_uint64(churn, 0, "agentic mode: tuples deleted and tuples inserted per mutation, in addition to the updates");
+DEFINE_uint64(mutations, 1000, "agentic mode: tuples updated per mutation (one group of t.g)");
 DEFINE_bool(deep, false, "verify mode: always fork the newest branch, which builds deep chains");
+DEFINE_bool(schema, false, "verify mode: also add columns to branches (ALTER TABLE), drop and update them");
 DEFINE_uint64(threads, 0, "threads per query (0: all hardware threads; 1: serial code paths)");
 DEFINE_uint64(morsel, 16384, "tuples per morsel");
 DEFINE_bool(crossbranch, true, "verify mode: also check aggregates over sets of branches");
@@ -173,39 +174,6 @@ static void depthMode() {
     }
 }
 
-// agentic mode --------------------------------------------------------------
-
-struct Phases {
-    double fork = 0, mutate = 0, evaluate = 0;   // milliseconds
-    uint64_t forks = 0, evaluations = 0;
-};
-
-
-static void forkBranch(Database & db, const std::string & name, const std::string & parent, Phases & ph) {
-    auto start = Clock::now();
-    QueryCompiler::compileAndExecute("CREATE BRANCH " + name + " FROM " + parent + ";", db);
-    ph.fork += msSince(start);
-    ++ph.forks;
-}
-
-static void mutate(Database & db, Table & table, const std::string & name, std::mt19937_64 & rng, Phases & ph) {
-    auto start = Clock::now();
-    branch_id_t branch = db._branchMapping[name];
-    updateRandom(db, table, branch, FLAGS_n, double(FLAGS_mutations) / FLAGS_n, rng, rng() % 1000);
-    if (FLAGS_churn > 0) {
-        // deletes change the membership of tuples the branch shares; inserts add tuples of its own
-        QueryContext ctx(db);
-        ctx.executionContext.branchId = branch;
-        db.constructBranchLineage(branch, ctx.executionContext);
-        for (uint64_t i = 0; i < FLAGS_churn; ++i) {
-            delete_tuple(rng() % FLAGS_n, table, ctx);
-            auto tuple = makeTuple(table, table._version_mgmt_column.size(), rng() % 1000);
-            insert_tuple(tuple, table, ctx);
-        }
-    }
-    ph.mutate += msSince(start);
-}
-
 /// \returns The memory of the membership structures of all tables in MiB
 static double membershipMiB(Database & db) {
     size_t bytes = 0;
@@ -213,38 +181,147 @@ static double membershipMiB(Database & db) {
     return bytes / (1024.0 * 1024.0);
 }
 
-// the agent's objective: a full scan of the branch (a point predicate, so the scan dominates);
-// the score is a deterministic function of the branch so that the search is reproducible
-static int32_t evalTarget;
-static int32_t evalResult;
-static void evalCallback(Native::Sql::SqlTuple * tuple) {
-    evalResult = static_cast<Native::Sql::Integer &>(*tuple->values[0]).value;
-}
+// agentic mode --------------------------------------------------------------
 
-static double evaluate(Database & db, const std::string & name, std::mt19937_64 & rng, Phases & ph) {
-    auto start = Clock::now();
-    evalResult = -1;
-    QueryCompiler::compileAndExecute("SELECT b FROM t VERSION " + name + " WHERE a = " + std::to_string(evalTarget) + ";", db, (void *) &evalCallback);
-    ph.evaluate += msSince(start);
-    ++ph.evaluations;
-    return std::uniform_real_distribution<double>(0, 1)(rng);
+// Agent loops in SQL only: fork (CREATE BRANCH), mutate (UPDATE of one group of tuples), evaluate
+// (sum per branch; beam compares its candidates in one cross-branch query) and resolve (DROP BRANCH
+// of the discarded branches, MERGE of the result into main). t(a, b, g): g puts the tuples into
+// n / mutations groups of random tuples. Every sum is checked against a model in which a branch is
+// the value of b per group.
+
+DEFINE_string(trace, "", "agentic mode: write the SQL statements to this file");
+
+struct Phases {
+    // milliseconds; the phases without the compilation of their statements, which compile collects
+    double fork = 0, mutate = 0, evaluate = 0, resolve = 0, compile = 0;
+    uint64_t statements = 0, forks = 0;
+};
+
+class Loop {
+public:
+    Loop(uint64_t groups, uint64_t groupSize) : _groups(groups), _groupSize(groupSize) {
+        _model["main"] = std::vector<int32_t>(groups, 0);
+        if (!FLAGS_trace.empty()) _trace.open(FLAGS_trace);
+    }
+
+    void sql(const std::string & statement, double & phase, void * callback = (void *) &noop) {
+        if (_trace) _trace << statement << "\n";
+        auto start = Clock::now();
+        auto result = QueryCompiler::compileAndBenchmark(statement, _db, callback);
+        const double ms = msSince(start);
+        // statements without a plan (CREATE BRANCH, DROP BRANCH, MERGE) do their work when analysed
+        const bool compiled = result.translationTime > 0 || result.executionTime > 0;
+        const double executed = compiled ? result.executionTime / 1000.0 : ms;
+        phase += executed;
+        ph.compile += ms - executed;
+        ++ph.statements;
+    }
+    void comment(const std::string & text) { if (_trace) _trace << "-- " << text << "\n"; }
+
+    void fork(const std::string & name, const std::string & parent) {
+        sql("CREATE BRANCH " + name + " FROM " + parent + ";", ph.fork);
+        _model[name] = _model.at(parent);
+        ++ph.forks;
+    }
+    void mutate(const std::string & name, std::mt19937_64 & rng) {
+        const uint64_t group = rng() % _groups;
+        const int32_t value = 1 + rng() % 999;
+        sql("UPDATE t VERSION " + name + " SET b = " + std::to_string(value) + " WHERE g = " + std::to_string(group) + ";", ph.mutate);
+        _model[name][group] = value;
+    }
+    /// sum(b) of each branch, checked against the model; one query for all
+    void evaluate(const std::vector<std::string> & names) {
+        branchSums.clear();
+        if (names.size() == 1) {
+            singleBranch = names[0];
+            sql("SELECT sum(b) FROM t VERSION " + names[0] + ";", ph.evaluate, (void *) &collectSingle);
+        } else {
+            std::string list;
+            for (auto & name : names) list += (list.empty() ? "" : ", ") + name;
+            sql("SELECT branch, sum(b) FROM t VERSION (" + list + ") GROUP BY branch;", ph.evaluate, (void *) &collectGrouped);
+        }
+        for (auto & name : names) check(name);
+    }
+    void drop(const std::string & name, bool cascade = false) {
+        sql("DROP BRANCH " + name + (cascade ? " CASCADE;" : ";"), ph.resolve);
+    }
+    void merge(const std::string & source) {
+        sql("MERGE BRANCH " + source + " INTO main;", ph.resolve);
+        _model["main"] = _model.at(source);
+    }
+    /// main after the loop, outside the phases
+    void checkMain() {
+        double ignored = 0;
+        branchSums.clear();
+        singleBranch = "main";
+        sql("SELECT sum(b) FROM t VERSION main;", ignored, (void *) &collectSingle);
+        check("main");
+    }
+
+    Database & db() { return _db; }
+    Phases ph;
+
+private:
+    static std::map<std::string, int64_t> branchSums;
+    static std::string singleBranch;
+    static void collectSingle(Native::Sql::SqlTuple * tuple) {
+        branchSums[singleBranch] = static_cast<Native::Sql::Numeric &>(*tuple->values[0]).value;
+    }
+    static void collectGrouped(Native::Sql::SqlTuple * tuple) {
+        auto name = static_cast<Native::Sql::Text &>(*tuple->values[0]).getString();
+        branchSums[std::string(reinterpret_cast<const char *>(name.second), name.first)] = static_cast<Native::Sql::Numeric &>(*tuple->values[1]).value;
+    }
+    void check(const std::string & name) {
+        int64_t expected = 0;
+        for (int32_t value : _model.at(name)) expected += int64_t(value) * _groupSize;
+        if (branchSums.count(name) == 0 || branchSums[name] != expected) {
+            throw std::runtime_error("branch " + name + ": sum " + (branchSums.count(name) ? std::to_string(branchSums[name]) : "missing") +
+                                     ", expected " + std::to_string(expected));
+        }
+    }
+
+    Database _db;
+    uint64_t _groups, _groupSize;
+    std::map<std::string, std::vector<int32_t>> _model;
+    std::ofstream _trace;
+};
+std::map<std::string, int64_t> Loop::branchSums;
+std::string Loop::singleBranch;
+
+static void loadLoop(Database & db, uint64_t n, uint64_t groups, std::mt19937_64 & rng) {
+    QueryCompiler::compileAndExecute("CREATE TABLE t ( a INTEGER NOT NULL, b INTEGER NOT NULL, g INTEGER NOT NULL );", db);
+    Table & table = *db.getTable("t");
+    std::vector<uint64_t> group(n);
+    for (uint64_t i = 0; i < n; ++i) group[i] = i % groups;
+    std::shuffle(group.begin(), group.end(), rng);
+    QueryContext ctx(db);
+    ctx.executionContext.branchId = master_branch_id;
+    db.constructBranchLineage(master_branch_id, ctx.executionContext);
+    for (uint64_t i = 0; i < n; ++i) {
+        std::vector<std::unique_ptr<Native::Sql::Value>> values;
+        values.push_back(Native::Sql::Value::castString(std::to_string(i), table.getCI("a")->type));
+        values.push_back(Native::Sql::Value::castString("0", table.getCI("b")->type));
+        values.push_back(Native::Sql::Value::castString(std::to_string(group[i]), table.getCI("g")->type));
+        Native::Sql::SqlTuple tuple(std::move(values));
+        insert_tuple(tuple, table, ctx);
+    }
 }
 
 static void agenticMode() {
     std::mt19937_64 rng(FLAGS_seed);
-    Database db;
-    Table & table = load(db, FLAGS_n);
-    evalTarget = static_cast<int32_t>(FLAGS_n / 2);
-    Phases ph;
+    if (FLAGS_mutations == 0 || FLAGS_n % FLAGS_mutations != 0) throw std::runtime_error("--mutations must divide --n");
+    Loop loop(FLAGS_n / FLAGS_mutations, FLAGS_mutations);
+    loadLoop(loop.db(), FLAGS_n, FLAGS_n / FLAGS_mutations, rng);
     uint64_t maxDepth = 0;
     uint64_t counter = 0;
     auto newName = [&]() { return "x" + std::to_string(++counter); };
     auto total = Clock::now();
 
     if (FLAGS_topology == "mcts") {
-        // selection by UCB1, expansion by a fork, simulation by mutate + evaluate, backpropagation
+        // selection by UCB1, expansion by a fork, simulation by mutate + evaluate, backpropagation;
+        // at the end, the node with the best mean score is merged into main and the tree is dropped
         struct Node { std::string name; int64_t parent; uint64_t depth; double visits = 0, value = 0; std::vector<size_t> children; };
-        std::vector<Node> tree = {{"master", -1, 0}};
+        std::vector<Node> tree = {{"main", -1, 0}};
         for (uint64_t it = 0; it < FLAGS_iterations; ++it) {
             size_t node = 0;
             while (tree[node].children.size() >= FLAGS_width) {
@@ -257,62 +334,92 @@ static void agenticMode() {
                 node = best;
             }
             Node child{newName(), int64_t(node), tree[node].depth + 1};
-            forkBranch(db, child.name, tree[node].name, ph);
-            mutate(db, table, child.name, rng, ph);
-            double score = evaluate(db, child.name, rng, ph);
+            loop.comment("iteration " + std::to_string(it + 1) + ": expand " + tree[node].name);
+            loop.fork(child.name, tree[node].name);
+            loop.mutate(child.name, rng);
+            loop.evaluate({child.name});
+            const double score = std::uniform_real_distribution<double>(0, 1)(rng);
             maxDepth = std::max(maxDepth, child.depth);
             tree.push_back(child);
             size_t id = tree.size() - 1;
             tree[node].children.push_back(id);
             for (int64_t n = id; n >= 0; n = tree[n].parent) { tree[n].visits += 1; tree[n].value += score; }
         }
+        size_t best = 1;
+        for (size_t i = 1; i < tree.size(); ++i) {
+            if (tree[i].value / tree[i].visits > tree[best].value / tree[best].visits) best = i;
+        }
+        loop.comment("resolve: keep " + tree[best].name);
+        loop.merge(tree[best].name);
+        for (size_t c : tree[0].children) loop.drop(tree[c].name, true);
     } else if (FLAGS_topology == "beam") {
-        // each round forks width candidates from the current best and keeps the best one
-        std::string base = "master";
+        // each round forks width candidates from the current best, compares them in one query, keeps
+        // the best one and drops the others; the last best is merged into main
+        std::string base = "main";
+        std::string first;
         for (uint64_t round = 0; round < FLAGS_iterations; ++round) {
-            std::string best;
-            double bestScore = -1;
+            loop.comment("round " + std::to_string(round + 1) + " from " + base);
+            std::vector<std::string> candidates;
             for (uint64_t w = 0; w < FLAGS_width; ++w) {
-                std::string name = newName();
-                forkBranch(db, name, base, ph);
-                mutate(db, table, name, rng, ph);
-                double score = evaluate(db, name, rng, ph);
-                if (score > bestScore) { bestScore = score; best = name; }
+                candidates.push_back(newName());
+                loop.fork(candidates.back(), base);
+                loop.mutate(candidates.back(), rng);
             }
-            base = best;
+            loop.evaluate(candidates);
+            size_t best = 0;
+            double bestScore = -1;
+            for (size_t w = 0; w < candidates.size(); ++w) {
+                const double score = std::uniform_real_distribution<double>(0, 1)(rng);
+                if (score > bestScore) { bestScore = score; best = w; }
+            }
+            for (size_t w = 0; w < candidates.size(); ++w) {
+                if (w != best) loop.drop(candidates[w]);
+            }
+            base = candidates[best];
+            if (first.empty()) first = base;
             maxDepth = round + 1;
         }
+        loop.comment("resolve: keep " + base);
+        loop.merge(base);
+        loop.drop(first, true);
     } else if (FLAGS_topology == "bisect") {
-        // main advances through a history of snapshots; the agent bisects it for the first
-        // failing snapshot, forking a scratch branch from each probe to run the test in
+        // main advances through a history of snapshots; the agent bisects it for the first failing
+        // snapshot, forking a probe from each tested snapshot that writes its fixtures and runs the test
         std::vector<std::string> snapshots;
         for (uint64_t i = 0; i < FLAGS_iterations; ++i) {
             std::string snap = "s" + std::to_string(i);
-            forkBranch(db, snap, "master", ph);
+            loop.fork(snap, "main");
             snapshots.push_back(snap);
-            mutate(db, table, "master", rng, ph);
+            loop.mutate("main", rng);
         }
         const size_t failing = rng() % snapshots.size();
         size_t lo = 0, hi = snapshots.size() - 1;
         while (lo < hi) {
             size_t mid = (lo + hi) / 2;
             std::string probe = newName();
-            forkBranch(db, probe, snapshots[mid], ph);
-            mutate(db, table, probe, rng, ph);        // the test writes its own fixtures
-            evaluate(db, probe, rng, ph);
+            loop.comment("probe " + snapshots[mid]);
+            loop.fork(probe, snapshots[mid]);
+            loop.mutate(probe, rng);
+            loop.evaluate({probe});
+            loop.drop(probe);
             if (mid >= failing) hi = mid; else lo = mid + 1;
         }
+        loop.comment("resolve: drop the snapshots");
+        for (auto & snap : snapshots) loop.drop(snap);
         maxDepth = 2;
     } else {
         throw std::runtime_error("unknown topology");
     }
-
     double totalMs = msSince(total);
-    std::cout << "topology,n,iterations,width,mutations,branches,max_depth,fork_ms,mutate_ms,evaluate_ms,total_ms,eval_ms_avg,rss_mib,identifiers,relabels,churn,membership_mib" << std::endl;
+    loop.checkMain();
+
+    Database & db = loop.db();
+    auto & ph = loop.ph;
+    std::cout << "topology,n,iterations,width,mutations,branches,max_depth,statements,fork_ms,mutate_ms,evaluate_ms,resolve_ms,compile_ms,total_ms,rss_mib,identifiers,relabels,membership_mib" << std::endl;
     std::cout << FLAGS_topology << "," << FLAGS_n << "," << FLAGS_iterations << "," << FLAGS_width << "," << FLAGS_mutations << ","
-              << db._branches.size() << "," << maxDepth << "," << ph.fork << "," << ph.mutate << "," << ph.evaluate << ","
-              << totalMs << "," << ph.evaluate / std::max<uint64_t>(ph.evaluations, 1) << "," << rssMiB() << ","
-              << db.getIdentCount() << "," << db.getRelabelCount() << "," << FLAGS_churn << "," << membershipMiB(db) << std::endl;
+              << ph.forks << "," << maxDepth << "," << ph.statements << "," << ph.fork << "," << ph.mutate << "," << ph.evaluate << ","
+              << ph.resolve << "," << ph.compile << "," << totalMs << "," << rssMiB() << "," << db.getIdentCount() << "," << db.getRelabelCount() << ","
+              << membershipMiB(db) << std::endl;
 }
 
 // crossbranch mode ----------------------------------------------------------
@@ -416,12 +523,37 @@ static void collect(Native::Sql::SqlTuple * tuple) {
     if (!scanned.emplace(a, b).second) throw std::runtime_error("tuple " + std::to_string(a) + " returned twice");
 }
 
+struct RefColumn {
+    int32_t defaultValue;
+    std::vector<int32_t> values; // indexed by tid
+};
+
 struct RefBranch {
     std::string name;
     std::vector<bool> present;  // indexed by tid
     std::vector<int32_t> b;
     int parent = -1;
+    std::map<std::string, RefColumn> columns; // added by ALTER TABLE
 };
+
+// scans the column of the branch: (a, column) per tuple
+static bool verifyColumn(Database & db, const RefBranch & branch, const std::string & column, const std::vector<int32_t> & values) {
+    scanned.clear();
+    QueryCompiler::compileAndExecute("SELECT a, " + column + " FROM t VERSION " + branch.name + ";", db, (void *) &collect);
+    std::map<int32_t, int32_t> expected;
+    for (size_t tid = 0; tid < branch.present.size(); ++tid) {
+        if (branch.present[tid]) expected[static_cast<int32_t>(tid)] = values[tid];
+    }
+    if (scanned == expected) return true;
+    size_t missing = 0, extra = 0, wrong = 0;
+    for (auto & [a, b] : expected) {
+        auto it = scanned.find(a);
+        if (it == scanned.end()) ++missing; else if (it->second != b) ++wrong;
+    }
+    for (auto & [a, b] : scanned) if (!expected.count(a)) ++extra;
+    std::cout << "MISMATCH in " << branch.name << " (" << column << "): missing " << missing << ", extra " << extra << ", wrong value " << wrong << std::endl;
+    return false;
+}
 
 struct Aggregates {
     int64_t count = 0, sum = 0;
@@ -547,22 +679,8 @@ static bool verifyCrossBranch(Database & db, std::vector<RefBranch> & ref, std::
 static bool verifyAll(Database & db, std::vector<RefBranch> & ref) {
     bool ok = true;
     for (auto & branch : ref) {
-        scanned.clear();
-        QueryCompiler::compileAndExecute("SELECT a, b FROM t VERSION " + branch.name + ";", db, (void *) &collect);
-        std::map<int32_t, int32_t> expected;
-        for (size_t tid = 0; tid < branch.present.size(); ++tid) {
-            if (branch.present[tid]) expected[static_cast<int32_t>(tid)] = branch.b[tid];
-        }
-        if (scanned != expected) {
-            size_t missing = 0, extra = 0, wrong = 0;
-            for (auto & [a, b] : expected) {
-                auto it = scanned.find(a);
-                if (it == scanned.end()) ++missing; else if (it->second != b) ++wrong;
-            }
-            for (auto & [a, b] : scanned) if (!expected.count(a)) ++extra;
-            std::cout << "MISMATCH in " << branch.name << ": missing " << missing << ", extra " << extra << ", wrong value " << wrong << std::endl;
-            ok = false;
-        }
+        ok = verifyColumn(db, branch, "b", branch.b) && ok;
+        for (auto & [name, column] : branch.columns) ok = verifyColumn(db, branch, name, column.values) && ok;
     }
     if (FLAGS_crossbranch) {
         std::mt19937_64 rng(ref.size() * 7919 + ref[0].present.size());
@@ -579,7 +697,7 @@ static void verifyMode() {
     ref[0].name = "master";
     ref[0].present.assign(FLAGS_n, true);
     ref[0].b.assign(FLAGS_n, bOffset);
-    uint64_t forks = 0, updates = 0, inserts = 0, deletes = 0;
+    uint64_t forks = 0, updates = 0, inserts = 0, deletes = 0, added = 0, dropped = 0, columnUpdates = 0;
     bool ok = true;
 
     for (uint64_t op = 1; op <= FLAGS_ops && ok; ++op) {
@@ -589,6 +707,37 @@ static void verifyMode() {
         QueryContext ctx(db);
         ctx.executionContext.branchId = branch;
         db.constructBranchLineage(branch, ctx.executionContext);
+        if (FLAGS_schema && rng() % 100 < 8) {
+            // a schema change of the branch, or an update of an added column; siblings add columns of the same names
+            auto & columns = ref[bi].columns;
+            // a branch without added columns adds one; otherwise 1 in 4 adds, 1 in 8 drops, the others update
+            const uint64_t change = columns.empty() ? 0 : rng() % 8;
+            if (change <= 1 && columns.size() < 4) {
+                const std::string name = "c" + std::to_string(rng() % 6);
+                if (columns.count(name)) continue;
+                const int32_t defaultValue = 2 * bOffset + static_cast<int32_t>(rng() % 1000000);
+                QueryCompiler::compileAndExecute("ALTER TABLE t VERSION " + ref[bi].name + " ADD COLUMN " + name + " INTEGER DEFAULT " +
+                                                 std::to_string(defaultValue) + ";", db);
+                columns[name] = {defaultValue, std::vector<int32_t>(ref[bi].present.size(), defaultValue)};
+                ++added;
+            } else if (change == 2 && !columns.empty()) {
+                auto column = std::next(columns.begin(), rng() % columns.size());
+                QueryCompiler::compileAndExecute("ALTER TABLE t VERSION " + ref[bi].name + " DROP COLUMN " + column->first + ";", db);
+                columns.erase(column);
+                ++dropped;
+            } else if (change >= 3 && !columns.empty()) {
+                size_t tid = rng() % ref[bi].present.size();
+                if (!ref[bi].present[tid]) continue;
+                auto column = std::next(columns.begin(), rng() % columns.size());
+                const int32_t value = 2 * bOffset + static_cast<int32_t>(rng() % 1000000);
+                QueryCompiler::compileAndExecute("UPDATE t VERSION " + ref[bi].name + " SET " + column->first + " = " + std::to_string(value) +
+                                                 " WHERE a = " + std::to_string(tid) + ";", db);
+                column->second.values[tid] = value;
+                ++columnUpdates;
+            }
+            if (op % 500 == 0) ok = verifyAll(db, ref);
+            continue;
+        }
         if (kind < 10) {
             if (FLAGS_deep) {
                 bi = ref.size() - 1;
@@ -612,7 +761,10 @@ static void verifyMode() {
             size_t tid = tids[0];
             if (kind < 80) {
                 int32_t value = bOffset + static_cast<int32_t>(rng() % 1000000);
-                auto tuple = makeTuple(table, tid, value);
+                // the new version keeps the values of the other columns
+                auto values = std::move(get_latest_tuple(tid, table, ctx)->values);
+                values[1] = Native::Sql::Value::castString(std::to_string(value), table.getCI("b")->type);
+                Native::Sql::SqlTuple tuple(std::move(values));
                 update_tuple(tid, tuple, table, ctx);
                 ref[bi].b[tid] = value;
                 ++updates;
@@ -625,10 +777,18 @@ static void verifyMode() {
             // insert into the branch; the tuple exists only there and in its later forks
             int32_t value = bOffset + static_cast<int32_t>(rng() % 1000000);
             size_t tid = table._version_mgmt_column.size();
-            auto tuple = makeTuple(table, tid, value);
-            tid_t got = insert_tuple(tuple, table, ctx);
+            // the added columns get their defaults
+            std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values;
+            values.emplace_back(table.getCI("a"), Native::Sql::Value::castString(std::to_string(tid), table.getCI("a")->type));
+            values.emplace_back(table.getCI("b"), Native::Sql::Value::castString(std::to_string(value), table.getCI("b")->type));
+            auto tuple = complete_tuple(table, std::move(values));
+            tid_t got = insert_tuple(*tuple, table, ctx);
             if (got != tid) throw std::runtime_error("unexpected tid");
-            for (auto & r : ref) { r.present.push_back(false); r.b.push_back(0); }
+            for (auto & r : ref) {
+                r.present.push_back(false);
+                r.b.push_back(0);
+                for (auto & [name, column] : r.columns) column.values.push_back(column.defaultValue);
+            }
             ref[bi].present[tid] = true;
             ref[bi].b[tid] = value;
             ++inserts;
@@ -638,7 +798,9 @@ static void verifyMode() {
     if (ok) ok = verifyAll(db, ref);
     std::cout << (ok ? "OK" : "FAILED") << ": branches " << ref.size() << ", forks " << forks << ", updates " << updates
               << ", inserts " << inserts << ", deletes " << deletes << ", identifiers " << db.getIdentCount()
-              << ", relabels " << db.getRelabelCount() << std::endl;
+              << ", relabels " << db.getRelabelCount();
+    if (FLAGS_schema) std::cout << ", columns added " << added << ", dropped " << dropped << ", updated " << columnUpdates;
+    std::cout << std::endl;
     if (!ok) std::exit(1);
 }
 
@@ -836,6 +998,41 @@ static void concurrentMode() {
     run("agents_sibling_inserts", std::string(16, 'a') + "i");
 }
 
+// schema mode --------------------------------------------------------------
+
+// ALTER TABLE ... VERSION b ADD COLUMN in a branch forked from main that updated frac of the tuples,
+// and scans of b on an attribute of CREATE TABLE and on the added one, before and after b writes it
+static void schemaMode() {
+    std::cout << "n,threads,frac,add_column_ms,scan_main_ms,scan_b_ms,scan_b_added_ms,scan_b_added_updated_ms" << std::endl;
+    std::mt19937_64 rng(FLAGS_seed);
+    Database db;
+    Table & table = load(db, FLAGS_n);
+    QueryCompiler::compileAndExecute("CREATE BRANCH b FROM master;", db);
+    updateRandom(db, table, db._branchMapping["b"], FLAGS_n, FLAGS_frac, rng, 1);
+    std::vector<double> times;
+    for (uint64_t r = 0; r < FLAGS_runs; ++r) {
+        auto start = Clock::now();
+        QueryCompiler::compileAndExecute("ALTER TABLE t VERSION b ADD COLUMN c" + std::to_string(r) + " INTEGER DEFAULT 0;", db);
+        times.push_back(msSince(start));
+    }
+    std::sort(times.begin(), times.end());
+    auto scan = [&](const std::string & branch, const std::string & column) {
+        return queryMicros(db, "SELECT " + column + " FROM t VERSION " + branch + " WHERE " + column + " = 2147483000;", (void *) &noop, FLAGS_runs) / 1000.0;
+    };
+    double main = scan("master", "a"), b = scan("b", "a"), added = scan("b", "c0");
+    // the tuples b updated, now with a new version that has the column
+    QueryCompiler::compileAndExecute("UPDATE t VERSION b SET c0 = 1 WHERE b = 1;", db);
+    double updated = scan("b", "c0");
+    branchSums.clear();
+    singleBranch = "c0";
+    QueryCompiler::compileAndExecute("SELECT sum(c0) FROM t VERSION b;", db, (void *) &collectSingleSum);
+    singleBranch = "b";
+    QueryCompiler::compileAndExecute("SELECT sum(b) FROM t VERSION b;", db, (void *) &collectSingleSum);
+    if (branchSums["c0"] != branchSums["b"] || branchSums["b"] == 0) throw std::runtime_error("UPDATE of the added column wrote other tuples");
+    std::cout << FLAGS_n << "," << Parallel::threads << "," << FLAGS_frac << "," << times[times.size() / 2] << ","
+              << main << "," << b << "," << added << "," << updated << std::endl;
+}
+
 static void forkMode() {
     std::cout << "n,fork_us_median,rss_mib,membership_mib" << std::endl;
     for (uint64_t n : parseList(FLAGS_sizes)) {
@@ -871,6 +1068,7 @@ int main(int argc, char * argv[]) {
     else if (FLAGS_mode == "diffmerge") diffmergeMode();
     else if (FLAGS_mode == "cycles") cyclesMode();
     else if (FLAGS_mode == "concurrent") concurrentMode();
+    else if (FLAGS_mode == "schema") schemaMode();
     else { std::cerr << "unknown mode" << std::endl; return 1; }
 
     llvm::llvm_shutdown();

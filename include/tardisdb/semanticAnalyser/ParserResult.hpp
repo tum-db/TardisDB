@@ -93,11 +93,20 @@ namespace semanticalAnalysis {
         std::string targetBranchName;
     };
 
+    /// ALTER TABLE t [ VERSION b ] ADD [ COLUMN ] c type [ NOT NULL ] DEFAULT v, or DROP [ COLUMN ] c
+    struct AlterTableStatement {
+        Relation relation;
+        bool add = true;
+        ColumnSpec column;
+        std::string defaultValue;
+        bool hasDefault = false;
+    };
+
     struct SQLParserResult {
 
         enum OpType : unsigned int {
             Unknown, Select, Insert, Update, Delete, CreateTable, CreateBranch, Branch, Copy,
-            CreateIndex, DropBranch, MergeBranch
+            CreateIndex, DropBranch, MergeBranch, AlterTable
         } opType = Unknown;
 
         CreateTableStatement *createTableStmt;
@@ -110,6 +119,7 @@ namespace semanticalAnalysis {
         CreateIndexStatement *createIndexStmt;
         DropBranchStatement *dropBranchStmt;
         MergeBranchStatement *mergeBranchStmt;
+        AlterTableStatement *alterTableStmt;
 
         SQLParserResult() {}
         ~SQLParserResult() {
@@ -145,6 +155,9 @@ namespace semanticalAnalysis {
                     break;
                 case MergeBranch:
                     delete mergeBranchStmt;
+                    break;
+                case AlterTable:
+                    delete alterTableStmt;
                     break;
                 case Unknown:
                     break;

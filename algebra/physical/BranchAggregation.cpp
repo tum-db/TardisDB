@@ -166,10 +166,9 @@ BranchAggregation::BranchAggregation(const logical_operator_t & logicalOperator,
         if (aggregate.input != nullptr) needed.insert(aggregate.input);
     }
 
-    const auto columnNames = _table.getColumnNames();
     for (iu_p_t iu : needed) {
         ci_p_t ci = getColumnInformation(iu);
-        size_t index = std::find(columnNames.begin(), columnNames.end(), ci->columnName) - columnNames.begin();
+        size_t index = ci->index;
         llvm::Type * columnTy = llvm::ArrayType::get(toLLVMTy(ci->type), _table.size());
         llvm::Value * columnPtr = createPointerValue(ci->column->front(), columnTy);
         _columns.emplace_back(iu, ci, index, columnTy, columnPtr);
@@ -548,17 +547,14 @@ std::pair<llvm::Value *, llvm::Value *> BranchAggregation::genPresence(State & s
 iu_value_mapping_t BranchAggregation::genLoad(cg_tid_t tid, llvm::Value * tuplePtr)
 {
     iu_value_mapping_t values;
-    llvm::Type * tupleTy = Sql::SqlTuple::getType(_table.getTupleType());
     llvm::Value * isInPlace = nullptr;
-    llvm::Value * typedTuple = nullptr;
     if (tuplePtr != nullptr) {
         isInPlace = _codeGen->CreateIsNull(tuplePtr);
-        typedTuple = _codeGen->CreatePointerCast(tuplePtr, llvm::PointerType::getUnqual(tupleTy));
     }
     for (auto & [iu, ci, index, columnTy, columnPtr] : _columns) {
         llvm::Value * elemPtr = _codeGen->CreateGEP(columnTy, columnPtr, {cg_size_t(0ul), tid});
         if (tuplePtr != nullptr) {
-            llvm::Value * versionPtr = _codeGen->CreateStructGEP(tupleTy, typedTuple, index);
+            llvm::Value * versionPtr = genVersionAttributePtr(_table, tuplePtr, index);
             elemPtr = _codeGen->CreateSelect(isInPlace, elemPtr, versionPtr);
         }
         _loaded.push_back(Value::load(elemPtr, ci->type));

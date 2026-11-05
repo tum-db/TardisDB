@@ -53,11 +53,10 @@ BranchDiff::BranchDiff(const logical_operator_t & logicalOperator, std::vector<E
     auto & op = static_cast<const Logical::BranchDiff &>(logicalOperator);
     if (_table.size() < 1) return; // nothing to compare
 
-    const auto columnNames = _table.getColumnNames();
     for (iu_p_t iu : op.getProduced()) {
         if (iu->iuType != InformationUnit::Type::ColumnRef) continue; // the name of the branch
         ci_p_t ci = getColumnInformation(iu);
-        size_t index = std::find(columnNames.begin(), columnNames.end(), ci->columnName) - columnNames.begin();
+        size_t index = ci->index;
         llvm::Type * columnTy = llvm::ArrayType::get(toLLVMTy(ci->type), _table.size());
         llvm::Value * columnPtr = createPointerValue(ci->column->front(), columnTy);
         _columns.emplace_back(iu, ci, index, columnTy, columnPtr);
@@ -138,12 +137,10 @@ void BranchDiff::produce()
 iu_value_mapping_t BranchDiff::genLoad(cg_tid_t tid, llvm::Value * tuplePtr)
 {
     iu_value_mapping_t values;
-    llvm::Type * tupleTy = Sql::SqlTuple::getType(_table.getTupleType());
     llvm::Value * isInPlace = _codeGen->CreateIsNull(tuplePtr);
-    llvm::Value * typedTuple = _codeGen->CreatePointerCast(tuplePtr, llvm::PointerType::getUnqual(tupleTy));
     for (auto & [iu, ci, index, columnTy, columnPtr] : _columns) {
         llvm::Value * elemPtr = _codeGen->CreateGEP(columnTy, columnPtr, {cg_size_t(0ul), tid});
-        llvm::Value * versionPtr = _codeGen->CreateStructGEP(tupleTy, typedTuple, index);
+        llvm::Value * versionPtr = genVersionAttributePtr(_table, tuplePtr, index);
         elemPtr = _codeGen->CreateSelect(isInPlace, elemPtr, versionPtr);
         _loaded.push_back(Value::load(elemPtr, ci->type));
         values[iu] = _loaded.back().get();

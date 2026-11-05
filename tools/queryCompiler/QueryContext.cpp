@@ -292,6 +292,9 @@ void QueryContext::convertToParserResult(semanticalAnalysis::SQLParserResult &de
         case tardisParser::ParsingContext::MergeBranch:
             dest.opType = semanticalAnalysis::SQLParserResult::OpType::MergeBranch;
             break;
+        case tardisParser::ParsingContext::AlterTable:
+            dest.opType = semanticalAnalysis::SQLParserResult::OpType::AlterTable;
+            break;
     }
     source = tardisParser::ParsingContext();
 }

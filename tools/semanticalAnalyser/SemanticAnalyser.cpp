@@ -32,9 +32,15 @@ namespace semanticalAnalysis {
             Table* table = context.db.getTable(relation.name);
             std::unique_ptr<TableScan> scan = std::make_unique<TableScan>(context.iuFactory, *table, branchId);
 
-            //Store the ius produced by this TableScan
+            //Store the ius produced by this TableScan; only the columns of the branch have names
+            const auto &schema = table->getSchema(branchId);
             for (iu_p_t iu : scan->getProduced()) {
-                context.ius[relation.alias][iu->columnInformation->columnName] = iu;
+                ci_p_t ci = iu->columnInformation;
+                context.scanIUs[relation.alias].push_back(iu);
+                if (ci == table->getTIDColumnInformation().get() ||
+                    std::find(schema.begin(), schema.end(), ci->index) != schema.end()) {
+                    context.ius[relation.alias][ci->columnName] = iu;
+                }
             }
 
             //Add a new production with TableScan as root node
@@ -66,9 +72,7 @@ namespace semanticalAnalysis {
             auto * scan = dynamic_cast<TableScan *>(production);
             if (scan != nullptr && scan->getIndex() == nullptr) {
                 Table & table = scan->getTable();
-                const auto names = table.getColumnNames();
-                const size_t position = std::find(names.begin(), names.end(), column.name) - names.begin();
-                if (const BranchIndex * index = table.getIndex(position, scan->getBranchId())) {
+                if (const BranchIndex * index = table.getIndex(iu->columnInformation->index, scan->getBranchId())) {
                     auto key = Native::Sql::Value::castString(valueString, Sql::toNotNullableTy(iu->columnInformation->type));
                     scan->setIndexProbe(index, key->hash());
                 }
@@ -115,6 +119,8 @@ namespace semanticalAnalysis {
                 return std::make_unique<DropBranchAnalyser>(context);
             case SQLParserResult::OpType::MergeBranch:
                 return std::make_unique<MergeBranchAnalyser>(context);
+            case SQLParserResult::OpType::AlterTable:
+                return std::make_unique<AlterTableAnalyser>(context);
             case SQLParserResult::OpType::Unknown:
                 return nullptr;
         }

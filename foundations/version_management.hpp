@@ -19,6 +19,9 @@ struct VersionedTupleStorage {
     branch_id_t branch_id;
     branch_id_t creation_ts; // latest branch id during the time of creation
     ident_t ident; // identifier of the branch at the time of creation
+    /// the columns of the table when the version was written: columns added later (ALTER TABLE) have
+    /// no value in it and read their default; compiled code finds it right before data
+    uint32_t columns;
     uint8_t data[0];
 };
 
@@ -172,6 +175,25 @@ private:
 /// \returns The tuple of a chain element of tid (see BranchReader::visible)
 std::unique_ptr<Native::Sql::SqlTuple> load_version(tid_t tid, Table & table, const void * element);
 
+/// \returns The tuple of the tuple data of a version, with the default of every column added after it
+std::unique_ptr<Native::Sql::SqlTuple> load_tuple_data(const Table & table, const void * data);
+
+/// \returns A pointer to the column in the tuple data of a version, or to the default of the column if
+/// the version was written before the column was added; tupleData may be nullptr (the in-place
+/// version), for which the result is not to be used
+llvm::Value * genVersionAttributePtr(const Table & table, llvm::Value * tupleData, size_t column);
+
+/// \returns A tuple of all columns of the table, for a write of the branch: the given values (one per
+/// column of the branch, nullptr for none) and the default of every other column. Writes keep the
+/// values of the columns the branch does not have, since other branches may read them.
+std::unique_ptr<Native::Sql::SqlTuple> complete_tuple(const Table & table,
+        std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values);
+
+/// ALTER TABLE t VERSION b ADD COLUMN: a column of the branch and of the branches forked from it
+/// later, see Table::addBranchColumn. \returns The position of the column
+size_t add_branch_column(Table & table, branch_id_t branch, const std::string & name, Sql::SqlType type,
+                         const Native::Sql::Value & defaultValue);
+
 /// The outcome of MERGE BRANCH src INTO dst
 struct MergeResult {
     size_t updated = 0;
@@ -237,7 +259,8 @@ struct DiffEntry {
 };
 
 /// Appends the tuples that differ between two branches: a tuple only in one branch yields one
-/// entry, a tuple whose versions differ in value yields one entry per branch
+/// entry, a tuple whose versions differ in the value of a column both branches have yields one entry
+/// per branch
 void diff_branches(Table & table, branch_id_t a, branch_id_t b, std::vector<DiffEntry> & out);
 
 void destroy_chain(VersionEntry * version_entry);

@@ -47,13 +47,7 @@ namespace Algebra {
                 llvm::Type * elemTy = toLLVMTy(storedSqlType);
                 llvm::Type * columnTy = llvm::ArrayType::get(elemTy, tableSize);
                 llvm::Value * columnPtr = createPointerValue(ci->column->front(), columnTy);
-                size_t columnIndex = 0;
-                for (int i = 0; i<table.getColumnCount(); i++) {
-                    if (table.getColumnNames()[i].compare(ci->columnName) == 0) {
-                        columnIndex = i;
-                        break;
-                    }
-                }
+                size_t columnIndex = ci->index;
 
                 columns.emplace_back(ci, columnTy, columnPtr, columnIndex, std::move(sqlValue));
             }
@@ -92,7 +86,7 @@ namespace Algebra {
 
 #if USE_DATA_VERSIONING
             // SET c = <expression>: computed from the values of the old tuple, in the type of the column
-            std::unordered_map<std::string, Sql::Value *> computed;
+            std::unordered_map<ci_p_t, Sql::Value *> computed;
             for (auto & [iu, expression] : _expressions) {
                 SqlType columnType = toNotNullableTy(iu->columnInformation->type);
                 value_op_t value = expression->evaluate(values);
@@ -100,18 +94,19 @@ namespace Algebra {
                     value = Sql::Operators::sqlCast(*value, columnType);
                 }
                 _computed.push_back(std::move(value));
-                computed[iu->columnInformation->columnName] = _computed.back().get();
+                computed[iu->columnInformation] = _computed.back().get();
             }
 
-            // Collect all values needed for the row tuple in correct order
+            // Collect all values needed for the row tuple in correct order: every column of the table,
+            // also those the branch does not have, whose values the version keeps
             std::vector<Sql::Value*> tupleValues;
             std::sort(columns.begin(), columns.end(), sortColumns);
             for (auto &column : columns) {
                 for (auto &iuPair : _updateIUs) {
-                    if (iuPair.first->columnInformation->columnName.compare(std::get<0>(column)->columnName) == 0) {
+                    if (iuPair.first->columnInformation == std::get<0>(column)) {
                         // If tuple value needs to be updated take the value offered by the operator; Else take the value pushed up in the tree
                         std::unique_ptr<Sql::Value> &updateValue = std::get<4>(column);
-                        auto it = computed.find(std::get<0>(column)->columnName);
+                        auto it = computed.find(std::get<0>(column));
                         if (it != computed.end()) {
                             tupleValues.emplace_back(it->second);
                         } else if (updateValue != nullptr) {

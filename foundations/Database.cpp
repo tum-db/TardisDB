@@ -459,6 +459,8 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
     ci->column = column.get();
     ci->columnName = columnName;
     ci->type = type;
+    ci->index = _columns.size();
+    ci->defaultValue.assign(valueSize, 0);
 
     if (type.nullable) {
 #ifndef USE_INTERNAL_NULL_INDICATOR
@@ -471,7 +473,102 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
 
 //    _columns.emplace(columnName, std::make_pair(std::move(ci), std::move(column)));
     _columnsByName.emplace(columnName, _columns.size());
+    _baseSchema.push_back(_columns.size());
+    for (auto & [branch, schema] : _schemas) {
+        schema.push_back(_columns.size());
+    }
     _columns.emplace_back(std::move(ci), std::move(column));
+}
+
+size_t Table::addBranchColumn(branch_id_t branch, const std::string & columnName, Sql::SqlType type,
+                              const std::vector<uint8_t> & defaultValue)
+{
+    if (findColumn(columnName, branch) != nullptr) {
+        throw InvalidOperationException("name already in use");
+    }
+    const size_t valueSize = getValueSize(Sql::toNotNullableTy(type));
+    if (type.nullable || defaultValue.size() != valueSize) {
+        throw InvalidOperationException("a column added to a branch needs a default value and no nulls");
+    }
+
+    auto column = std::make_unique<Vector>(valueSize);
+    column->reserve(_capacity);
+    for (size_t row = 0; row < _appended; ++row) {
+        std::memcpy(column->reserve_back(), defaultValue.data(), valueSize);
+    }
+    auto ci = std::make_unique<ColumnInformation>();
+    ci->column = column.get();
+    ci->columnName = columnName;
+    ci->type = type;
+    ci->index = _columns.size();
+    ci->branchLocal = true;
+    ci->addedUnder = _db.getIdent(branch);
+    ci->defaultValue = defaultValue;
+
+    std::vector<size_t> schema = getSchema(branch);
+    schema.push_back(_columns.size());
+    _schemas[branch] = std::move(schema);
+    _columns.emplace_back(std::move(ci), std::move(column));
+    return _columns.size() - 1;
+}
+
+void Table::dropBranchColumn(branch_id_t branch, size_t column)
+{
+    std::vector<size_t> schema = getSchema(branch);
+    schema.erase(std::remove(schema.begin(), schema.end(), column), schema.end());
+    _schemas[branch] = std::move(schema);
+}
+
+void Table::addToSchema(branch_id_t branch, size_t column)
+{
+    std::vector<size_t> schema = getSchema(branch);
+    if (std::find(schema.begin(), schema.end(), column) == schema.end()) {
+        schema.push_back(column);
+    }
+    _schemas[branch] = std::move(schema);
+}
+
+const std::vector<size_t> & Table::getSchema(branch_id_t branch) const
+{
+    auto it = _schemas.find(branch);
+    return (it != _schemas.end()) ? it->second : _baseSchema;
+}
+
+std::vector<std::string> Table::getColumnNames(branch_id_t branch) const
+{
+    std::vector<std::string> names;
+    for (size_t column : getSchema(branch)) {
+        names.push_back(_columns[column].first->columnName);
+    }
+    return names;
+}
+
+ci_p_t Table::findColumn(const std::string & columnName, branch_id_t branch) const
+{
+    for (size_t column : getSchema(branch)) {
+        if (_columns[column].first->columnName == columnName) {
+            return _columns[column].first.get();
+        }
+    }
+    return nullptr;
+}
+
+ci_p_t Table::findColumn(const std::string & columnName, const std::vector<branch_id_t> & branches) const
+{
+    ci_p_t found = nullptr;
+    for (branch_id_t branch : branches) {
+        ci_p_t ci = findColumn(columnName, branch);
+        if (ci == nullptr || (found != nullptr && ci != found)) {
+            return nullptr;
+        }
+        found = ci;
+    }
+    return found;
+}
+
+void Table::removeBranch(branch_id_t branch)
+{
+    _schemas.erase(branch);
 }
 
 void Table::addRow(branch_id_t branchId)
@@ -547,6 +644,12 @@ void Table::removeRowForBranch(tid_t tid, branch_id_t branchId) {
 void Table::createBranch(branch_id_t branch, branch_id_t parent)
 {
     _membership.addBranch(branch, parent);
+    auto schema = _schemas.find(parent);
+    if (schema != _schemas.end()) {
+        // copied, since later schema changes of the parent do not reach the child
+        std::vector<size_t> copy = schema->second;
+        _schemas[branch] = std::move(copy);
+    }
 }
 
 ci_p_t Table::getCI(const std::string & columnName) const
@@ -555,6 +658,11 @@ ci_p_t Table::getCI(const std::string & columnName) const
     auto idx = _columnsByName.at(columnName);
     auto & [ci, vec] = _columns[idx];
     return ci.get();
+}
+
+ci_p_t Table::getCI(size_t idx) const
+{
+    return _columns.at(idx).first.get();
 }
 
 const Vector & Table::getColumn(size_t idx) const {
@@ -728,6 +836,7 @@ void Database::removeBranches(const std::vector<branch_id_t> & branches) {
         for (branch_id_t branch : branches) {
             table->_versionMaps.erase(branch);
             table->_scans.erase(branch);
+            table->removeBranch(branch);
         }
         auto & indexes = table->_indexes;
         indexes.erase(std::remove_if(indexes.begin(), indexes.end(), [&](auto & index) {

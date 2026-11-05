@@ -59,6 +59,7 @@ namespace semanticalAnalysis {
 
         // SELECT ... FROM DIFF ( t VERSION a , t VERSION b )
         static bool isDiffQuery(SelectStatement *stmt);
+        std::vector<std::string> diffColumnNames(Table &table, Relation &relation);
         void verifyDiffQuery();
         void constructDiffQuery();
 
@@ -130,6 +131,19 @@ namespace semanticalAnalysis {
         void verify() override;
         void constructTree() override;
     };
+
+    class AlterTableAnalyser : public SemanticAnalyser {
+    public:
+        AlterTableAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
+        void verify() override;
+        void constructTree() override;
+    };
+
+    /// \returns Whether CREATE TABLE and ALTER TABLE know the type
+    bool isColumnType(const std::string &type);
+
+    /// \returns The type of a column of CREATE TABLE or ALTER TABLE
+    Sql::SqlType toColumnType(const ColumnSpec &columnSpec);
 
     class CopyTableAnalyser : public SemanticAnalyser {
     public:

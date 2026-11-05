@@ -3,6 +3,7 @@
 //
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
+#include "foundations/version_management.hpp"
 #include "foundations/loader.hpp"
 #include "queryCompiler/QueryContext.hpp"
 
@@ -67,14 +68,14 @@ namespace semanticalAnalysis {
             while (std::getline(fs, rowStr)) {
                 std::vector<std::string> items = split(rowStr, delimiter);
                 size_t i = 0;
-                std::vector<Native::Sql::value_op_t> values;
-                for (const std::string & column : table->getColumnNames()) {
+                std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values;
+                for (size_t column : table->getSchema(branchId)) {
                     ci_p_t ci = table->getCI(column);
                     auto value = Native::Sql::Value::castString(items[i], ci->type);
-                    values.push_back(std::move(value));
+                    values.emplace_back(ci, std::move(value));
                     i += 1;
                 }
-                tuples.push_back(new Native::Sql::SqlTuple(std::move(values)));
+                tuples.push_back(complete_tuple(*table, std::move(values)).release());
             }
             _context.joinedTree = std::make_unique<Insert>(_context.iuFactory,*table,move(tuples),branchId);
         } else {

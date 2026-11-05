@@ -25,7 +25,10 @@ namespace semanticalAnalysis {
         JoinGraph graph;
         std::set<branch_id_t> branchIds;
 
+        /// per production, the columns by name: those of the scanned branch, and tid
         std::unordered_map<std::string,std::unordered_map<std::string, iu_p_t>> ius;
+        /// per production, everything its scan produces: all columns of the table, which an update writes
+        std::unordered_map<std::string, std::vector<iu_p_t>> scanIUs;
         std::unordered_map<std::string, std::unique_ptr<Operator>> dangling_productions;
 
         std::unique_ptr<Operator> joinedTree;

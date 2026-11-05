@@ -80,13 +80,7 @@ TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, 
         llvm::Type * elemTy = toLLVMTy(storedSqlType);
         llvm::Type * columnTy = llvm::ArrayType::get(elemTy, tableSize);
         llvm::Value * columnPtr = createPointerValue(ci->column->front(), columnTy);
-        size_t columnIndex = 0;
-        for (int i = 0; i<table.getColumnCount(); i++) {
-            if (table.getColumnNames()[i].compare(ci->columnName) == 0) {
-                columnIndex = i;
-                break;
-            }
-        }
+        size_t columnIndex = ci->index;
 
         columns.emplace_back(ci, columnTy, columnPtr, columnIndex, nullptr);
     }
@@ -460,11 +454,16 @@ cg_bool_t TableScan::nullPointerCheck(cg_voidptr_t &ptr) {
 }
 
 llvm::Value *TableScan::tupleToElemPtr(cg_voidptr_t &ptr, column_t &column) {
+#if USE_DATA_VERSIONING
+    // a version written before a column was added reads its default
+    return genVersionAttributePtr(table, ptr.getValue(), std::get<3>(column));
+#else
     llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
     llvm::Type * tuplePtrTy = llvm::PointerType::getUnqual(tupleTy);
     llvm::Value * tuplePtr = _codeGen->CreatePointerCast(ptr, tuplePtrTy);
 
     return _codeGen->CreateStructGEP(tupleTy, tuplePtr, std::get<3>(column));
+#endif
 }
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)

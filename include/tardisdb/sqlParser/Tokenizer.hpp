@@ -59,10 +59,17 @@ namespace tardisParser {
         const std::string Index = "index";
         const std::string On = "on";
 
+        // schema changes in a branch
+        const std::string Alter = "alter";
+        const std::string Add = "add";
+        const std::string Column = "column";
+        const std::string Default = "default";
+
         static std::set<std::string> keywordset = {Version, Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create,
                                             Table, Not, Null, Branch, Copy, With, Format, CSV, TBL, To,
                                             All, Descendants, Leaves, Of, Group, By,
-                                            Drop, Cascade, Merge, Index, On};
+                                            Drop, Cascade, Merge, Index, On,
+                                            Alter, Add, Column, Default};
     }
 
     // Define all control symbols
