@@ -77,6 +77,13 @@ namespace Algebra {
         }
 
         void TupleStream::genCallbackCall(Native::Sql::SqlTuple* nativetuple) {
+            if (_context.tupleSink) {
+                llvm::FunctionType * sinkTy = llvm::TypeBuilder<void (void *, void *), false>::get(_codeGen.getLLVMContext());
+                llvm::Function * sink = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "emitToSink", sinkTy);
+                getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(sink, (void *) &QueryContext::emitToSink);
+                _codeGen->CreateCall(sink, {cg_ptr8_t::fromRawPointer(&_context), cg_ptr8_t::fromRawPointer(nativetuple)});
+                return;
+            }
             llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(_codeGen.getLLVMContext());
             llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "callHandler", funcUpdateTupleTy);
             _codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer(nativetuple)});

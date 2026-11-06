@@ -106,7 +106,9 @@ namespace semanticalAnalysis {
         Database &db = _context.db;
         MergeBranchStatement *stmt = _context.parserResult.mergeBranchStmt;
 
-        MergeResult result = merge_branch(db, lookupBranch(db, stmt->branchName), lookupBranch(db, stmt->targetBranchName));
+        MergePolicy policy = stmt->onConflict == "target" ? MergePolicy::KeepTarget
+                           : stmt->onConflict == "source" ? MergePolicy::KeepSource : MergePolicy::Fail;
+        MergeResult result = merge_branch(db, lookupBranch(db, stmt->branchName), lookupBranch(db, stmt->targetBranchName), policy);
         if (!result.conflicts.empty()) {
             const size_t shown = std::min<size_t>(result.conflicts.size(), 10);
             std::string message = "merge of '" + stmt->branchName + "' into '" + stmt->targetBranchName + "' failed with " +
@@ -117,7 +119,13 @@ namespace semanticalAnalysis {
         }
 
         std::cout << "Merged " << stmt->branchName << " into " << stmt->targetBranchName << ": " << result.updated << " updated, "
-                  << result.inserted << " inserted, " << result.deleted << " deleted\n";
+                  << result.inserted << " inserted, " << result.deleted << " deleted";
+        if (result.resolved > 0) std::cout << ", " << result.resolved << " conflicts kept the " << stmt->onConflict;
+        std::cout << "\n";
+        _context.changedTuples = result.updated + result.inserted + result.deleted;
+        if (result.resolved > 0) {
+            _context.notice = std::to_string(result.resolved) + " conflict" + (result.resolved > 1 ? "s" : "") + " kept the " + stmt->onConflict;
+        }
         _context.joinedTree = nullptr;
     }
 

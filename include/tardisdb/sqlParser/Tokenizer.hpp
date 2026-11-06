@@ -116,6 +116,9 @@ namespace tardisParser {
 
         const Token &next();
 
+        /// Skips a cast (::type) behind a string literal
+        void skipCast();
+
     private:
         std::istream &_in;
         std::vector<Token> _tokens;

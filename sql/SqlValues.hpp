@@ -216,6 +216,9 @@ protected:
 
     static cg_bool_t equalBuffers(const BasicString & str1, const BasicString & str2);
 
+    /// Lexicographic comparison of the bytes, the shorter string first on a common prefix
+    static cg_bool_t compareBuffers(const BasicString & str1, const BasicString & str2, ComparisonMode mode);
+
     static cg_int_t compareBuffers(const BasicString & str1, const BasicString & str2);
 
     llvm::Value * _length = nullptr;

@@ -108,6 +108,7 @@ namespace semanticalAnalysis {
 
         construct_scans(_context, stmt->relations);
         construct_selects(_context, stmt->selections);
+        construct_predicates(_context, stmt->predicates);
         construct_joins(_context);
 
         auto & db = _context.db;
@@ -231,6 +232,7 @@ namespace semanticalAnalysis {
         if (projectsBranch && !groupByBranch) throw semantic_sql_error("column 'branch' must appear in GROUP BY");
         if (!aggregates && !groupByBranch) throw semantic_sql_error("queries over several branches need aggregates or GROUP BY branch");
         if (branchCount > 1 && !groupByBranch) throw semantic_sql_error("aggregates over several branches need GROUP BY branch");
+        if (!stmt->predicates.empty()) throw semantic_sql_error("queries over several branches take only equalities in WHERE");
         for (auto &selection : stmt->selections) checkColumn(selection.first);
     }
 
@@ -324,6 +326,7 @@ namespace semanticalAnalysis {
                 checkColumn(column);
             }
         }
+        if (!stmt->predicates.empty()) throw semantic_sql_error("DIFF takes only equalities in WHERE");
         for (auto &selection : stmt->selections) checkColumn(selection.first);
     }
 

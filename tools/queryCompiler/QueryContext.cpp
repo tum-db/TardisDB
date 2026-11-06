@@ -5,6 +5,11 @@ void ExecutionContext::acquireResource(std::unique_ptr<ExecutionResource> && res
     resources.push_back(std::move(resource));
 }
 
+void QueryContext::emitToSink(void * context, void * tuple)
+{
+    static_cast<QueryContext *>(context)->tupleSink(static_cast<Native::Sql::SqlTuple *>(tuple));
+}
+
 void QueryContext::constructBranchLineages(std::set<branch_id_t> &branches, QueryContext &context) {
     for (auto &branch : branches) {
         context.analyzingContext.db.constructBranchLineage(branch,context.executionContext);

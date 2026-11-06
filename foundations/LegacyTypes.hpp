@@ -2,6 +2,7 @@
 #define H_Types
 //---------------------------------------------------------------------------
 #include <cstdint>
+#include <string>
 #include <cstring>
 #include <ostream>
 #include <cassert>
@@ -31,6 +32,10 @@ void printNumeric(unsigned len, unsigned precision, int64_t raw);
 void printDate(int32_t raw);
 //---------------------------------------------------------------------------
 void printTimestamp(uint64_t raw);
+//---------------------------------------------------------------------------
+/// The ISO formats of PostgreSQL: YYYY-MM-DD, YYYY-MM-DD HH:MM:SS[.mmm]
+std::string formatDate(uint32_t raw);
+std::string formatTimestamp(uint64_t raw);
 //---------------------------------------------------------------------------
 void printText(uintptr_t *ptr);
 //---------------------------------------------------------------------------

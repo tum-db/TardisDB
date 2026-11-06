@@ -45,6 +45,7 @@ namespace semanticalAnalysis {
 
         construct_scans(_context, stmt->relation);
         construct_selects(_context, stmt->selections);
+        construct_predicates(_context, stmt->predicates);
 
         Table* table = _context.db.getTable(stmt->relation.name);
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;

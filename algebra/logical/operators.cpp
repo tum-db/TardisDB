@@ -670,6 +670,23 @@ struct ExpressionIUCollector : public Expressions::ExpressionVisitor {
         exp.getRightChild().accept(*this);
     }
 
+    void visit(Expressions::Not & exp) override
+    {
+        exp.getChild().accept(*this);
+    }
+
+    void visit(Expressions::And & exp) override
+    {
+        exp.getLeftChild().accept(*this);
+        exp.getRightChild().accept(*this);
+    }
+
+    void visit(Expressions::Or & exp) override
+    {
+        exp.getLeftChild().accept(*this);
+        exp.getRightChild().accept(*this);
+    }
+
     void visit(Expressions::Identifier & exp) override
     {
         _collected.insert(exp._iu);

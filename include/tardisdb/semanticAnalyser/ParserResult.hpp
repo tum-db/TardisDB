@@ -32,6 +32,15 @@ namespace semanticalAnalysis {
         std::string aggregate; // "", "count", "sum", "min", "max" or "avg"; count(*) has name "*"
     };
 
+    /// A condition of WHERE other than an equality of a column with a constant (those are
+    /// selections): columns op values, where op is <, <=, >, >=, <> or "in". More than one column is
+    /// a row value, compared lexicographically, e.g. (a, b) >= (1, 2); "in" has one column and a list.
+    struct Predicate {
+        std::vector<Column> columns;
+        std::string op;
+        std::vector<std::string> values;
+    };
+
     /// A term of the right-hand side of SET: a column or a constant, preceded by an operator
     /// ("+", "-", "*" or "/") unless it is the first term
     struct UpdateTerm {
@@ -43,6 +52,7 @@ namespace semanticalAnalysis {
     struct CreateTableStatement {
         std::string tableName;
         std::vector<ColumnSpec> columns;
+        std::vector<std::string> primaryKey; // the columns of PRIMARY KEY ( ... ), if any
     };
     struct CreateBranchStatement {
         std::string branchName;
@@ -54,21 +64,25 @@ namespace semanticalAnalysis {
         std::vector<std::pair<Column,Column>> joinConditions;
         std::vector<std::pair<Column,std::string>> selections;
         std::vector<Column> groupBy;
+        std::vector<Predicate> predicates;
     };
     struct UpdateStatement {
         Relation relation;
         std::vector<std::pair<Column,std::string>> updates;
         std::vector<std::pair<Column,std::string>> selections;
         std::vector<std::vector<UpdateTerm>> expressions; // the right-hand side of each update
+        std::vector<Predicate> predicates;
     };
     struct InsertStatement {
         Relation relation;
         std::vector<Column> columns;
         std::vector<std::string> values;
+        std::vector<std::vector<std::string>> rows; // the rows of VALUES after the first
     };
     struct DeleteStatement {
         Relation relation;
         std::vector<std::pair<Column,std::string>> selections;
+        std::vector<Predicate> predicates;
     };
     struct CopyStatement {
         Relation relation;
@@ -91,6 +105,7 @@ namespace semanticalAnalysis {
     struct MergeBranchStatement {
         std::string branchName;
         std::string targetBranchName;
+        std::string onConflict; // "", or ON CONFLICT KEEP "target" | "source"
     };
 
     /// ALTER TABLE t [ VERSION b ] ADD [ COLUMN ] c type [ NOT NULL ] DEFAULT v, or DROP [ COLUMN ] c

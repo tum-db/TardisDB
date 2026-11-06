@@ -108,6 +108,10 @@ target_link_libraries(sql readline dblib queryCompiler queryExecutor pthread)
 add_executable(server server.cpp)
 target_link_libraries(server dblib queryCompiler queryExecutor pistache pthread)
 
+# PostgreSQL-compatible server (frontend/backend protocol 3.0)
+add_executable(pgserver pgserver.cpp)
+target_link_libraries(pgserver dblib queryCompiler queryExecutor pthread)
+
 ##################
 ### benchmark ####
 ##################

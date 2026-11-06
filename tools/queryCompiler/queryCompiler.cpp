@@ -252,6 +252,94 @@ namespace QueryCompiler {
         QueryExecutor::executeFunction(queryFunc, args, callbackFunction);
     }
 
+    static const char * statementTag(semanticalAnalysis::SQLParserResult::OpType type) {
+        using Op = semanticalAnalysis::SQLParserResult::OpType;
+        switch (type) {
+            case Op::Select: return "SELECT";
+            case Op::Insert: return "INSERT";
+            case Op::Update: return "UPDATE";
+            case Op::Delete: return "DELETE";
+            case Op::CreateTable: return "CREATE TABLE";
+            case Op::CreateBranch: return "CREATE BRANCH";
+            case Op::Copy: return "COPY";
+            case Op::CreateIndex: return "CREATE INDEX";
+            case Op::DropBranch: return "DROP BRANCH";
+            case Op::MergeBranch: return "MERGE";
+            case Op::AlterTable: return "ALTER TABLE";
+            default: return "";
+        }
+    }
+
+    StatementResult execute(const std::string & query, Database & db, const std::string & branch,
+                            const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                            const std::function<void(const StatementResult &)> & described) {
+        QueryContext queryContext(db);
+        queryContext.tupleSink = sink;
+        ModuleGen moduleGen("QueryModule");
+
+        queryContext.parsingContext.defaultBranch = branch;
+        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
+        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
+        StatementLatches latches(db, queryContext.analyzingContext.parserResult);
+
+        auto & parserResult = queryContext.analyzingContext.parserResult;
+        StatementResult result;
+        result.tag = statementTag(parserResult.opType);
+        std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
+        analyser->verify();
+        analyser->constructTree();
+        auto & queryTree = queryContext.analyzingContext.joinedTree;
+        if (queryTree == nullptr) {
+            result.rows = queryContext.analyzingContext.changedTuples;
+            result.notice = queryContext.analyzingContext.notice;
+            return result;
+        }
+        latches.latchReadBranches(db, queryContext.analyzingContext.branchIds);
+
+        // the columns of the result, named as in the select list (aggregates by their function)
+        if (auto * root = dynamic_cast<Algebra::Logical::Result *>(queryTree->getRoot())) {
+            result.returnsRows = true;
+            const semanticalAnalysis::SelectStatement * select =
+                    (parserResult.opType == semanticalAnalysis::SQLParserResult::OpType::Select) ? parserResult.selectStmt : nullptr;
+            bool aligned = select != nullptr && std::none_of(select->projections.begin(), select->projections.end(),
+                    [](const semanticalAnalysis::Column & c) { return c.name == "*" && c.aggregate.empty(); });
+            size_t position = 0;
+            for (iu_p_t iu : root->selection) {
+                if (iu->iuType == InformationUnit::Type::ColumnRef && getColumnInformation(iu)->columnName == "tid") {
+                    continue; // TupleStream leaves it out
+                }
+                std::string name = "?column?";
+                if (aligned && position < select->projections.size()) {
+                    auto & projection = select->projections[position];
+                    name = projection.aggregate.empty() ? projection.name : projection.aggregate;
+                } else if (iu->iuType == InformationUnit::Type::ColumnRef) {
+                    name = getColumnInformation(iu)->columnName;
+                }
+                result.columnNames.push_back(name);
+                result.columnTypes.push_back(iu->sqlType);
+                ++position;
+            }
+        }
+
+        if (described) described(result);
+
+        auto queryFunc = compileQuery(query, queryTree, queryContext);
+        if (queryFunc == nullptr) return result;
+        QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds, queryContext);
+
+        std::vector<llvm::GenericValue> args(2);
+        args[0].IntVal = llvm::APInt(64, 5);
+        args[1].PointerVal = (void *) &queryContext;
+        uint64_t rows = 0;
+        if (result.returnsRows) {
+            // count the tuples on their way to the sink
+            queryContext.tupleSink = [&rows, &sink](Native::Sql::SqlTuple * tuple) { ++rows; sink(tuple); };
+        }
+        QueryExecutor::executeFunction(queryFunc, args, (void *) &printFunction);
+        result.rows = result.returnsRows ? rows : queryContext.executionContext.affectedRows;
+        return result;
+    }
+
     BenchmarkResult compileAndBenchmark(const std::string &query, Database &db, void *callbackFunction) {
         QueryContext queryContext(db);
 

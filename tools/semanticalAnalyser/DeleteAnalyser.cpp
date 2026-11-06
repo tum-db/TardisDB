@@ -31,6 +31,7 @@ namespace semanticalAnalysis {
 
         construct_scans(_context, stmt->relation);
         construct_selects(_context, stmt->selections);
+        construct_predicates(_context, stmt->predicates);
 
         if (stmt->relation.alias.length() == 0) stmt->relation.alias = stmt->relation.name;
         branch_id_t branchId = (stmt->relation.version.compare("master") != 0) ?

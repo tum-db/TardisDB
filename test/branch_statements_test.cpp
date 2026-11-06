@@ -222,6 +222,55 @@ namespace {
     using Value = std::array<int64_t, 2>; // x, y
     using State = std::optional<Value>;   // nullopt: not in the branch
 
+    TEST_F(BranchStatementTest, MergePoliciesResolveConflicts) {
+        // an attribute changed on both sides, beside a clean change
+        for (const std::string side : {"target", "source"}) {
+            SCOPED_TRACE(side);
+            db = std::make_unique<Database>();
+            createTable();
+            exec("create branch b from master;");
+            exec("update t version b set x = 11 where k = 1;");
+            exec("update t set x = 12 where k = 1;");
+            exec("update t version b set y = 201 where k = 2;");
+            auto result = QueryCompiler::execute("merge branch b into master on conflict keep " + side + ";", *db, "master",
+                                                 [](Native::Sql::SqlTuple *) { });
+            EXPECT_EQ(result.notice, "1 conflict kept the " + side);
+            EXPECT_EQ(query("select k , x , y from t;"),
+                      Rows({side == "target" ? "(1, 12, 100)" : "(1, 11, 100)", "(2, 20, 201)", "(3, 30, 300)"}));
+            // the version of b is the base of the next merge: the conflict does not come back
+            exec("update t version b set y = 202 where k = 2;");
+            exec("merge branch b into master;");
+            EXPECT_EQ(query("select k , x , y from t where k = 2;"), Rows({"(2, 20, 202)"}));
+        }
+    }
+
+    TEST_F(BranchStatementTest, MergePoliciesResolveDeleteChangeConflicts) {
+        // deleted in the source and changed in the target
+        createTable();
+        exec("create branch b from master;");
+        exec("delete from t version b where k = 1;");
+        exec("update t set x = 0 where k = 1;");
+        exec("merge branch b into master on conflict keep target;");
+        EXPECT_EQ(query("select k , x from t;"), Rows({"(1, 0)", "(2, 20)", "(3, 30)"}));
+        exec("merge branch b into master on conflict keep source;");
+        EXPECT_EQ(query("select k from t;"), Rows({"(2)", "(3)"}));
+
+        // deleted in the target and changed in the source
+        db = std::make_unique<Database>();
+        createTable();
+        exec("create branch c from master;");
+        exec("update t version c set x = 31 where k = 3;");
+        exec("delete from t where k = 3;");
+        exec("merge branch c into master on conflict keep target;");
+        EXPECT_EQ(query("select k from t;"), Rows({"(1)", "(2)"}));
+        exec("merge branch c into master;"); // its version is the base now: no conflict
+        EXPECT_EQ(query("select k from t;"), Rows({"(1)", "(2)"}));
+        exec("update t version c set x = 32 where k = 3;");
+        exec("merge branch c into master on conflict keep source;");
+        EXPECT_EQ(query("select k , x from t;"), Rows({"(1, 10)", "(2, 20)", "(3, 32)"}));
+        EXPECT_ANY_THROW(exec("merge branch c into master on conflict keep both;"));
+    }
+
     struct ModelBranch {
         std::string name;
         int parent;
@@ -275,8 +324,8 @@ namespace {
             return state(lca, key, t == UINT64_MAX ? now : t - 1);
         }
 
-        /// \returns Whether the merge succeeded
-        bool merge(int src, int dst) {
+        /// \returns Whether the merge succeeded; policy 0: fail on conflicts, 1: keep the target, 2: keep the source
+        bool merge(int src, int dst, int policy = 0) {
             struct Action { int key; State value; bool record; Value merged; bool eraseBase; };
             std::vector<Action> actions;
             for (int key : keys) {
@@ -289,15 +338,19 @@ namespace {
                     for (int i = 0; i < 2; ++i) {
                         if ((*s)[i] == (*d)[i] || (base && (*base)[i] == (*s)[i])) merged[i] = (*d)[i];
                         else if (base && (*base)[i] == (*d)[i]) merged[i] = (*s)[i];
-                        else return false;
+                        else if (policy == 0) return false;
+                        else merged[i] = (policy == 1) ? (*d)[i] : (*s)[i];
                     }
                     actions.push_back({key, merged != *d ? State(merged) : std::nullopt, true, *s, false});
                 } else if (s) {
                     if (!base) actions.push_back({key, s, true, *s, false});
-                    else if (*s != *base) return false;
+                    else if (*s != *base) {
+                        if (policy == 0) return false;
+                        actions.push_back({key, policy == 2 ? s : std::nullopt, true, *s, false});
+                    }
                 } else if (base) {
-                    if (*d != *base) return false;
-                    actions.push_back({key, std::nullopt, false, {}, true});
+                    if (*d != *base && policy == 0) return false;
+                    if (*d == *base || policy == 2) actions.push_back({key, std::nullopt, false, {}, true});
                 }
             }
             for (auto & action : actions) {
@@ -415,10 +468,12 @@ namespace {
                 } else if (op < 90 && branches.size() > 1) {
                     int dst = branches[pick(branches.size())];
                     if (dst == b) continue;
-                    bool expected = model.merge(b, dst);
+                    const int policy = pick(3);
+                    bool expected = model.merge(b, dst, policy);
                     bool merged = true;
                     try {
-                        QueryCompiler::compileAndExecute("merge branch " + model.branches[b].name + " into " + model.branches[dst].name + ";", *db);
+                        QueryCompiler::compileAndExecute("merge branch " + model.branches[b].name + " into " + model.branches[dst].name +
+                                                         (policy == 0 ? "" : policy == 1 ? " on conflict keep target" : " on conflict keep source") + ";", *db);
                     } catch (const std::exception &) {
                         merged = false;
                     }

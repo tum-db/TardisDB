@@ -74,10 +74,10 @@ public:
 
 class Not : public UnaryOperator {
 public:
-    Not(exp_op_t child) :
-            UnaryOperator(child->getType(), std::move(child))
+    Not(Sql::SqlType type, exp_op_t child) :
+            UnaryOperator(type, std::move(child))
     {
-        assert(child->getType().typeID == Sql::SqlType::TypeID::BoolID);
+        assert(_child->getType().typeID == Sql::SqlType::TypeID::BoolID);
     }
 
     ~Not() override { }

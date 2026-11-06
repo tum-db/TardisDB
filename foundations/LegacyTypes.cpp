@@ -349,12 +349,12 @@ uint64_t castStringToTimestampValue(const char* str,uint32_t strLen)
             month = 10 * month + (c - '0');
         } else throw "invalid timestamp format";
     }
-    // Day
+    // Day; the time follows a space or, in ISO 8601, a T
     unsigned day = 0;
     while (true) {
         if (iter == limit) break;
         char c = *(iter++);
-        if (c == ' ') break;
+        if (c == ' ' || c == 'T') break;
         if ((c >= '0') && (c <= '9')) {
             day = 10 * day + (c - '0');
         } else throw "invalid timestamp format";
@@ -364,6 +364,7 @@ uint64_t castStringToTimestampValue(const char* str,uint32_t strLen)
     if ((year > 9999) || (month < 1) || (month > 12) || (day < 1) || (day > 31))
         throw "invalid timestamp format";
     uint64_t date = mergeJulianDay(year, month, day);
+    if (iter == limit) return date * msPerDay; // a date alone is its midnight
 
     // Hour
     unsigned hour = 0;
@@ -395,14 +396,16 @@ uint64_t castStringToTimestampValue(const char* str,uint32_t strLen)
             second = 10 * second + (c - '0');
         } else throw "invalid timestamp format";
     }
-    // Millisecond
+    // Fraction of a second, in milliseconds; finer digits are cut off
     unsigned ms = 0;
+    unsigned digits = 0;
     while (iter != limit) {
         char c = *(iter++);
         if ((c >= '0') && (c <= '9')) {
-            ms = 10 * ms + (c - '0');
+            if (digits++ < 3) ms = 10 * ms + (c - '0');
         } else throw "invalid timestamp format";
     }
+    for (; digits < 3; ++digits) ms *= 10;
 
     // Range check
     if ((hour >= 24) || (minute >= 60) || (second >= 60) || (ms >= 1000))
@@ -443,6 +446,28 @@ void printTimestamp(uint64_t raw)
    if (ms)
       printf("%04u-%02u-%02u %u:%02u:%02u.%03u",year,month,day,hour,minute,second,ms); else
       printf("%04u-%02u-%02u %u:%02u:%02u",year,month,day,hour,minute,second);
+}
+
+std::string formatDate(uint32_t raw)
+{
+   unsigned year,month,day;
+   splitJulianDay(raw,year,month,day);
+   char buffer[16];
+   snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u",year,month,day);
+   return buffer;
+}
+
+std::string formatTimestamp(uint64_t raw)
+{
+   unsigned year,month,day;
+   splitJulianDay(raw/msPerDay,year,month,day);
+   unsigned hour,minute,second,ms;
+   splitTime(raw%msPerDay,hour,minute,second,ms);
+   char buffer[32];
+   if (ms)
+      snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u %02u:%02u:%02u.%03u",year,month,day,hour,minute,second,ms); else
+      snprintf(buffer, sizeof(buffer), "%04u-%02u-%02u %02u:%02u:%02u",year,month,day,hour,minute,second);
+   return buffer;
 }
 
 void printText(uintptr_t *raw)

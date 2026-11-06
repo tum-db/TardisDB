@@ -4,6 +4,8 @@
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 
+#include <map>
+
 namespace semanticalAnalysis {
 
     void CreateTableAnalyser::verify() {
@@ -14,13 +16,16 @@ namespace semanticalAnalysis {
         if (db.hasTable(stmt->tableName)) throw semantic_sql_error("table '" + stmt->tableName + "' already exists");
         std::vector<std::string> definedColumnNames;
         for (auto &column : stmt->columns) {
-            if (column.nullable) throw semantic_sql_error("not supported nullable option for column '" + column.name + "'");
-
             if (std::find(definedColumnNames.begin(),definedColumnNames.end(),column.name) != definedColumnNames.end())
                 throw semantic_sql_error("column '" + column.name + "' already exists");
             definedColumnNames.push_back(column.name);
             if (!isColumnType(column.type))
                 throw semantic_sql_error("type '" + column.type + "' does not exist");
+        }
+
+        for (auto &key : stmt->primaryKey) {
+            if (std::find(definedColumnNames.begin(), definedColumnNames.end(), key) == definedColumnNames.end())
+                throw semantic_sql_error("primary key column '" + key + "' does not exist");
         }
 
         // Table already exists?
@@ -34,18 +39,37 @@ namespace semanticalAnalysis {
         auto & createdTable = _context.db.createTable(stmt->tableName);
 
         for (auto &columnSpec : stmt->columns) {
-            createdTable.addColumn(columnSpec.name, toColumnType(columnSpec));
+            // versions hold no null indicators: a column declared nullable takes no NULL values
+            ColumnSpec spec = columnSpec;
+            spec.nullable = false;
+            createdTable.addColumn(spec.name, toColumnType(spec));
         }
+        createdTable.setPrimaryKey(stmt->primaryKey);
 
         _context.joinedTree = nullptr;
     }
 
     bool isColumnType(const std::string &type) {
-        static const std::vector<std::string> typeNames = {"bool","date","integer","int","longinteger","numeric","char","varchar","timestamp","text"};
+        static const std::vector<std::string> typeNames = {"bool","date","integer","int","longinteger","numeric","char","varchar","timestamp","text",
+                // names of PostgreSQL
+                "boolean","smallint","int2","int4","bigint","int8","decimal","float","float4","float8","real","double","bpchar"};
         return std::find(typeNames.begin(), typeNames.end(), type) != typeNames.end();
     }
 
-    Sql::SqlType toColumnType(const ColumnSpec &columnSpec) {
+    Sql::SqlType toColumnType(const ColumnSpec &spec) {
+        // the names of PostgreSQL map to the types of TardisDB; there is no floating point type, so
+        // float, real and double become numeric(18, 6)
+        ColumnSpec columnSpec = spec;
+        static const std::map<std::string, std::string> aliases = {
+                {"boolean", "bool"}, {"smallint", "integer"}, {"int2", "integer"}, {"int4", "integer"},
+                {"bigint", "longinteger"}, {"int8", "longinteger"}, {"decimal", "numeric"}, {"bpchar", "char"}};
+        if (aliases.count(columnSpec.type)) columnSpec.type = aliases.at(columnSpec.type);
+        if (columnSpec.type == "float" || columnSpec.type == "float4" || columnSpec.type == "float8" ||
+            columnSpec.type == "real" || columnSpec.type == "double") {
+            columnSpec.type = "numeric";
+            columnSpec.length = 18;
+            columnSpec.precision = 6;
+        }
         Sql::SqlType sqlType;
         if (columnSpec.type.compare("bool") == 0) {
             sqlType = Sql::getBoolTy(columnSpec.nullable);

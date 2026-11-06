@@ -39,6 +39,8 @@ namespace semanticalAnalysis {
         }
         static void construct_scans(AnalyzingContext& context, std::vector<Relation> &relations);
         static void construct_selects(AnalyzingContext& context, std::vector<std::pair<Column,std::string>> &selections);
+        /// A Select per predicate (ranges, row values, IN, <>) over the production of its table
+        static void construct_predicates(AnalyzingContext& context, std::vector<Predicate> &predicates);
     };
 
     //

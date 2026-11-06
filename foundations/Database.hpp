@@ -3,6 +3,7 @@
 #include <vector>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <set>
 #include <limits>
 #include <atomic>
@@ -269,6 +270,10 @@ public:
     /// \returns The names of the columns of the branch, in the order of getSchema()
     std::vector<std::string> getColumnNames(branch_id_t branch) const;
 
+    /// The columns of PRIMARY KEY, in their order; only recorded (for catalogs), not enforced
+    const std::vector<std::string> & getPrimaryKey() const { return _primaryKey; }
+    void setPrimaryKey(std::vector<std::string> columns) { _primaryKey = std::move(columns); }
+
     /// \returns The column of the branch with the name, or nullptr
     ci_p_t findColumn(const std::string & columnName, branch_id_t branch) const;
 
@@ -345,6 +350,7 @@ public:
 private:
     Database & _db;
 
+    std::vector<std::string> _primaryKey;
     std::unordered_map<std::string, size_t> _columnsByName; // name -> column index, for the columns of CREATE TABLE
     std::vector<size_t> _baseSchema; // the columns of CREATE TABLE
     std::unordered_map<branch_id_t, std::vector<size_t>> _schemas; // per branch that differs from _baseSchema
@@ -372,6 +378,9 @@ public:
     /// per identifier: the tuples written under it (versions, deletes, inserts); two branches can
     /// differ only in tuples written under an identifier that is an ancestor of one of them only
     std::vector<std::vector<tid_t>> _writes;
+    /// per identifier, the tuples whose last write under it was a delete: whether two branches had a
+    /// tuple when they split (MERGE); kept until the branch of the identifier is dropped
+    std::vector<std::unordered_set<tid_t>> _deleted;
     /// per branch with a version map, per tuple the version the branch reads: 0 in place, 1 none (the tuple
     /// belongs to the branch, but it sees no version), otherwise the tuple data of the version.
     /// Only the writes of the branch change what it reads; see build_version_map()

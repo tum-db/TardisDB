@@ -11,6 +11,12 @@ void ValueTranslator::storeStringInTextFormat(Native::Sql::Varchar* destination,
     destination->len = length;
 }
 
+void ValueTranslator::storeCharInTextFormat(Native::Sql::Varchar* destination, uint8_t character) {
+    destination->single = static_cast<char>(character);
+    destination->value = &destination->single;
+    destination->len = 1;
+}
+
 std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sql::Value *original) {
     if (original == nullptr) return nullptr;
 
@@ -36,10 +42,32 @@ std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sq
             break;
         case Sql::SqlType::TypeID::VarcharID:
             returnValue = std::make_unique<Native::Sql::Varchar>(original->type);
-            funcTy = llvm::TypeBuilder<void * (void * , void *, uint8_t), false>::get(codeGen.getLLVMContext());
+            funcTy = llvm::TypeBuilder<void * (void * , void *, size_t), false>::get(codeGen.getLLVMContext());
             func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "storeStringInTextFormat", funcTy);
             getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeStringInTextFormat);
-            result = codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer((Native::Sql::Varchar*) returnValue.get()), cg_voidptr_t(((Sql::Varchar*) original)->getLLVMValue()), cg_u8_t(((Sql::Varchar*) original)->getLength())});
+            // the length indicator has 8, 16 or 32 bits by the capacity
+            result = codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer((Native::Sql::Varchar*) returnValue.get()), cg_voidptr_t(((Sql::Varchar*) original)->getLLVMValue()), cg_size_t(codeGen->CreateZExtOrTrunc(((Sql::Varchar*) original)->getLength(), cg_size_t::getType()))});
+            break;
+        case Sql::SqlType::TypeID::CharID:
+            // a native Varchar points to the characters, as for varchar
+            returnValue = std::make_unique<Native::Sql::Varchar>(original->type);
+            if (original->type.length == 1) {
+                // a char(1) is the character itself
+                funcTy = llvm::TypeBuilder<void (void *, uint8_t), false>::get(codeGen.getLLVMContext());
+                func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "storeCharInTextFormat", funcTy);
+                getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeCharInTextFormat);
+                codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer((Native::Sql::Varchar*) returnValue.get()), cg_u8_t(original->getLLVMValue())});
+                break;
+            }
+            funcTy = llvm::TypeBuilder<void * (void * , void *, size_t), false>::get(codeGen.getLLVMContext());
+            func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "storeStringInTextFormat", funcTy);
+            getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeStringInTextFormat);
+            result = codeGen->CreateCall(func, {cg_ptr8_t::fromRawPointer((Native::Sql::Varchar*) returnValue.get()), cg_voidptr_t(((Sql::Char*) original)->getLLVMValue()), cg_size_t(codeGen->CreateZExtOrTrunc(((Sql::Char*) original)->getLength(), cg_size_t::getType()))});
+            break;
+        case Sql::SqlType::TypeID::LongIntegerID:
+            // there is no native LongInteger; a Numeric holds the 64 bits, the type says what they are
+            returnValue = std::make_unique<Native::Sql::Numeric>(original->type);
+            original->store(cg_ptr8_t::fromRawPointer(&((Native::Sql::Numeric*) returnValue.get())->value));
             break;
         case Sql::SqlType::TypeID::NumericID:
             returnValue = std::make_unique<Native::Sql::Numeric>(original->type);

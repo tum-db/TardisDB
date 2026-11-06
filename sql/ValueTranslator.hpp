@@ -13,6 +13,7 @@ public:
     static std::unique_ptr<Native::Sql::Value> sqlValueToNativeSqlValue(Sql::Value *original);
 private:
     static void storeStringInTextFormat(Native::Sql::Varchar* destination, char* source, size_t length);
+    static void storeCharInTextFormat(Native::Sql::Varchar* destination, uint8_t character);
 };
 
 

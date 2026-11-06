@@ -39,9 +39,17 @@ value_op_t Value::castString(const std::string & str, SqlType type)
         case SqlType::TypeID::IntegerID:
             return Integer::castString(str);
         case SqlType::TypeID::VarcharID:
+        case SqlType::TypeID::CharID:
+            // as the generated code, a char of a length above 1 is stored as a varchar
             return Varchar::castString(str,type);
-//        case SqlType::TypeID::CharID:
-//            return Char::castString(str, type);
+        case SqlType::TypeID::LongIntegerID: {
+            // no native LongInteger: a Numeric holds the 64 bits, the type says what they are
+            auto value = std::make_unique<Numeric>(type);
+            size_t end = 0;
+            value->value = std::stoll(str, &end);
+            if (end != str.size()) throw InvalidOperationException("invalid longinteger '" + str + "'");
+            return value;
+        }
         case SqlType::TypeID::NumericID:
             return Numeric::castString(str, type);
         case SqlType::TypeID::DateID:
@@ -70,10 +78,13 @@ value_op_t Value::load(const void * ptr, SqlType type)
         case SqlType::TypeID::IntegerID:
             return Integer::load(ptr);
         case SqlType::TypeID::VarcharID:
-            return Varchar::load(ptr,type);
-            // TODO: Implement Varchar and Char
         case SqlType::TypeID::CharID:
-            return Text::load(ptr);
+            return Varchar::load(ptr,type);
+        case SqlType::TypeID::LongIntegerID: {
+            auto value = std::make_unique<Numeric>(type);
+            memcpy(&value->value, ptr, sizeof(int64_t));
+            return value;
+        }
         case SqlType::TypeID::NumericID:
             return Numeric::load(ptr, type);
         case SqlType::TypeID::DateID:
@@ -997,29 +1008,62 @@ size_t Text::length() const {
 }
 
 value_op_t Varchar::castString(const std::string &str, Sql::SqlType type) {
+    // a longer value would be written past its slot
+    if (str.size() > type.length) {
+        throw InvalidOperationException("value too long for type " + std::string(type.typeID == Sql::SqlType::TypeID::CharID ? "char" : "varchar") +
+                                        "(" + std::to_string(type.length) + ")");
+    }
     Varchar* result = new Varchar(type);
-    result->value = str.c_str();
+    result->value = str.c_str(); // the string outlives the value: it belongs to the statement
     result->len = str.size();
 
     return value_op_t(result);
 }
 
+// the layout of the generated code: a length of 1, 2 or 4 bytes by the capacity, then the characters
+static size_t varcharLengthBytes(size_t capacity)
+{
+    return (capacity < 256) ? 1 : (capacity < 65536) ? 2 : 4;
+}
+
+static uint32_t loadVarcharLength(const void * ptr, size_t capacity)
+{
+    switch (varcharLengthBytes(capacity)) {
+        case 1: return *reinterpret_cast<const uint8_t *>(ptr);
+        case 2: { uint16_t l; memcpy(&l, ptr, 2); return l; }
+        default: { uint32_t l; memcpy(&l, ptr, 4); return l; }
+    }
+}
+
 value_op_t Varchar::load(const void *ptr, Sql::SqlType type) {
     Varchar* result = new Varchar(type);
-    result->value = reinterpret_cast<const char*>(ptr) + 1;
-    result->len = reinterpret_cast<const char*>(ptr)[0];
-
+    result->load(ptr);
     return value_op_t(result);
 }
 
 void Varchar::store(void *ptr) const {
-    reinterpret_cast<char*>(ptr)[0] = (char) len;
-    memcpy((void*)(reinterpret_cast<char*>(ptr) + 1),value,len);
+    if (type.typeID == Sql::SqlType::TypeID::CharID && type.length == 1) {
+        // char(1) is the character itself
+        *reinterpret_cast<char *>(ptr) = len > 0 ? value[0] : ' ';
+        return;
+    }
+    size_t lengthBytes = varcharLengthBytes(type.length);
+    switch (lengthBytes) {
+        case 1: *reinterpret_cast<uint8_t *>(ptr) = static_cast<uint8_t>(len); break;
+        case 2: { uint16_t l = static_cast<uint16_t>(len); memcpy(ptr, &l, 2); break; }
+        default: memcpy(ptr, &len, 4); break;
+    }
+    memcpy((void*)(reinterpret_cast<char*>(ptr) + lengthBytes),value,len);
 }
 
 void Varchar::load(const void * ptr) {
-    value = reinterpret_cast<const char*>(ptr) + 1;
-    len = reinterpret_cast<const char*>(ptr)[0];
+    if (type.typeID == Sql::SqlType::TypeID::CharID && type.length == 1) {
+        value = reinterpret_cast<const char*>(ptr);
+        len = 1;
+        return;
+    }
+    value = reinterpret_cast<const char*>(ptr) + varcharLengthBytes(type.length);
+    len = loadVarcharLength(ptr, type.length);
 }
 
         value_op_t Varchar::clone() const
@@ -1352,10 +1396,17 @@ std::string toString(const Value & sqlValue)
             const Integer * i = dynamic_cast<const Integer *>(&sqlValue);
             return std::to_string(i->value);
         }
+        case SqlType::TypeID::LongIntegerID: // held by a Numeric
+            return std::to_string(dynamic_cast<const Numeric *>(&sqlValue)->value);
         case SqlType::TypeID::VarcharID:
-            throw NotImplementedException();
-        case SqlType::TypeID::CharID:
-            throw NotImplementedException();
+        case SqlType::TypeID::CharID: {
+            // result tuples carry both as a Varchar that points to the characters
+            const Varchar * v = dynamic_cast<const Varchar *>(&sqlValue);
+            if (v == nullptr) throw NotImplementedException();
+            std::string s(v->value, v->len);
+            s.erase(std::find(s.begin(), s.end(), '\0'), s.end());
+            return s;
+        }
         case SqlType::TypeID::NumericID: {
             std::string ret = "";
             long v = dynamic_cast<const Numeric *>(&sqlValue)->value;
@@ -1374,9 +1425,9 @@ std::string toString(const Value & sqlValue)
             return ret;
         }
         case SqlType::TypeID::DateID:
-            throw NotImplementedException();
+            return formatDate(dynamic_cast<const Date *>(&sqlValue)->value);
         case SqlType::TypeID::TimestampID:
-            throw NotImplementedException();
+            return formatTimestamp(dynamic_cast<const Timestamp *>(&sqlValue)->value);
         case SqlType::TypeID::TextID: {
             const Text * text = dynamic_cast<const Text *>(&sqlValue);
             return std::string(text->getView());

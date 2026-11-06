@@ -200,14 +200,20 @@ struct MergeResult {
     size_t inserted = 0;
     size_t deleted = 0;
     std::vector<std::string> conflicts; // nothing has been merged if there are any
+    size_t resolved = 0;                // conflicts resolved by the policy
 };
+
+/// What a merge does with a conflict: fail (nothing is merged), keep the target's side or take the
+/// source's (MERGE ... ON CONFLICT KEEP TARGET | KEEP SOURCE); the other changes are merged
+enum class MergePolicy { Fail, KeepTarget, KeepSource };
 
 /// Merges the changes of src since its common versions with dst into dst. Per tuple, the base is
 /// the newest version visible in both branches, or the version of src merged last into dst.
 /// Attributes changed on one side only are taken from that side; an attribute changed differently
-/// on both sides, or a tuple deleted on one side and changed on the other, is a conflict. The merge
-/// is applied only if there are no conflicts.
-MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst);
+/// on both sides, or a tuple deleted on one side and changed on the other, is a conflict. With
+/// MergePolicy::Fail, the merge is applied only if there are no conflicts; otherwise a conflict takes
+/// the target's or the source's side, and the version of src becomes the base of the next merge.
+MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergePolicy policy = MergePolicy::Fail);
 
 /// Drops the branches (a branch with all its descendants) and removes them from the catalogue.
 /// Frees the versions they wrote and then, unless collect_garbage is off, every version of the

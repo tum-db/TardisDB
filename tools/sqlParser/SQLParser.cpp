@@ -26,6 +26,152 @@ namespace tardisParser {
         return BindingAttribute(binding, attribute);
     }
 
+    /// binding.attribute or attribute
+    static Column columnOf(const std::string & value) {
+        Column column;
+        auto dot = value.find('.');
+        column.table = (dot == std::string::npos) ? "" : value.substr(0, dot);
+        column.name = (dot == std::string::npos) ? value : value.substr(dot + 1);
+        return column;
+    }
+
+    static std::string flipped(const std::string & op) {
+        if (op == "<") return ">";
+        if (op == "<=") return ">=";
+        if (op == ">") return "<";
+        if (op == ">=") return "<=";
+        return op;
+    }
+
+    /// Reads ( a , b , ... ) after the opening bracket: identifiers or literals
+    static std::vector<Token> readList(Tokenizer & tokenizer) {
+        std::vector<Token> items;
+        for (;;) {
+            Token item = tokenizer.next();
+            if (item.type != Type::identifier && item.type != Type::literal) {
+                throw syntactical_error("Expected a column or a value, found '" + item.value + "'");
+            }
+            items.push_back(item);
+            Token next = tokenizer.next();
+            if (next.equalsControlSymbol(controlSymbols::closeBracket)) return items;
+            if (!next.equalsControlSymbol(controlSymbols::separator)) {
+                throw syntactical_error("Expected ',' or ')', found '" + next.value + "'");
+            }
+        }
+    }
+
+    /// Parses the conditions of WHERE, beginning with \p first, up to the end of the statement or, if
+    /// \p groupMayFollow, to GROUP: a conjunction (AND) of comparisons with =, <>, !=, <, <=, > and >=
+    /// of a column and a value (either side), of two row values ( a , b ) >= ( 1 , 2 ), of
+    /// column BETWEEN v AND w, of column IN ( v , ... ) and, given \p joins, of two columns (=).
+    /// Equalities of a column and a value become selections, all other comparisons predicates.
+    /// \returns Whether GROUP ended the conditions
+    static bool parseWhere(Tokenizer & tokenizer, Token token, std::vector<std::pair<Column,std::string>> & selections,
+                           std::vector<Predicate> & predicates, std::vector<std::pair<Column,Column>> * joins,
+                           bool groupMayFollow) {
+        auto compare = [&](std::vector<Token> lhs, std::string op, std::vector<Token> rhs) {
+            if (op == "!=") op = "<>";
+            if (lhs.size() != rhs.size()) throw syntactical_error("row values of different lengths");
+            bool lhsColumns = std::all_of(lhs.begin(), lhs.end(), [](const Token & t) { return t.type == Type::identifier; });
+            bool rhsColumns = std::all_of(rhs.begin(), rhs.end(), [](const Token & t) { return t.type == Type::identifier; });
+            bool rhsValues = std::all_of(rhs.begin(), rhs.end(), [](const Token & t) { return t.type == Type::literal; });
+            bool lhsValues = std::all_of(lhs.begin(), lhs.end(), [](const Token & t) { return t.type == Type::literal; });
+            if (lhsValues && rhsColumns) {
+                std::swap(lhs, rhs);
+                op = flipped(op);
+                std::swap(lhsColumns, rhsColumns);
+                std::swap(lhsValues, rhsValues);
+            }
+            if (lhsColumns && rhsColumns) {
+                if (joins == nullptr || op != "=" || lhs.size() != 1) throw syntactical_error("only = compares two columns");
+                joins->emplace_back(columnOf(lhs[0].value), columnOf(rhs[0].value));
+                return;
+            }
+            if (!lhsColumns || !rhsValues) throw syntactical_error("a comparison needs columns on one side and values on the other");
+            if (op == "=") {
+                for (size_t i = 0; i < lhs.size(); ++i) selections.emplace_back(columnOf(lhs[i].value), rhs[i].value);
+                return;
+            }
+            Predicate predicate;
+            for (auto & t : lhs) predicate.columns.push_back(columnOf(t.value));
+            predicate.op = op;
+            for (auto & t : rhs) predicate.values.push_back(t.value);
+            predicates.push_back(std::move(predicate));
+        };
+
+        for (;;) {
+            // the left side
+            std::vector<Token> lhs;
+            if (token.equalsControlSymbol(controlSymbols::openBracket)) {
+                lhs = readList(tokenizer);
+            } else if (token.type == Type::identifier || token.type == Type::literal) {
+                lhs.push_back(token);
+            } else {
+                throw syntactical_error("Expected left expression, found '" + token.value + "'");
+            }
+            Token op = tokenizer.next();
+            std::string word = op.value;
+            std::transform(word.begin(), word.end(), word.begin(), ::tolower);
+            if (op.type == Type::op) {
+                Token rhsToken = tokenizer.next();
+                std::vector<Token> rhs;
+                if (rhsToken.equalsControlSymbol(controlSymbols::openBracket)) {
+                    rhs = readList(tokenizer);
+                } else if (rhsToken.type == Type::identifier || rhsToken.type == Type::literal) {
+                    rhs.push_back(rhsToken);
+                } else {
+                    throw syntactical_error("Expected right expression, found '" + rhsToken.value + "'");
+                }
+                compare(lhs, op.value, rhs);
+            } else if (word == "between" && lhs.size() == 1) {
+                Token low = tokenizer.next();
+                Token andToken = tokenizer.next();
+                Token high = tokenizer.next();
+                if (low.type != Type::literal || !andToken.equalsKeyword(Keyword::And) || high.type != Type::literal) {
+                    throw syntactical_error("Expected BETWEEN value AND value");
+                }
+                compare(lhs, ">=", {low});
+                compare(lhs, "<=", {high});
+            } else if (word == "in" && lhs.size() == 1 && lhs[0].type == Type::identifier) {
+                Token open = tokenizer.next();
+                if (!open.equalsControlSymbol(controlSymbols::openBracket)) throw syntactical_error("Expected '(' after IN");
+                Predicate predicate;
+                predicate.columns.push_back(columnOf(lhs[0].value));
+                predicate.op = "in";
+                for (auto & t : readList(tokenizer)) {
+                    if (t.type != Type::literal) throw syntactical_error("IN takes values");
+                    predicate.values.push_back(t.value);
+                }
+                predicates.push_back(std::move(predicate));
+            } else {
+                throw syntactical_error("Expected a comparison, found '" + op.value + "'");
+            }
+
+            token = tokenizer.next();
+            if (token.hasType(Type::delimiter)) return false;
+            if (groupMayFollow && token.equalsKeyword(Keyword::Group)) return true;
+            if (!token.equalsKeyword(Keyword::And)) {
+                throw syntactical_error("Expected 'AND'" + std::string(groupMayFollow ? ", 'GROUP'" : "") + " or the end, found '" + token.value + "'");
+            }
+            token = tokenizer.next();
+        }
+    }
+
+    static bool isWord(const Token & token, const std::string & word) {
+        std::string value = token.value;
+        std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+        return (token.type == Type::identifier || token.type == Type::keyword) && value == word;
+    }
+
+    /// Reads KEY after PRIMARY of a column: the column is the key and not null
+    static void columnPrimaryKey(Tokenizer & tokenizer, CreateTableStatement & stmt) {
+        Token key = tokenizer.next();
+        if (!isWord(key, "key")) throw syntactical_error("Expected 'KEY', found '" + key.value + "'");
+        if (!stmt.primaryKey.empty()) throw syntactical_error("a table has one primary key");
+        stmt.primaryKey.push_back(stmt.columns.back().name);
+        stmt.columns.back().nullable = false;
+    }
+
     void SQLParser::parseToken(Tokenizer &tokenizer, ParsingContext &context) {
         const Token &token = tokenizer.next();
         // When the token is a delimiter check if the parser is in a valid final state
@@ -86,7 +232,7 @@ namespace tardisParser {
                 if (token.equalsKeyword(Keyword::Table)) {
                     context.opType = ParsingContext::OpType::AlterTable;
                     context.alterTableStmt = new AlterTableStatement();
-                    context.alterTableStmt->relation.version = "master";
+                    context.alterTableStmt->relation.version = context.defaultBranch;
                     context.state = State::AlterTable;
                 } else {
                     throw syntactical_error("Expected 'TABLE', found '" + token.value + "'");
@@ -299,6 +445,18 @@ namespace tardisParser {
                     throw syntactical_error("Expected branch name, found '" + token.value + "'");
                 }
                 break;
+            case State::MergeBranchTarget: {
+                // ON CONFLICT KEEP TARGET | KEEP SOURCE
+                Token conflict = tokenizer.next();
+                Token keep = tokenizer.next();
+                Token side = tokenizer.next();
+                if (!token.equalsKeyword(Keyword::On) || !isWord(conflict, "conflict") || !isWord(keep, "keep") ||
+                    !(isWord(side, "target") || isWord(side, "source")) || !context.mergeBranchStmt->onConflict.empty()) {
+                    throw syntactical_error("Expected ON CONFLICT KEEP TARGET or KEEP SOURCE after the target branch");
+                }
+                context.mergeBranchStmt->onConflict = isWord(side, "target") ? "target" : "source";
+                break;
+            }
 
                 //
                 //  Copy
@@ -314,11 +472,11 @@ namespace tardisParser {
             case State::CopyTable:
                 if (token.equalsKeyword(Keyword::From)) {
                     context.copyStmt->directionFrom = true;
-                    context.copyStmt->relation.version = "master";
+                    context.copyStmt->relation.version = context.defaultBranch;
                     context.state = State::CopyDirection;
                 } else if (token.equalsKeyword(Keyword::To)) {
                     context.copyStmt->directionFrom = false;
-                    context.copyStmt->relation.version = "master";
+                    context.copyStmt->relation.version = context.defaultBranch;
                     context.state = State::CopyDirection;
                 } else if (token.equalsKeyword(Keyword::Version)) {
                     context.state = State::CopyVersion;
@@ -391,7 +549,7 @@ namespace tardisParser {
                 } else if (token.equalsKeyword(Keyword::Index)) {
                     context.opType = ParsingContext::OpType::CreateIndex;
                     context.createIndexStmt = new CreateIndexStatement();
-                    context.createIndexStmt->relation.version = "master";
+                    context.createIndexStmt->relation.version = context.defaultBranch;
                     context.state = State::CreateIndex;
                 } else {
                     throw syntactical_error("Expected 'TABLE', 'BRANCH' or 'INDEX', found '" + token.value + "'");
@@ -503,7 +661,27 @@ namespace tardisParser {
                 break;
             case State::CreateTableColumnsBegin:
             case State::CreateTableColumnSeperator:
-                if (token.type == Type::identifier) {
+                if (isWord(token, "primary")) {
+                    auto & stmt = *context.createTableStmt;
+                    Token key = tokenizer.next();
+                    Token open = tokenizer.next();
+                    if (!isWord(key, "key") || !open.equalsControlSymbol(controlSymbols::openBracket)) {
+                        throw syntactical_error("Expected 'KEY (' after 'PRIMARY'");
+                    }
+                    if (!stmt.primaryKey.empty()) throw syntactical_error("a table has one primary key");
+                    for (auto & column : readList(tokenizer)) {
+                        if (column.type != Type::identifier) throw syntactical_error("Expected column name, found '" + column.value + "'");
+                        stmt.primaryKey.push_back(column.value);
+                    }
+                    Token next = tokenizer.next();
+                    if (next.equalsControlSymbol(controlSymbols::closeBracket)) {
+                        context.state = CreateTableColumnsEnd;
+                    } else if (next.equalsControlSymbol(controlSymbols::separator)) {
+                        context.state = CreateTableColumnSeperator;
+                    } else {
+                        throw syntactical_error("Expected ',' or ')', found '" + next.value + "'");
+                    }
+                } else if (token.type == Type::identifier) {
                     context.createTableStmt->columns.push_back(ColumnSpec());
                     context.createTableStmt->columns.back().name = token.value;
                     context.state = CreateTableColumnName;
@@ -530,6 +708,11 @@ namespace tardisParser {
                 context.createTableStmt->columns.back().precision = 0;
                 if (token.equalsKeyword(Keyword::Not)) {
                     context.state = CreateTableTypeNot;
+                    break;
+                }
+                if (isWord(token, "primary")) {
+                    columnPrimaryKey(tokenizer, *context.createTableStmt);
+                    context.state = State::CreateTableTypeNotNull;
                     break;
                 }
                 context.createTableStmt->columns.back().nullable = true;
@@ -580,6 +763,11 @@ namespace tardisParser {
                     context.state = CreateTableTypeNot;
                     break;
                 }
+                if (isWord(token, "primary")) {
+                    columnPrimaryKey(tokenizer, *context.createTableStmt);
+                    context.state = State::CreateTableTypeNotNull;
+                    break;
+                }
                 if (token.equalsControlSymbol(controlSymbols::closeBracket)) {
                     context.state = CreateTableColumnsEnd;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
@@ -598,6 +786,10 @@ namespace tardisParser {
                 }
                 break;
             case State::CreateTableTypeNotNull:
+                if (isWord(token, "primary")) {
+                    columnPrimaryKey(tokenizer, *context.createTableStmt);
+                    break;
+                }
                 if (token.equalsControlSymbol(controlSymbols::closeBracket)) {
                     context.state = CreateTableColumnsEnd;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
@@ -620,7 +812,7 @@ namespace tardisParser {
             case State::DeleteFrom:
                 if (token.type == Type::identifier) {
                     context.deleteStmt->relation.name = token.value;
-                    context.deleteStmt->relation.version = "master";
+                    context.deleteStmt->relation.version = context.defaultBranch;
                     context.state = DeleteRelationName;
                 } else {
                     throw syntactical_error("Expected table name, found '" + token.value + "'");
@@ -651,12 +843,8 @@ namespace tardisParser {
                 }
                 break;
             case State::DeleteWhere:
-            case State::DeleteWhereAnd:
-                if (token.type == Type::identifier) {
-                    context.state = State::DeleteWhereExprLhs;
-                } else {
-                    throw syntactical_error("Expected left expression, found '" + token.value + "'");
-                }
+                parseWhere(tokenizer, token, context.deleteStmt->selections, context.deleteStmt->predicates, nullptr, false);
+                context.state = State::Done;
                 break;
             case State::DeleteWhereExprLhs:
                 if (token.type == Type::op) {
@@ -697,7 +885,7 @@ namespace tardisParser {
                 if (token.equalsKeyword(Keyword::Version)) {
                     context.state = State::UpdateVersion;
                 } else if (token.equalsKeyword(Keyword::Set)) {
-                    context.updateStmt->relation.version = "master";
+                    context.updateStmt->relation.version = context.defaultBranch;
                     context.state = State::UpdateSet;
                 } else {
                     throw syntactical_error("Expected 'VERSION', 'SET', found '" + token.value + "'");
@@ -770,12 +958,8 @@ namespace tardisParser {
                 }
                 break;
             case State::UpdateWhere:
-            case State::UpdateWhereAnd:
-                if (token.type == Type::identifier) {
-                    context.state = State::UpdateWhereExprLhs;
-                } else {
-                    throw syntactical_error("Expected left expression, found '" + token.value + "'");
-                }
+                parseWhere(tokenizer, token, context.updateStmt->selections, context.updateStmt->predicates, nullptr, false);
+                context.state = State::Done;
                 break;
             case State::UpdateWhereExprLhs:
                 if (token.type == Type::op) {
@@ -831,7 +1015,7 @@ namespace tardisParser {
                 } else {
                     throw syntactical_error("Expected '(', 'VERSION' or 'VALUES', found '" + token.value + "'");
                 }
-                context.insertStmt->relation.version = "master";
+                context.insertStmt->relation.version = context.defaultBranch;
                 break;
             case State::InsertVersion:
                 if (token.type == Type::identifier) {
@@ -886,8 +1070,11 @@ namespace tardisParser {
             case State::InsertValuesBegin:
             case State::InsertValueSeperator:
                 if (token.type == Type::literal) {
-                    context.insertStmt->values.push_back(token.value);
+                    auto & stmt = *context.insertStmt;
+                    (stmt.rows.empty() ? stmt.values : stmt.rows.back()).push_back(token.value);
                     context.state = InsertValue;
+                } else if (token.equalsKeyword(Keyword::Null)) {
+                    throw syntactical_error("TardisDB stores no NULL values: versions hold no null indicators");
                 } else {
                     throw syntactical_error("Expected constant, found '" + token.value + "'");
                 }
@@ -899,6 +1086,15 @@ namespace tardisParser {
                     context.state = InsertValueSeperator;
                 } else {
                     throw syntactical_error("Expected ',' , ')', found '" + token.value + "'");
+                }
+                break;
+            case State::InsertValuesEnd:
+                // VALUES ( ... ) , ( ... ): the next row
+                if (token.equalsControlSymbol(controlSymbols::separator)) {
+                    context.insertStmt->rows.emplace_back();
+                    context.state = InsertValues;
+                } else {
+                    throw syntactical_error("Expected ',' or the end, found '" + token.value + "'");
                 }
                 break;
 
@@ -979,7 +1175,7 @@ namespace tardisParser {
                     context.selectStmt->relations.push_back(Table());
                     context.selectStmt->relations.back().name = token.value;
                     context.selectStmt->relations.back().alias = "";
-                    context.selectStmt->relations.back().version = "master";
+                    context.selectStmt->relations.back().version = context.defaultBranch;
                     context.state = SelectFromRelationName;
                 } else {
                     throw syntactical_error("Expected table name, found '" + token.value + "'");
@@ -996,7 +1192,7 @@ namespace tardisParser {
                     context.state = SelectFromVersion;
                 } else if (token.type == Type::identifier) {
                     context.selectStmt->relations.back().alias = token.value;
-                    context.selectStmt->relations.back().version = "master";
+                    context.selectStmt->relations.back().version = context.defaultBranch;
 
                     context.state = State::SelectFromBindingName;
                 } else if (token.equalsKeyword(Keyword::Where)) {
@@ -1047,7 +1243,7 @@ namespace tardisParser {
                     break;
                 }
                 if (context.state == State::SelectFromDiffTable) {
-                    relation.versionSet.push_back("master");
+                    relation.versionSet.push_back(context.defaultBranch);
                 }
                 if (token.equalsControlSymbol(controlSymbols::separator) && relation.versionSet.size() == 1) {
                     context.state = SelectFromDiffSeparator;
@@ -1142,11 +1338,11 @@ namespace tardisParser {
                 }
                 break;
             case State::SelectWhere:
-            case State::SelectWhereAnd:
-                if (token.type == Type::identifier) {
-                    context.state = State::SelectWhereExprLhs;
+                if (parseWhere(tokenizer, token, context.selectStmt->selections, context.selectStmt->predicates,
+                               &context.selectStmt->joinConditions, true)) {
+                    context.state = State::SelectGroup;
                 } else {
-                    throw syntactical_error("Expected left expression, found '" + token.value + "'");
+                    context.state = State::Done;
                 }
                 break;
             case State::SelectWhereExprLhs:

@@ -68,6 +68,7 @@ namespace Algebra {
             child->produce();
 
             cg_size_t tupleCnt(_codeGen->CreateLoad(cg_size_t::getType(), tupleCountPtr));
+            _codeGen->CreateStore(tupleCnt, _codeGen->CreatePointerCast(cg_ptr8_t::fromRawPointer(&_context.executionContext.affectedRows), llvm::PointerType::getUnqual(cg_size_t::getType())));
 
             //Functions::genPrintfCall("Updated %lu tuples\n", tupleCnt);
         }

@@ -299,7 +299,7 @@ private:
                 value = nullptr;
             }
 
-            explicit Varchar(const char * src,uint8_t length) : Value(::Sql::getVarcharTy(length,false)) {
+            explicit Varchar(const char * src,uint32_t length) : Value(::Sql::getVarcharTy(length,false)) {
                 value = (char*)src;
                 len = length;
             }
@@ -328,7 +328,8 @@ private:
                 return len;
             }
 
-            uint8_t len;
+            uint32_t len;
+            char single = 0; // the character of a char(1), which value then points to
 
         };
 

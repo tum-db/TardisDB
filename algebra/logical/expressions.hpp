@@ -76,12 +76,17 @@ public:
     Not(exp_op_t child) :
             UnaryOperator(std::move(child))
     {
-        assert(child->getType().typeID == Sql::SqlType::TypeID::BoolID);
+        assert(_child->getType().typeID == Sql::SqlType::TypeID::BoolID);
     }
 
     ~Not() override { }
 
     void accept(ExpressionVisitor & visitor) override;
+
+    Sql::SqlType getType() const override
+    {
+        return _child->getType();
+    }
 };
 
 class BinaryOperator : public Expression {
@@ -110,8 +115,7 @@ public:
         {
             throw ArithmeticException("'and' requires boolean arguments");
         }
-
-        // TODO null values?
+        _type = Sql::getBoolTy(_left->getType().nullable || _right->getType().nullable);
     }
 
     ~And() override { }
@@ -137,8 +141,7 @@ public:
         {
             throw ArithmeticException("'or' requires boolean arguments");
         }
-
-        // TODO null values?
+        _type = Sql::getBoolTy(_left->getType().nullable || _right->getType().nullable);
     }
 
     ~Or() override { }
@@ -399,6 +402,9 @@ public:
     }
 
     virtual void visit(Cast & exp) = 0;
+    virtual void visit(Not & exp) = 0;
+    virtual void visit(And & exp) = 0;
+    virtual void visit(Or & exp) = 0;
     virtual void visit(Addition & exp) = 0;
     virtual void visit(Subtraction & exp) = 0;
     virtual void visit(Multiplication & exp) = 0;

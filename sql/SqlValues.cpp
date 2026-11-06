@@ -99,6 +99,8 @@ value_op_t Value::castString(const std::string & str, SqlType type)
             return Bool::castString(str);
         case SqlType::TypeID::IntegerID:
             return Integer::castString(str);
+        case SqlType::TypeID::LongIntegerID:
+            return LongInteger::castString(str);
         case SqlType::TypeID::VarcharID:
             return Varchar::castString(str, type);
         case SqlType::TypeID::CharID:
@@ -375,7 +377,10 @@ value_op_t LongInteger::clone() const {
 }
 
 value_op_t LongInteger::castString(const std::string & str) {
-    LongInteger::value_type raw = castStringToUnsignedLongIntegerValue(str.c_str(), static_cast<uint64_t>(str.length()));
+    // signed, unlike the cast of strings at run time
+    size_t end = 0;
+    LongInteger::value_type raw = std::stoll(str, &end);
+    if (end != str.size()) throw InvalidOperationException("invalid longinteger '" + str + "'");
     llvm::Value * value = cg_value_type(raw);
     value_op_t sqlValue( new LongInteger(value) );
     return sqlValue;
@@ -678,6 +683,36 @@ cg_bool_t BasicString::equalBuffers(const BasicString & str1, const BasicString 
     return cg_bool_t( check.getResult(0) );
 }
 
+/// memcmp over the common length, then the lengths
+static int32_t compareStringBytes(const char * s1, size_t len1, const char * s2, size_t len2)
+{
+    int diff = std::memcmp(s1, s2, std::min(len1, len2));
+    if (diff != 0) return diff < 0 ? -1 : 1;
+    return (len1 < len2) ? -1 : (len1 > len2 ? 1 : 0);
+}
+
+static cg_bool_t compareResult(cg_int_t diff, ComparisonMode mode)
+{
+    switch (mode) {
+        case ComparisonMode::less: return diff < cg_int_t(0);
+        case ComparisonMode::leq: return diff <= cg_int_t(0);
+        case ComparisonMode::eq: return diff == cg_int_t(0);
+        case ComparisonMode::geq: return diff >= cg_int_t(0);
+        case ComparisonMode::gtr: return diff > cg_int_t(0);
+    }
+    unreachable();
+}
+
+cg_bool_t BasicString::compareBuffers(const BasicString & str1, const BasicString & str2, ComparisonMode mode)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::FunctionType * funcTy = llvm::TypeBuilder<int32_t (const char *, size_t, const char *, size_t), false>::get(codeGen.getLLVMContext());
+    llvm::CallInst * result = codeGen.CreateCall(&compareStringBytes, funcTy, {
+            cg_voidptr_t(str1.getLLVMValue()), cg_size_t(str1.getLength()),
+            cg_voidptr_t(str2.getLLVMValue()), cg_size_t(str2.getLength())});
+    return compareResult(cg_int_t(llvm::cast<llvm::Value>(result)), mode);
+}
+
 //-----------------------------------------------------------------------------
 // Char
 
@@ -832,7 +867,25 @@ cg_bool_t Char::equals(const Value & other) const
 
 cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 {
-    throw NotImplementedException("Char::compare");
+    if (isNullable(other)) {
+        throw NotImplementedException("Char::compare with a nullable value");
+    }
+    if (mode == ComparisonMode::eq) {
+        return equals(other);
+    }
+    auto & codeGen = getThreadLocalCodeGen();
+    if (type.length == 1) {
+        // the character itself, as an unsigned byte
+        llvm::Value * l = _llvmValue, * r = other.getLLVMValue();
+        switch (mode) {
+            case ComparisonMode::less: return cg_bool_t(codeGen->CreateICmpULT(l, r));
+            case ComparisonMode::leq: return cg_bool_t(codeGen->CreateICmpULE(l, r));
+            case ComparisonMode::geq: return cg_bool_t(codeGen->CreateICmpUGE(l, r));
+            case ComparisonMode::gtr: return cg_bool_t(codeGen->CreateICmpUGT(l, r));
+            default: unreachable();
+        }
+    }
+    return compareBuffers(*this, static_cast<const BasicString &>(other), mode);
 }
 
 //-----------------------------------------------------------------------------
@@ -1199,7 +1252,13 @@ cg_bool_t Varchar::equals(const Value & other) const
 
 cg_bool_t Varchar::compare(const Value & other, ComparisonMode mode) const
 {
-    throw NotImplementedException("Varchar::compare");
+    if (isNullable(other)) {
+        throw NotImplementedException("Varchar::compare with a nullable value");
+    }
+    if (mode == ComparisonMode::eq) {
+        return equals(other);
+    }
+    return compareBuffers(*this, static_cast<const BasicString &>(other), mode);
 }
 
 //-----------------------------------------------------------------------------

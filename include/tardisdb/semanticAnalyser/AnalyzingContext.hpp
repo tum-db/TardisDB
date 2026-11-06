@@ -33,6 +33,10 @@ namespace semanticalAnalysis {
 
         std::unique_ptr<Operator> joinedTree;
 
+        /// of statements without a plan: the tuples they changed, and a message for the client
+        uint64_t changedTuples = 0;
+        std::string notice;
+
         AnalyzingContext(Database &db) : db(db) {}
         ~AnalyzingContext() {
             callback = nullptr;

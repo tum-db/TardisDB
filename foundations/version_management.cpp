@@ -69,7 +69,7 @@ inline const void * get_tuple_ptr(const VersionedTupleStorage * storage) {
 bool diff_scans_whole_table = false;
 
 // remembers that the branch wrote the tuple under its current identifier
-static void record_write(Table & table, branch_id_t branch, tid_t tid) {
+static void record_write(Table & table, branch_id_t branch, tid_t tid, bool deleted = false) {
     if (is_marked_as_dangling_tid(tid)) {
         return;
     }
@@ -80,6 +80,12 @@ static void record_write(Table & table, branch_id_t branch, tid_t tid) {
     auto & tids = table._writes[ident];
     if (tids.empty() || tids.back() != tid) {
         tids.push_back(tid);
+    }
+    if (deleted) {
+        if (table._deleted.size() <= ident) table._deleted.resize(ident + 1);
+        table._deleted[ident].insert(tid);
+    } else if (ident < table._deleted.size()) {
+        table._deleted[ident].erase(tid);
     }
 }
 
@@ -395,7 +401,7 @@ void delete_tuple(tid_t tid, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
 
     table.removeRowForBranch(tid,branch);
-    record_write(table, branch, tid);
+    record_write(table, branch, tid, true);
 }
 
 void delete_tuple_with_branchId(tid_t tid, branch_id_t branchId, Table & table, QueryContext & ctx) {
@@ -842,7 +848,7 @@ static std::vector<tid_t> candidates(Table & table, branch_id_t a, branch_id_t b
     return all;
 }
 
-MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
+MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergePolicy policy) {
     BranchReader source(db, src);
     BranchReader target(db, dst);
     auto & bases = db._mergeBases[{src, dst}];
@@ -860,6 +866,9 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
     std::vector<std::pair<Table *, size_t>> addedColumns; // to the schema of dst
     MergeResult result;
     const auto targetPath = ident_path(db, dst);
+    const auto sourcePath = ident_path(db, src);
+    std::vector<ident_t> commonPath;
+    for (ident_t ident : sourcePath) if (targetPath.count(ident) > 0) commonPath.push_back(ident);
 
     // tables in the order of their names, so that conflicts are reported deterministically
     std::vector<std::pair<std::string, Table *>> tables;
@@ -873,6 +882,15 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
         auto conflict = [&, &name = name](tid_t tid, const std::string & what) {
             result.conflicts.push_back("table " + name + ", tuple " + std::to_string(tid) + ": " + what);
         };
+        // the tuples each side wrote (or deleted) since the split: under its identifiers that are not the other's
+        auto writtenSince = [&](const std::unordered_set<ident_t> & own, const std::unordered_set<ident_t> & other) {
+            std::unordered_set<tid_t> tids;
+            for (ident_t ident : own) {
+                if (other.count(ident) == 0 && ident < table->_writes.size()) tids.insert(table->_writes[ident].begin(), table->_writes[ident].end());
+            }
+            return tids;
+        };
+        const auto sourceWrote = writtenSince(sourcePath, targetPath), targetWrote = writtenSince(targetPath, sourcePath);
 
         // the columns of src that the target never had, i.e. that were not added on its path: src or
         // a branch merged into it added them; a column the target lacks otherwise was dropped there
@@ -902,12 +920,24 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
             if (recorded != tableBases.end()) {
                 base = Native::Sql::SqlTuple::load(recorded->second.data(), types);
             } else {
-                for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
+                // a version both see is the base only if both contained the tuple when they split: a side
+                // that lacks the tuple and has not written it since did not contain it then
+                bool bothContained = (inSource != nullptr || sourceWrote.count(tid) > 0) &&
+                                     (inTarget != nullptr || targetWrote.count(tid) > 0);
+                for (const void * element = chain_head(entry); bothContained && element != nullptr; element = chain_next(entry, element)) {
                     if (source.sees(entry, element) && target.sees(entry, element)) {
-                        base = load_version(tid, *table, element);
+                        // not if the common path deleted the tuple since this version: identifiers grow
+                        // along a path, so one at least as large as the version's wrote later
+                        const ident_t written = (element == entry) ? entry->ident
+                                              : static_cast<const VersionedTupleStorage *>(element)->ident;
+                        bool deletedSince = std::any_of(commonPath.begin(), commonPath.end(), [&](ident_t ident) {
+                            return ident >= written && ident < table->_deleted.size() && table->_deleted[ident].count(tid) > 0;
+                        });
+                        if (!deletedSince) base = load_version(tid, *table, element);
                         break;
                     }
                 }
+                if (!base && inSource == nullptr) continue; // the target has it alone, since the split
             }
 
             if (inSource != nullptr && inTarget != nullptr) {
@@ -922,6 +952,9 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
                         merged.push_back(dv.clone());
                     } else if (base && base->values[i]->equals(dv)) {
                         merged.push_back(sv.clone());
+                    } else if (policy != MergePolicy::Fail) {
+                        merged.push_back(policy == MergePolicy::KeepTarget ? dv.clone() : sv.clone());
+                        result.resolved += 1;
                     } else {
                         clean = false;
                         conflict(tid, "column " + table->getCI(i)->columnName + " changed to " + Native::Sql::toString(sv) + " in the source and to " +
@@ -944,13 +977,26 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
                     auto copy = Native::Sql::SqlTuple::load(tuple_bytes(*s).data(), types);
                     actions.push_back({table, tid, Kind::Insert, std::move(copy), std::move(s), nullptr});
                 } else if (!equal_tuples(*s, *base)) {
-                    conflict(tid, "deleted in the target and changed in the source");
+                    if (policy == MergePolicy::Fail) {
+                        conflict(tid, "deleted in the target and changed in the source");
+                    } else if (policy == MergePolicy::KeepTarget) {
+                        // stays deleted; the version of src is the base of the next merge
+                        actions.push_back({table, tid, Kind::Write, nullptr, std::move(s), nullptr});
+                        result.resolved += 1;
+                    } else {
+                        auto copy = Native::Sql::SqlTuple::load(tuple_bytes(*s).data(), types);
+                        actions.push_back({table, tid, Kind::Insert, std::move(copy), std::move(s), nullptr});
+                        result.resolved += 1;
+                    }
                 }
             } else if (base) {
                 // only in the target, which has it from a common version: src deleted it
                 auto d = load_version(tid, *table, inTarget);
-                if (equal_tuples(*d, *base)) {
+                if (equal_tuples(*d, *base) || policy == MergePolicy::KeepSource) {
                     actions.push_back({table, tid, Kind::Delete, nullptr, nullptr, inTarget});
+                    if (!equal_tuples(*d, *base)) result.resolved += 1;
+                } else if (policy == MergePolicy::KeepTarget) {
+                    result.resolved += 1; // the target keeps its version
                 } else {
                     conflict(tid, "deleted in the source and changed in the target");
                 }
@@ -977,7 +1023,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst) {
                 break;
             case Kind::Delete:
                 table.getMembership().set(action.tid, dst, false);
-                record_write(table, dst, action.tid);
+                record_write(table, dst, action.tid, true);
                 bases[&table].erase(action.tid);
                 result.deleted += 1;
                 break;
@@ -1189,6 +1235,7 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
         for (ident_t ident = 0; ident < table->_writes.size(); ++ident) {
             if (dropped.count(db.getIdentBranch(ident)) > 0) {
                 std::vector<tid_t>().swap(table->_writes[ident]);
+                if (ident < table->_deleted.size()) std::unordered_set<tid_t>().swap(table->_deleted[ident]);
             }
         }
     }
