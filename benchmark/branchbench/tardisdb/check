@@ -1,0 +1,20 @@
+#!/bin/bash
+# Exit 0 only if the pgserver that start launched is alive and answers as a PostgreSQL server.
+set -euo pipefail
+
+runs="${DBFORK_STATE_DIR:?DBFORK_STATE_DIR is required}"
+[ -f "$runs/tardisdb.pid" ] && kill -0 "$(cat "$runs/tardisdb.pid")" 2>/dev/null || exit 1
+
+"${PYTHON:-python3}" - <<'PY'
+import os
+import psycopg2
+
+conn = psycopg2.connect(host=os.environ.get("TARDISDB_HOST", "127.0.0.1"),
+                        port=int(os.environ.get("TARDISDB_PORT", "55433")),
+                        dbname="tardisdb", user=os.environ.get("TARDISDB_USER", "branchbench"),
+                        sslmode="disable", connect_timeout=5)
+with conn.cursor() as cur:
+    cur.execute("SHOW server_version")
+    assert "TardisDB" in cur.fetchone()[0]
+conn.close()
+PY

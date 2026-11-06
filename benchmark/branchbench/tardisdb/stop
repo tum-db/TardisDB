@@ -1,0 +1,15 @@
+#!/bin/bash
+# Stop the pgserver that start launched (its databases live in memory and are gone with it).
+set -euo pipefail
+
+runs="${DBFORK_STATE_DIR:?DBFORK_STATE_DIR is required}"
+[ -f "$runs/tardisdb.pid" ] || exit 0
+pid="$(cat "$runs/tardisdb.pid")"
+if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid"
+    for _ in $(seq 50); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.1
+    done
+fi
+rm -f "$runs/tardisdb.pid"

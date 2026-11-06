@@ -1,0 +1,9 @@
+{
+  "system": "TardisDB",
+  "proprietary": "no",
+  "hosted": "no",
+  "tuned": "no",
+  "tags": ["C++", "Postgres protocol", "MVCC version tree", "Compiled queries"],
+  "requirements": "TardisDB's pgserver, built from https://github.com/tum-db/TardisDB (branch branch-native); TARDISDB_PGSERVER names the binary.",
+  "credentials": []
+}

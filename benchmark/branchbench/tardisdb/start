@@ -1,0 +1,22 @@
+#!/bin/bash
+# Start TardisDB's PostgreSQL-compatible server the way dblib/systems/tardisdb/adapter.py expects it.
+set -euo pipefail
+
+runs="${DBFORK_STATE_DIR:?DBFORK_STATE_DIR is required}"
+binary="${TARDISDB_PGSERVER:-$(command -v pgserver || true)}"
+host="${TARDISDB_HOST:-${DBFORK_SERVER_HOST:-127.0.0.1}}"
+port="${TARDISDB_PORT:-55433}"
+threads="${TARDISDB_THREADS:-$(nproc)}"
+mkdir -p "$runs"
+
+if [ -f "$runs/tardisdb.pid" ] && kill -0 "$(cat "$runs/tardisdb.pid")" 2>/dev/null; then
+    echo "TardisDB already running (pid $(cat "$runs/tardisdb.pid"))"
+    exit 0
+fi
+if [ -z "$binary" ] || [ ! -x "$binary" ]; then
+    echo "TardisDB pgserver not found: set TARDISDB_PGSERVER to the binary of a TardisDB build" >&2
+    exit 1
+fi
+
+"$binary" -h "$host" -p "$port" -t "$threads" > "$runs/tardisdb.log" 2>&1 &
+echo $! > "$runs/tardisdb.pid"
