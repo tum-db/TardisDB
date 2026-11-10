@@ -607,6 +607,9 @@ void Table::reserveRows(size_t rows)
     _membership.reserve(rows);
     _version_mgmt_column.reserve(rows);
     _head_ident.reserve(rows);
+#if COMPILED_LINEAGE
+    _head_stamp.reserve(rows);
+#endif
     for (auto & [branch, versions] : _versionMaps) {
         versions.reserve(rows);
     }
@@ -849,6 +852,18 @@ void Database::removeBranches(const std::vector<branch_id_t> & branches) {
         }
         _branches.erase(branch);
     }
+}
+
+std::vector<uint32_t> Database::lineageLimits(branch_id_t reader) const {
+    std::vector<uint32_t> limits(_next_branch_id, 0);
+    limits[reader] = std::numeric_limits<uint32_t>::max();
+    for (branch_id_t current = reader; ; ) {
+        const branch_id_t parent = _branches.at(current)->parent_id;
+        if (parent == invalid_branch_id) break;
+        limits[parent] = current;
+        current = parent;
+    }
+    return limits;
 }
 
 void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx) {

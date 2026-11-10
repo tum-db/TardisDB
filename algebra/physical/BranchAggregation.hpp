@@ -55,6 +55,7 @@ public:
         std::vector<uint32_t> lo;
         std::vector<uint32_t> hi;
         std::vector<const std::unordered_map<branch_id_t, branch_id_t> *> lineages; // per position, set at run time
+        std::vector<uint32_t> minLimits;    // COMPILED_LINEAGE: per writer, the least limit of the readers
         std::vector<std::array<uint64_t, 2>> names; // the names of the branches in the order of the query, as SQL texts
     };
 

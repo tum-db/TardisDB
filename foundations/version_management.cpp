@@ -1,6 +1,7 @@
 #include "foundations/version_management.hpp"
 
 #include <atomic>
+#include <malloc.h>
 #include <mutex>
 
 #include <algorithm>
@@ -34,6 +35,11 @@ static bool is_visible(const T & elem, QueryContext & ctx) {
 }
 
 static std::atomic<size_t> version_count(0);
+static std::atomic<size_t> version_bytes(0); // as the allocator gave them (malloc_usable_size)
+
+size_t live_version_bytes() {
+    return version_bytes;
+}
 
 size_t live_versions() {
     return version_count;
@@ -50,10 +56,12 @@ static VersionedTupleStorage * create_chain_element(Table & table, size_t tuple_
     // every version holds all columns of the table (complete_tuple())
     storage->columns = table.getColumnCount();
     ++version_count;
+    version_bytes += malloc_usable_size(mem);
     return storage;
 }
 
 static void free_chain_element(const void * element) {
+    version_bytes -= malloc_usable_size(const_cast<void *>(element));
     std::free(const_cast<void *>(element));
     --version_count;
 }
@@ -69,6 +77,16 @@ inline const void * get_tuple_ptr(const VersionedTupleStorage * storage) {
 bool diff_scans_whole_table = false;
 
 // remembers that the branch wrote the tuple under its current identifier
+/// Sets what the compiled scans read of the head of the chain of tid: the identifier (and with
+/// COMPILED_LINEAGE the stamp) of the in-place version if it heads the chain, otherwise invalid.
+template<int order = __ATOMIC_RELAXED>
+static inline void store_head(Table & table, tid_t tid, const VersionEntry * head) {
+    __atomic_store_n(&table._head_ident[tid], head != nullptr ? head->ident : invalid_ident, order);
+#if COMPILED_LINEAGE
+    __atomic_store_n(&table._head_stamp[tid], head != nullptr ? lineage_stamp(head->branch_id, head->creation_ts) : invalid_stamp, order);
+#endif
+}
+
 static void record_write(Table & table, branch_id_t branch, tid_t tid, bool deleted = false) {
     if (is_marked_as_dangling_tid(tid)) {
         return;
@@ -124,6 +142,9 @@ tid_t insert_tuple(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & 
         std::lock_guard<std::mutex> lock(table._scanLatch);
         table._version_mgmt_column.push_back(std::move(entry));
         table._head_ident.push_back(version_entry->ident);
+#if COMPILED_LINEAGE
+        table._head_stamp.push_back(lineage_stamp(version_entry->branch_id, version_entry->creation_ts));
+#endif
         // only the inserting branch sees the in-place version, since its identifier has no descendants
         for (auto & [reader, versions] : table._versionMaps) {
             versions.push_back(reader == branch ? 0 : 1);
@@ -215,7 +236,7 @@ static void defer_in_place_write(tid_t tid, Native::Sql::SqlTuple & tuple, Table
         __atomic_store_n(&before->next, static_cast<const void *>(storage), __ATOMIC_RELEASE);
         break;
     }
-    __atomic_store_n(&table._head_ident[tid], invalid_ident, __ATOMIC_RELAXED);
+    store_head(table, tid, nullptr);
 
     std::lock_guard<std::mutex> lock(table._scanLatch);
     if (pending.tupleSize == 0) pending.tupleSize = tuple.getSize();
@@ -256,9 +277,9 @@ void finish_in_place_writes(Table & table, InPlaceWrites & pending) {
                 version_entry->next = head;
             } while (!__atomic_compare_exchange_n(&version_entry->first, &head, static_cast<void *>(version_entry), false,
                                                   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
-            __atomic_store_n(&table._head_ident[tid], ident, __ATOMIC_SEQ_CST);
+            store_head<__ATOMIC_SEQ_CST>(table, tid, version_entry);
             if (__atomic_load_n(&version_entry->first, __ATOMIC_SEQ_CST) != version_entry) {
-                __atomic_store_n(&table._head_ident[tid], invalid_ident, __ATOMIC_SEQ_CST);
+                store_head<__ATOMIC_SEQ_CST>(table, tid, nullptr);
             }
         }
     }
@@ -314,7 +335,7 @@ static void write_in_place(tid_t tid, Native::Sql::SqlTuple & tuple, Table & tab
         version_entry->branch_id = branch;
         version_entry->creation_ts = db.getLargestBranchId();
         version_entry->ident = db.getIdent(branch);
-        table._head_ident[tid] = version_entry->ident;
+        store_head(table, tid, version_entry);
 
         // new master
         update_master(tid, tuple, table);
@@ -366,7 +387,7 @@ static void prepend_version(tid_t tid, branch_id_t branch, Native::Sql::SqlTuple
         // prev, the element before the version entry, is read only under the exclusive latch of the table
         if (head == version_entry) version_entry->prev = storage;
         if (!is_marked_as_dangling_tid(tid)) {
-            __atomic_store_n(&table._head_ident[tid], invalid_ident, __ATOMIC_RELAXED);
+            store_head(table, tid, nullptr);
         }
     }
     index_tuple(table, branch, tid, tuple);
@@ -517,7 +538,8 @@ const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, Que
 }
 
 const void * get_latest_entry_of_reader(tid_t tid, Table & table, branch_id_t branchId, uint64_t reader_label,
-                                        const std::unordered_map<branch_id_t, branch_id_t> * lineage) {
+                                        const std::unordered_map<branch_id_t, branch_id_t> * lineage,
+                                        const uint32_t * limits) {
     if (branchId == master_branch_id) {
         return nullptr;
     }
@@ -526,6 +548,7 @@ const void * get_latest_entry_of_reader(tid_t tid, Table & table, branch_id_t br
 #if INTERVAL_VISIBILITY
         return db._identL[ident] <= reader_label && reader_label <= db._identR[ident];
 #else
+        if (limits != nullptr) return creation_ts < limits[branch];
         if (branch == branchId) return true;
         auto it = lineage->find(branch);
         return it != lineage->end() && creation_ts < it->second;
@@ -572,16 +595,48 @@ uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, boo
     const void * next = chain_head(version_entry);
     while (next != nullptr && !pending.empty()) {
         ident_t ident;
+        branch_id_t branch, creation_ts;
         const void * data;
         if (next == version_entry) {
             ident = version_entry->ident;
+            branch = version_entry->branch_id;
+            creation_ts = version_entry->creation_ts;
             data = nullptr;
         } else {
             const auto storage = static_cast<const VersionedTupleStorage *>(next);
             ident = storage->ident;
+            branch = storage->branch_id;
+            creation_ts = storage->creation_ts;
             data = get_tuple_ptr(storage);
         }
         next = chain_next(version_entry, next);
+#if COMPILED_LINEAGE
+        // without labels, the readers that see the version need not be adjacent: one test per waiting
+        // reader, giving runs of readers that see it and runs that wait for an older version
+        (void) ident;
+        rest.clear();
+        auto sees = [&](uint32_t p) { return creation_ts < set.limits[p * set.stride + branch]; };
+        for (auto [l, r] : pending) {
+            for (uint32_t p = l; p <= r; ) {
+                uint32_t q = p;
+                while (q <= r && sees(q)) ++q;
+                if (q > p) {
+                    ptrs[parts] = data;
+                    lo[parts] = p;
+                    hi[parts] = q - 1;
+                    ++parts;
+                }
+                uint32_t u = q;
+                while (u <= r && !sees(u)) ++u;
+                if (u > q) rest.emplace_back(q, u - 1);
+                p = u;
+            }
+        }
+        std::swap(pending, rest);
+        continue;
+#else
+        (void) branch; (void) creation_ts;
+#endif
         // the readers that see this version, unless a newer one shadows it: labels in [l, r]
         const uint32_t a = std::lower_bound(set.labels.begin(), set.labels.end(), db._identL[ident]) - set.labels.begin();
         const uint32_t b = std::upper_bound(set.labels.begin(), set.labels.end(), db._identR[ident]) - set.labels.begin();
@@ -1110,7 +1165,7 @@ static void unlink_versions(Table & table, tid_t tid, const std::unordered_set<c
         }
     }
     entry->first = kept.front();
-    table._head_ident[tid] = (entry->first == entry) ? entry->ident : invalid_ident;
+    store_head(table, tid, entry->first == entry ? entry : nullptr);
     for (const void * element : garbage) {
         free_chain_element(element);
     }

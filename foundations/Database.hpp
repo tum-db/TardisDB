@@ -25,6 +25,9 @@ constexpr branch_id_t invalid_branch_id = std::numeric_limits<branch_id_t>::max(
 /// identifier under which a branch writes; a fork gives the parent and the child a new one
 using ident_t = uint32_t;
 constexpr ident_t invalid_ident = std::numeric_limits<ident_t>::max();
+/// the writer and the time of a version in one word, for the compiled lineage test (COMPILED_LINEAGE)
+inline uint64_t lineage_stamp(uint32_t branch, uint32_t creation_ts) { return (uint64_t(branch) << 32) | creation_ts; }
+constexpr uint64_t invalid_stamp = std::numeric_limits<uint64_t>::max();
 
 using tid_t = size_t;
 using cg_tid_t = cg_size_t;
@@ -375,6 +378,10 @@ public:
     /// per tuple: the identifier of the in-place version if it heads the chain, otherwise invalid_ident;
     /// lets the compiled scan decide visibility without dereferencing the version entry
     std::vector<ident_t> _head_ident;
+#if COMPILED_LINEAGE
+    /// as _head_ident, the lineage_stamp() of the in-place version if it heads the chain, otherwise invalid_stamp
+    std::vector<uint64_t> _head_stamp;
+#endif
     /// per identifier: the tuples written under it (versions, deletes, inserts); two branches can
     /// differ only in tuples written under an identifier that is an ancestor of one of them only
     std::vector<std::vector<tid_t>> _writes;
@@ -471,6 +478,11 @@ public:
     /// are not reused. Versions are collected by drop_branches() in version_management.hpp.
     void removeBranches(const std::vector<branch_id_t> & branches);
     void constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx);
+    /// The lineage of a reader as a dense array over all branches: a version written by branch b at
+    /// creation_ts is visible to the reader iff creation_ts < limits[b]. limits[reader] is the
+    /// maximum, limits[a] of an ancestor a the branch id of its child on the path (forked after
+    /// everything a wrote before), and 0 for all other branches (COMPILED_LINEAGE).
+    std::vector<uint32_t> lineageLimits(branch_id_t reader) const;
 
     ident_t getIdent(branch_id_t branch) const { return _branches.at(branch)->ident; }
     /// \returns The branch that writes or wrote under the identifier

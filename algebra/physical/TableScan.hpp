@@ -27,6 +27,12 @@ public:
         size_t tuples;
         uint64_t label = 0;                                                      // interval visibility
         const std::unordered_map<branch_id_t, branch_id_t> * lineage = nullptr;  // otherwise; set at run time
+        std::vector<uint32_t> limits;                                            // COMPILED_LINEAGE
+    };
+
+    /// The lineageLimits() of the reader of a scan that does not run morsel-driven (COMPILED_LINEAGE)
+    struct LimitsState : public ExecutionResource {
+        std::vector<uint32_t> limits;
     };
 
     /// The candidates of an index probe; owned by the execution context

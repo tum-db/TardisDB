@@ -125,6 +125,9 @@ static const void * latest_entry(size_t tid, void * table, void * state, size_t 
     auto * s = static_cast<State *>(state);
 #if INTERVAL_VISIBILITY
     return get_latest_entry_of_reader(tid, *static_cast<Table *>(table), s->set.branches[position], s->set.labels[position], nullptr);
+#elif COMPILED_LINEAGE
+    return get_latest_entry_of_reader(tid, *static_cast<Table *>(table), s->set.branches[position], 0, nullptr,
+                                      s->set.limits.data() + position * s->set.stride);
 #else
     return get_latest_entry_of_reader(tid, *static_cast<Table *>(table), s->set.branches[position], 0, s->lineages[position]);
 #endif
@@ -211,7 +214,18 @@ void BranchAggregation::produce()
     }
     state.tuples = _table.size();
     state.workers = std::max<size_t>(1, Parallel::threads);
-#if INTERVAL_VISIBILITY
+#if COMPILED_LINEAGE
+    // the lineage of every reader as an array over the writers, and per writer the least of them: a
+    // version is read by all readers iff its time lies below it
+    state.set.stride = db._next_branch_id;
+    state.minLimits.assign(state.set.stride, std::numeric_limits<uint32_t>::max());
+    for (branch_id_t reader : state.set.branches) {
+        const auto limits = db.lineageLimits(reader);
+        state.set.limits.insert(state.set.limits.end(), limits.begin(), limits.end());
+        for (size_t b = 0; b < limits.size(); ++b) state.minLimits[b] = std::min(state.minLimits[b], limits[b]);
+    }
+#endif
+#if INTERVAL_VISIBILITY || COMPILED_LINEAGE
     state.perBranch = (Logical::BranchAggregation::_strategy == Logical::BranchAggregation::Strategy::PerBranch);
 #else
     // without labels, the readers of a version cannot be told by range tests
@@ -303,6 +317,19 @@ void BranchAggregation::genSharedScan(State & state, llvm::Value * begin, llvm::
         {
             // the in-place version heads the chain and its label contains the labels of all readers
             llvm::Value * readByAll = llvm::ConstantInt::getFalse(context);
+#if COMPILED_LINEAGE
+            if (headsKnown) {
+                // without labels: the in-place version heads the chain and its time lies below the
+                // limit of every reader
+                llvm::Value * stamp = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, rawPointer(_table._head_stamp.data(), i64Ty), tid.getValue())), sizeof(uint64_t));
+                llvm::Value * headIsInPlace = _codeGen->CreateICmpNE(stamp, llvm::ConstantInt::get(i64Ty, invalid_stamp));
+                llvm::Value * writer = _codeGen->CreateSelect(headIsInPlace, _codeGen->CreateLShr(stamp, 32), llvm::ConstantInt::get(i64Ty, 0));
+                llvm::Value * least = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, rawPointer(state.minLimits.data(), i32Ty), writer));
+                llvm::Value * covers = _codeGen->CreateICmpULT(_codeGen->CreateTrunc(stamp, i32Ty), least);
+                readByAll = _codeGen->CreateAnd(allPresent, _codeGen->CreateAnd(headIsInPlace, covers));
+            }
+            (void) db;
+#else
             if (headsKnown) {
                 llvm::Value * heads = rawPointer(_table._head_ident.data(), i32Ty);
                 llvm::Value * head = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, heads, tid.getValue())), sizeof(ident_t));
@@ -314,6 +341,7 @@ void BranchAggregation::genSharedScan(State & state, llvm::Value * begin, llvm::
                                                            _codeGen->CreateICmpULE(cg_size_t(state.set.labels.back()).getValue(), r));
                 readByAll = _codeGen->CreateAnd(allPresent, _codeGen->CreateAnd(headIsInPlace, covers));
             }
+#endif
 
             IfGen shared(readByAll);
             {
@@ -369,6 +397,12 @@ void BranchAggregation::genPerBranchScan(State & state, llvm::Value * begin, llv
     // the morsel belongs to the branch at _position
     llvm::Value * branch = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, rawPointer(state.set.branches.data(), i32Ty), _position));
     llvm::Value * isMaster = _codeGen->CreateICmpEQ(branch, llvm::ConstantInt::get(i32Ty, master_branch_id));
+#if COMPILED_LINEAGE
+    const bool headsKnown = _table.headsKnown();
+    // the limits of the reader at _position
+    llvm::Value * readerLimits = _codeGen->CreateGEP(i32Ty, rawPointer(state.set.limits.data(), i32Ty),
+                                                     _codeGen->CreateMul(_position, cg_size_t(state.set.stride).getValue()));
+#endif
 #if INTERVAL_VISIBILITY
     const bool headsKnown = _table.headsKnown();
     Database & db = _table.getDatabase();
@@ -393,6 +427,15 @@ void BranchAggregation::genPerBranchScan(State & state, llvm::Value * begin, llv
                 llvm::Value * r = _codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, rawPointer(db._identR.data(), i64Ty), ident));
                 llvm::Value * inPlace = _codeGen->CreateAnd(headIsInPlace,
                         _codeGen->CreateAnd(_codeGen->CreateICmpULE(l, readerLabel), _codeGen->CreateICmpULE(readerLabel, r)));
+                walk = _codeGen->CreateAnd(walk, _codeGen->CreateNot(inPlace));
+            }
+#elif COMPILED_LINEAGE
+            if (headsKnown) {
+                llvm::Value * stamp = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, rawPointer(_table._head_stamp.data(), i64Ty), tid.getValue())), sizeof(uint64_t));
+                llvm::Value * headIsInPlace = _codeGen->CreateICmpNE(stamp, llvm::ConstantInt::get(i64Ty, invalid_stamp));
+                llvm::Value * writer = _codeGen->CreateSelect(headIsInPlace, _codeGen->CreateLShr(stamp, 32), llvm::ConstantInt::get(i64Ty, 0));
+                llvm::Value * limit = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, readerLimits, writer));
+                llvm::Value * inPlace = _codeGen->CreateAnd(headIsInPlace, _codeGen->CreateICmpULT(_codeGen->CreateTrunc(stamp, i32Ty), limit));
                 walk = _codeGen->CreateAnd(walk, _codeGen->CreateNot(inPlace));
             }
 #endif

@@ -122,15 +122,20 @@ inline const void * const invisible_version = reinterpret_cast<const void *>(uin
 const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx);
 
 /// As get_latest_entry, but leaves the context unchanged, so that threads can share it. The reader is
-/// given by its label (interval visibility) or its lineage map (otherwise).
+/// given by its label (interval visibility), its lineageLimits() if not nullptr, or its lineage map.
 const void * get_latest_entry_of_reader(tid_t tid, Table & table, branch_id_t branchId, uint64_t reader_label,
-                                        const std::unordered_map<branch_id_t, branch_id_t> * lineage);
+                                        const std::unordered_map<branch_id_t, branch_id_t> * lineage,
+                                        const uint32_t * limits = nullptr);
 
 /// The branches read by a cross-branch query. Readers are kept in the order of their labels, so
 /// that the readers seeing a version form one range of positions.
 struct BranchSet {
     std::vector<branch_id_t> branches; // reader at position p
     std::vector<uint64_t> labels;      // label of the reader at position p, ascending
+#if COMPILED_LINEAGE
+    std::vector<uint32_t> limits;      // without labels: the lineageLimits() of the reader at position p, ...
+    size_t stride = 0;                 // ... at limits[p * stride]
+#endif
 };
 
 /// Splits the readers of a branch set by the version of tuple tid each of them sees, walking the
@@ -231,6 +236,9 @@ extern bool overwrite_own_versions;
 
 /// \returns The number of versions in chains (all tables of all databases)
 size_t live_versions();
+
+/// \returns The memory the versions in chains hold, as allocated
+size_t live_version_bytes();
 
 /// A branch gets a version map once this many scans of it were compiled (0: never)
 extern size_t version_map_after_scans;

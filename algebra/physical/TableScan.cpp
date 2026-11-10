@@ -52,7 +52,7 @@ static void * index_candidates(void * state)
 static const void * scan_latest_entry(size_t tid, void * state)
 {
     auto * s = static_cast<TableScan::ParallelState *>(state);
-    return get_latest_entry_of_reader(tid, *s->table, s->branch, s->label, s->lineage);
+    return get_latest_entry_of_reader(tid, *s->table, s->branch, s->label, s->lineage, s->limits.empty() ? nullptr : s->limits.data());
 }
 #endif
 
@@ -340,6 +340,9 @@ void TableScan::produceParallel()
 #if INTERVAL_VISIBILITY
     Database & db = table.getDatabase();
     _parallel->label = db._identL[db.getIdent(branchId)];
+#elif COMPILED_LINEAGE
+    // the branch tree does not change while the query runs
+    _parallel->limits = table.getDatabase().lineageLimits(branchId);
 #endif
     _context.executionContext.acquireResource(std::move(owned));
 
@@ -432,6 +435,44 @@ cg_voidptr_t TableScan::genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId
     llvm::Value * reader = cg_size_t(readerLabel).getValue();
     llvm::Value * inPlace = _codeGen->CreateAnd(headIsInPlace,
                             _codeGen->CreateAnd(_codeGen->CreateICmpULE(l, reader), _codeGen->CreateICmpULE(reader, r)));
+
+    IfGen slowPath(_codeGen.getCurrentFunctionGen(), _codeGen->CreateNot(inPlace), {{"latest", cg_size_t(0ul)}});
+    {
+        llvm::Value * result = genChainWalkCall(tid, branchId);
+        slowPath.setVar(0, _codeGen->CreatePtrToInt(result, i64Ty));
+    }
+    slowPath.EndIf();
+    return cg_voidptr_t( _codeGen->CreateIntToPtr(slowPath.getResult(0), i8PtrTy) );
+#elif COMPILED_LINEAGE
+    if (!table.headsKnown()) {
+        return cg_voidptr_t( genChainWalkCall(tid, branchId) );
+    }
+    // as with the labels: if the in-place version heads the chain and the reader sees it, the tuple
+    // is read in place (nullptr); the test is one lookup in the reader's limits, whose array is fixed
+    // when the query is compiled
+    auto & context = _codeGen.getLLVMContext();
+    llvm::Type * i8PtrTy = LLVMCompat::getInt8PtrTy(context);
+    llvm::Type * i32Ty = llvm::Type::getInt32Ty(context);
+    llvm::Type * i64Ty = llvm::Type::getInt64Ty(context);
+    const uint32_t * limits;
+    if (_parallel != nullptr) {
+        limits = _parallel->limits.data();
+    } else {
+        auto owned = std::make_unique<LimitsState>();
+        owned->limits = table.getDatabase().lineageLimits(branchId);
+        limits = owned->limits.data();
+        _context.executionContext.acquireResource(std::move(owned));
+    }
+
+    llvm::Value * stamps = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(table._head_stamp.data())).getValue(), llvm::PointerType::getUnqual(i64Ty));
+    // writers of other branches may store invalid_stamp meanwhile (prepend_version)
+    llvm::Value * stamp = LLVMCompat::makeMonotonic(_codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, stamps, tid.getValue())), sizeof(uint64_t));
+    llvm::Value * headIsInPlace = _codeGen->CreateICmpNE(stamp, llvm::ConstantInt::get(i64Ty, invalid_stamp));
+    llvm::Value * writer = _codeGen->CreateSelect(headIsInPlace, _codeGen->CreateLShr(stamp, 32), llvm::ConstantInt::get(i64Ty, 0));
+    llvm::Value * creationTs = _codeGen->CreateTrunc(stamp, i32Ty);
+    llvm::Value * limitsPtr = _codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(limits)).getValue(), llvm::PointerType::getUnqual(i32Ty));
+    llvm::Value * limit = _codeGen->CreateLoad(i32Ty, _codeGen->CreateGEP(i32Ty, limitsPtr, writer));
+    llvm::Value * inPlace = _codeGen->CreateAnd(headIsInPlace, _codeGen->CreateICmpULT(creationTs, limit));
 
     IfGen slowPath(_codeGen.getCurrentFunctionGen(), _codeGen->CreateNot(inPlace), {{"latest", cg_size_t(0ul)}});
     {
