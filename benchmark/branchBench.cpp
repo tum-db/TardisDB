@@ -190,10 +190,11 @@ static double membershipMiB(Database & db) {
 // the value of b per group.
 
 DEFINE_string(trace, "", "agentic mode: write the SQL statements to this file");
+DEFINE_string(memory, "", "agentic mode: write the memory after every round of beam and every snapshot and drop of bisect to this CSV file");
 
 struct Phases {
     // milliseconds; the phases without the compilation of their statements, which compile collects
-    double fork = 0, mutate = 0, evaluate = 0, resolve = 0, compile = 0;
+    double fork = 0, mutate = 0, evaluate = 0, resolve = 0, alter = 0, compile = 0;
     uint64_t statements = 0, forks = 0;
 };
 
@@ -221,12 +222,25 @@ public:
     void fork(const std::string & name, const std::string & parent) {
         sql("CREATE BRANCH " + name + " FROM " + parent + ";", ph.fork);
         _model[name] = _model.at(parent);
+        if (_scores.count(parent)) _scores[name] = _scores.at(parent);
         ++ph.forks;
     }
+    /// a column of the branch (and of the branches forked from it later): score, default 0
+    void addColumn(const std::string & name) {
+        sql("ALTER TABLE t VERSION " + name + " ADD COLUMN score INTEGER DEFAULT 0;", ph.alter);
+        _scores[name] = std::vector<int32_t>(_groups, 0);
+    }
+    /// b of one group, and score where the branch has the column
     void mutate(const std::string & name, std::mt19937_64 & rng) {
         const uint64_t group = rng() % _groups;
         const int32_t value = 1 + rng() % 999;
-        sql("UPDATE t VERSION " + name + " SET b = " + std::to_string(value) + " WHERE g = " + std::to_string(group) + ";", ph.mutate);
+        std::string set = "b = " + std::to_string(value);
+        if (_scores.count(name)) {
+            const int32_t score = rng() % 100;
+            set += ", score = " + std::to_string(score);
+            _scores[name][group] = score;
+        }
+        sql("UPDATE t VERSION " + name + " SET " + set + " WHERE g = " + std::to_string(group) + ";", ph.mutate);
         _model[name][group] = value;
     }
     /// sum(b) of each branch, checked against the model; one query for all
@@ -248,6 +262,7 @@ public:
     void merge(const std::string & source) {
         sql("MERGE BRANCH " + source + " INTO main;", ph.resolve);
         _model["main"] = _model.at(source);
+        if (_scores.count(source)) _scores["main"] = _scores.at(source); // MERGE takes the column over
     }
     /// main after the loop, outside the phases
     void checkMain() {
@@ -256,6 +271,15 @@ public:
         singleBranch = "main";
         sql("SELECT sum(b) FROM t VERSION main;", ignored, (void *) &collectSingle);
         check("main");
+        if (_scores.count("main")) {
+            branchSums.clear();
+            sql("SELECT sum(score) FROM t VERSION main;", ignored, (void *) &collectSingle);
+            int64_t expected = 0;
+            for (int32_t value : _scores.at("main")) expected += int64_t(value) * _groupSize;
+            if (branchSums["main"] != expected) {
+                throw std::runtime_error("main: sum of score " + std::to_string(branchSums["main"]) + ", expected " + std::to_string(expected));
+            }
+        }
     }
 
     Database & db() { return _db; }
@@ -283,6 +307,7 @@ private:
     Database _db;
     uint64_t _groups, _groupSize;
     std::map<std::string, std::vector<int32_t>> _model;
+    std::map<std::string, std::vector<int32_t>> _scores; // score per group, of the branches with the column
     std::ofstream _trace;
 };
 std::map<std::string, int64_t> Loop::branchSums;
@@ -315,6 +340,19 @@ static void agenticMode() {
     uint64_t maxDepth = 0;
     uint64_t counter = 0;
     auto newName = [&]() { return "x" + std::to_string(++counter); };
+    std::ofstream memory;
+    if (!FLAGS_memory.empty()) {
+        memory.open(FLAGS_memory);
+        memory << "step,event,gc,ms,versions,versions_mib,rss_mib,membership_mib" << std::endl;
+    }
+    uint64_t step = 0;
+    auto last = Clock::now();
+    auto traceMemory = [&](const std::string & event) {  // ms: the time since the previous event
+        if (!memory.is_open()) return;
+        memory << ++step << "," << event << "," << FLAGS_gc << "," << msSince(last) << "," << live_versions() << ","
+               << live_version_bytes() / (1024.0 * 1024.0) << "," << rssMiB() << "," << membershipMiB(loop.db()) << std::endl;
+        last = Clock::now();
+    };
     auto total = Clock::now();
 
     if (FLAGS_topology == "mcts") {
@@ -353,10 +391,14 @@ static void agenticMode() {
         loop.merge(tree[best].name);
         for (size_t c : tree[0].children) loop.drop(tree[c].name, true);
     } else if (FLAGS_topology == "beam") {
-        // each round forks width candidates from the current best, compares them in one query, keeps
-        // the best one and drops the others; the last best is merged into main
-        std::string base = "main";
-        std::string first;
+        // a workspace branch adds a column for the scores; each round forks width candidates from the
+        // current best, which write b and score, compares them in one query, keeps the best one and
+        // drops the others; the last best is merged into main, with the column
+        const std::string first = newName();
+        loop.comment("workspace with a column for the scores");
+        loop.fork(first, "main");
+        loop.addColumn(first);
+        std::string base = first;
         for (uint64_t round = 0; round < FLAGS_iterations; ++round) {
             loop.comment("round " + std::to_string(round + 1) + " from " + base);
             std::vector<std::string> candidates;
@@ -376,12 +418,13 @@ static void agenticMode() {
                 if (w != best) loop.drop(candidates[w]);
             }
             base = candidates[best];
-            if (first.empty()) first = base;
-            maxDepth = round + 1;
+            maxDepth = round + 2;
+            traceMemory("round " + std::to_string(round + 1));
         }
         loop.comment("resolve: keep " + base);
         loop.merge(base);
         loop.drop(first, true);
+        traceMemory("resolve");
     } else if (FLAGS_topology == "bisect") {
         // main advances through a history of snapshots; the agent bisects it for the first failing
         // snapshot, forking a probe from each tested snapshot that writes its fixtures and runs the test
@@ -391,6 +434,7 @@ static void agenticMode() {
             loop.fork(snap, "main");
             snapshots.push_back(snap);
             loop.mutate("main", rng);
+            traceMemory("snapshot " + std::to_string(i + 1));
         }
         const size_t failing = rng() % snapshots.size();
         size_t lo = 0, hi = snapshots.size() - 1;
@@ -405,7 +449,11 @@ static void agenticMode() {
             if (mid >= failing) hi = mid; else lo = mid + 1;
         }
         loop.comment("resolve: drop the snapshots");
-        for (auto & snap : snapshots) loop.drop(snap);
+        last = Clock::now();  // the probes are not traced
+        for (auto & snap : snapshots) {
+            loop.drop(snap);
+            traceMemory("drop " + snap);
+        }
         maxDepth = 2;
     } else {
         throw std::runtime_error("unknown topology");
@@ -415,11 +463,11 @@ static void agenticMode() {
 
     Database & db = loop.db();
     auto & ph = loop.ph;
-    std::cout << "topology,n,iterations,width,mutations,branches,max_depth,statements,fork_ms,mutate_ms,evaluate_ms,resolve_ms,compile_ms,total_ms,rss_mib,identifiers,relabels,membership_mib" << std::endl;
+    std::cout << "topology,n,iterations,width,mutations,branches,max_depth,statements,fork_ms,mutate_ms,evaluate_ms,resolve_ms,alter_ms,compile_ms,total_ms,rss_mib,identifiers,relabels,membership_mib,versions,versions_mib" << std::endl;
     std::cout << FLAGS_topology << "," << FLAGS_n << "," << FLAGS_iterations << "," << FLAGS_width << "," << FLAGS_mutations << ","
               << ph.forks << "," << maxDepth << "," << ph.statements << "," << ph.fork << "," << ph.mutate << "," << ph.evaluate << ","
-              << ph.resolve << "," << ph.compile << "," << totalMs << "," << rssMiB() << "," << db.getIdentCount() << "," << db.getRelabelCount() << ","
-              << membershipMiB(db) << std::endl;
+              << ph.resolve << "," << ph.alter << "," << ph.compile << "," << totalMs << "," << rssMiB() << "," << db.getIdentCount() << "," << db.getRelabelCount() << ","
+              << membershipMiB(db) << "," << live_versions() << "," << live_version_bytes() / (1024.0 * 1024.0) << std::endl;
 }
 
 // crossbranch mode ----------------------------------------------------------
@@ -813,7 +861,7 @@ static void cyclesMode() {
     Database db;
     Table & table = load(db, FLAGS_n);
     if (FLAGS_keep) QueryCompiler::compileAndExecute("CREATE BRANCH keep FROM master;", db);
-    std::cout << "cycle,n,frac,gc,keep,versions,rss_mib,membership_mib,drop_ms,cycle_ms,scan_main_ms" << std::endl;
+    std::cout << "cycle,n,frac,gc,keep,versions,versions_mib,rss_mib,membership_mib,drop_ms,cycle_ms,scan_main_ms" << std::endl;
     double dropMs = 0, cycleMs = 0;
     uint64_t since = 0;
     for (uint64_t cycle = 1; cycle <= FLAGS_iterations; ++cycle) {
@@ -829,7 +877,8 @@ static void cyclesMode() {
         ++since;
         if (cycle % 20 == 0 || cycle == FLAGS_iterations) {
             std::cout << cycle << "," << FLAGS_n << "," << FLAGS_frac << "," << FLAGS_gc << "," << FLAGS_keep << ","
-                      << live_versions() << "," << rssMiB() << "," << membershipMiB(db) << "," << dropMs / since << ","
+                      << live_versions() << "," << live_version_bytes() / (1024.0 * 1024.0) << "," << rssMiB() << ","
+                      << membershipMiB(db) << "," << dropMs / since << ","
                       << cycleMs / since << "," << scanMicros(db, "master") / 1000.0 << std::endl;
             dropMs = cycleMs = 0;
             since = 0;

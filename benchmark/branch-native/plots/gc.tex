@@ -1,0 +1,30 @@
+% garbage collection in bisect (lazy membership): (a) memory of the versions while main advances through
+% 256 snapshots and while the snapshots are dropped, (b) time of each drop over the tuples that main changed
+% since the fork of the snapshot; reads the CSVs from \datadir
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={group size=2 by 1, horizontal sep=1.1cm},
+  width=0.53\columnwidth, height=3.6cm,
+  tick label style={font=\scriptsize}, label style={font=\footnotesize},
+  title style={font=\footnotesize, yshift=-1ex},
+  every axis plot/.append style={thick, mark size=1.2pt, mark repeat=32}]
+\nextgroupplot[title={(a) Versions},
+  xmin=0, xmax=512, xtick={0,128,256,384,512},
+  ymin=0, ymax=16, xlabel={step}, ylabel={memory [MiB]},
+  legend to name=leggc, legend columns=2, legend style={font=\scriptsize, draw=none, /tikz/every even column/.append style={column sep=6pt}}, legend cell align=left]
+\draw[TUMGrau, densely dotted] (axis cs:256,0) -- (axis cs:256,16);
+\node[font=\scriptsize, TUMGrau, anchor=south east] at (axis cs:250,0.5) {snapshots};
+\node[font=\scriptsize, TUMGrau, anchor=south west] at (axis cs:262,0.5) {drops};
+\addplot[TUMGruenDunkel2, mark=triangle*, forget plot] table[x=step, y=versions_mib, col sep=comma] {\datadir/gc_bisect_lazy_gctrue.csv};
+\addplot[TUMOrange, dashed, mark=o, mark options={solid}] table[x=step, y=versions_mib, col sep=comma] {\datadir/gc_bisect_lazy_gcfalse.csv};
+\addlegendentry{no collection}
+\addlegendimage{TUMGruenDunkel2, mark=triangle*}
+\addlegendentry{collection}
+\nextgroupplot[title={(b) Drop Time},
+  xmin=0, xmax=256, xtick={0,64,128,192,256},
+  ymin=0, xlabel={tuples changed since fork [k]}, ylabel={time [ms]}]
+\addplot[TUMOrange, dashed, mark=o, mark options={solid}] table[x expr=513-\thisrow{step}, y=ms, col sep=comma, restrict x to domain=0:256] {\datadir/gc_bisect_lazy_gcfalse.csv};
+\addplot[TUMGruenDunkel2, mark=triangle*] table[x expr=513-\thisrow{step}, y=ms, col sep=comma, restrict x to domain=0:256] {\datadir/gc_bisect_lazy_gctrue.csv};
+\end{groupplot}
+\node[anchor=north] at ($(group c1r1.south)!0.5!(group c2r1.south) + (0,-0.75cm)$) {\ref{leggc}};
+\end{tikzpicture}

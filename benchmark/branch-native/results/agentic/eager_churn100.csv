@@ -1,0 +1,4 @@
+topology,n,iterations,width,mutations,branches,max_depth,fork_ms,mutate_ms,evaluate_ms,total_ms,eval_ms_avg,rss_mib,identifiers,relabels,churn,membership_mib
+mcts,1000000,500,4,1000,501,5,5284.64,731.786,4657.32,10677,9.31463,314.402,1001,0,100,64.0869
+beam,1000000,50,8,1000,401,50,4356.31,623.395,3587.26,8568.23,8.96816,294.719,801,13,100,63.4766
+bisect,1000000,256,8,1000,265,2,1646.77,356.101,57.2132,2060.24,7.15164,288.961,529,11,100,62.6465

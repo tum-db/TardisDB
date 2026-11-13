@@ -1,0 +1,60 @@
+diff -ru '--exclude=branchBench.cpp' -x .git -x benchmarkResults a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2026-10-27 17:46:26.814482515 +0100
++++ b/CMakeLists.txt	2026-10-30 17:48:42.974610752 +0100
+@@ -107,6 +107,8 @@
+ ##################
+ ### benchmark ####
+ ##################
++add_executable(branchBench benchmark/branchBench.cpp)
++target_link_libraries(branchBench dblib queryCompiler queryExecutor gflags pthread)
+ add_executable(semanticalBench benchmark/semanticalBench.cpp)
+ target_link_libraries(semanticalBench dblib queryCompiler queryExecutor gflags pthread)
+ if(LIBXML_AVAILABLE)
+@@ -184,6 +186,12 @@
+ 	target_compile_definitions(dblib PUBLIC -D USE_DATA_VERSIONING=true)
+ endif(USE_DATA_VERSIONING)
+ target_link_libraries(dblib semanticalAnalyser LLVM dl)
++if(HOIST_LINEAGE_COPY)
++	target_compile_definitions(dblib PUBLIC -D HOIST_LINEAGE_COPY=1)
++endif()
++if(DEFINED BRANCH_BITMAP_COLUMNS)
++	target_compile_definitions(dblib PUBLIC -D BRANCH_BITMAP_COLUMNS=${BRANCH_BITMAP_COLUMNS})
++endif()
+ if(USE_HYRISE)
+ 	target_compile_definitions(dblib PUBLIC -D USE_HYRISE=true)
+ 	target_link_libraries(dblib hyriselib)
+diff -ru '--exclude=branchBench.cpp' -x .git -x benchmarkResults a/foundations/Database.cpp b/foundations/Database.cpp
+--- a/foundations/Database.cpp	2026-10-27 17:46:26.829983838 +0100
++++ b/foundations/Database.cpp	2026-10-30 17:45:17.731007339 +0100
+@@ -13,8 +13,11 @@
+ //-----------------------------------------------------------------------------
+ // NullIndicatorColumn
+ 
++#ifndef BRANCH_BITMAP_COLUMNS
++#define BRANCH_BITMAP_COLUMNS 8
++#endif
+ BitmapTable::BitmapTable() :
+-        BitmapTable(8) // FIXME once resize() is implemented this will no longer be necessary
++        BitmapTable(BRANCH_BITMAP_COLUMNS) // FIXME once resize() is implemented this will no longer be necessary
+ { }
+ 
+ BitmapTable::BitmapTable(size_t columnCountHint)
+diff -ru '--exclude=branchBench.cpp' -x .git -x benchmarkResults a/foundations/version_management.cpp b/foundations/version_management.cpp
+--- a/foundations/version_management.cpp	2026-10-27 17:46:26.831482509 +0100
++++ b/foundations/version_management.cpp	2026-10-30 17:48:42.974325088 +0100
+@@ -269,8 +269,15 @@
+ }
+ 
+ const void *get_latest_entry(tid_t tid, Table & table, branch_id_t branchId, QueryContext & ctx) {
++#ifdef HOIST_LINEAGE_COPY
++    // benchmark variant: copy the lineage only when the scanned branch changes
++    if (ctx.executionContext.branchId != branchId) {
++#endif
+     ctx.executionContext.branchId = branchId;
+     ctx.executionContext.branch_lineage = ctx.executionContext.branch_lineages[branchId];
++#ifdef HOIST_LINEAGE_COPY
++    }
++#endif
+ 
+     if (branchId == master_branch_id) {
+         return nullptr;

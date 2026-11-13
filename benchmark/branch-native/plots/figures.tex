@@ -1,0 +1,42 @@
+% The figures of the paper's evaluation, one per page, from the CSVs in \datadir.
+% Built by plot.sh <results directory>; the paper inputs the same files.
+\documentclass[twocolumn,10pt]{article}
+% the column and text widths of IEEEtran (conference), so that the figures have the size of the paper
+\usepackage[letterpaper,textwidth=516pt,columnsep=12pt,textheight=9.25in]{geometry}
+\usepackage{times}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{tikz,pgfplots}
+\usetikzlibrary{arrows,positioning,calc,fit,shapes.geometric,decorations.pathreplacing}
+\usepgfplotslibrary{groupplots}
+\pgfplotsset{compat=1.17}
+\usepackage[caption=false,font=footnotesize]{subfig}
+\usepackage{listings}
+\definecolor{TUMBlau}{RGB}{0,101,189}
+\definecolor{TUMBlauDunkel}{RGB}{0,82,147}
+\definecolor{TUMBlauHell}{RGB}{152,198,234}
+\definecolor{TUMElfenbein}{RGB}{218,215,203}
+\definecolor{TUMGruenDunkel2}{HTML}{169100}
+\definecolor{TUMOrange}{RGB}{243,145,0}
+\definecolor{TUMGrau}{gray}{0.6}
+\pagestyle{empty}
+\begin{document}
+\begin{figure*}[p]
+\centering
+\input{lineage.tex}%
+\subfloat[chain]{\scalebox{1.3}{\lineagechain}}\hfill
+\subfloat[fan-out]{\scalebox{1.3}{\lineagefan}}\hfill
+\subfloat[mcts]{\scalebox{1.3}{\lineagemcts}}\hfill
+\subfloat[beam]{\scalebox{1.3}{\lineagebeam}}\hfill
+\subfloat[bisect]{\scalebox{1.3}{\lineagebisect}}
+\caption{Branch trees of the benchmarks.}
+\end{figure*}
+\clearpage
+\begin{figure}[p]\centering\input{depth.tex}\caption{Chain: scan of the leaf over the depth.}\end{figure}
+\begin{figure}[p]\centering\input{crossbranch.tex}\caption{Fan-out: sum per branch over $k$ branches.}\end{figure}
+\clearpage
+\begin{figure}[p]\centering\input{loops.tex}\caption{Loops: time per phase.}\end{figure}
+\begin{figure}[p]\centering\input{scaling.tex}\caption{Scaling over threads.}\end{figure}
+\begin{figure}[p]\centering\input{gc.tex}\caption{Garbage collection in bisect: versions over the snapshots and drops, time of each drop.}\end{figure}
+% only after compare/run.sh into the same directory
+\IfFileExists{\datadir/compare_loops.csv}{\begin{figure}[p]\centering\input{compare.tex}\caption{TardisDB and Dolt through their servers.}\end{figure}}{}
+\end{document}

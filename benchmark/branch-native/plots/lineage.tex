@@ -1,0 +1,83 @@
+% branch trees of the benchmarks: forks (grey arrows), branches an evaluation reads (shaded),
+% branches dropped within the loop (dashed), the merge of the result into main (orange)
+\tikzset{lnfig/.style={
+  x=1cm,y=1cm,>=stealth,
+  br/.style={circle,draw,minimum size=0.26cm,inner sep=0pt,font=\tiny,fill=white},
+  root/.style={rectangle,rounded corners=1pt,draw=TUMBlauDunkel,fill=TUMBlauDunkel,text=white,font=\tiny\sffamily,inner sep=1.5pt},
+  rd/.style={br,fill=TUMBlauHell},
+  gone/.style={br,dashed,draw=TUMGrau,fill=TUMBlauHell!35},
+  fk/.style={->,TUMGrau},
+  mg/.style={->,thick,TUMOrange},
+  mgl/.style={font=\tiny\sffamily,text=TUMOrange},
+  note/.style={font=\tiny,text=TUMGrau,align=center}
+}}
+% (a) chain of depth D
+\def\lineagechain{%
+\begin{tikzpicture}[lnfig]
+  \path[use as bounding box] (-0.55,-2.15) rectangle (2.2,0.25);
+  \node[root] (m) at (0,0) {main};
+  \node[br] (b1) at (0,-0.55) {};
+  \node[br] (b2) at (0,-1.05) {};
+  \node[rd] (bD) at (0,-1.95) {};
+  \draw[fk] (m) -- (b1); \draw[fk] (b1) -- (b2);
+  \draw[fk,dotted] (b2) -- (bD);
+  \node[note,anchor=west] at (0.3,-0.8) {after each fork,\\the new branch and\\\textsf{main} update $1\,\%$};
+  \node[note,anchor=west] at (0.3,-1.95) {scan of $b_D$};
+  \node[note,anchor=east] at (-0.15,-1.95) {$b_D$};
+  \node[note,anchor=east] at (-0.15,-0.55) {$b_1$};
+\end{tikzpicture}}
+% (b) fan-out of k siblings
+\def\lineagefan{%
+\begin{tikzpicture}[lnfig]
+  \path[use as bounding box] (-1.2,-2.3) rectangle (1.2,0.25);
+  \node[root] (m) at (0,0) {main};
+  \foreach \i/\x in {1/-0.9,2/-0.5,3/-0.1}{\node[rd] (b\i) at (\x,-0.9) {}; \draw[fk] (m) -- (b\i);}
+  \node[note] at (0.35,-0.9) {$\cdots$};
+  \node[rd] (bk) at (0.8,-0.9) {}; \draw[fk] (m) -- (bk);
+  \draw[decorate,decoration={brace,mirror,amplitude=3pt},TUMGrau] (-1.0,-1.1) -- (0.9,-1.1);
+  \node[note] at (-0.05,-1.65) {$k$ branches, each\\updates $1\,\%$ or $0.1\,\%$;\\one query sums $b$\\per branch};
+\end{tikzpicture}}
+% (c) Monte Carlo tree search, width 4
+\def\lineagemcts{%
+\begin{tikzpicture}[lnfig]
+  \path[use as bounding box] (-1.2,-2.15) rectangle (1.4,0.25);
+  \node[root] (m) at (0,0) {main};
+  \foreach \i/\x in {1/-0.9,2/-0.45,3/0.0,4/0.45}{\node[rd] (c\i) at (\x,-0.6) {}; \draw[fk] (m) -- (c\i);}
+  \foreach \i/\x in {1/-0.6,2/-0.2,3/0.2,4/0.6}{\node[rd] (d\i) at (\x,-1.2) {}; \draw[fk] (c3) -- (d\i);}
+  \node[rd] (e1) at (0.0,-1.8) {}; \draw[fk] (d3) -- (e1);
+  \node[rd,draw=TUMOrange,thick] (e2) at (0.4,-1.8) {}; \draw[fk] (d3) -- (e2);
+  \draw[mg] (e2) to[out=0,in=0,looseness=1.6] (m);
+  \node[mgl,anchor=west] at (0.55,-2.05) {MERGE};
+  \node[note] at (-0.75,-1.75) {each node:\\fork, update,\\sum};
+\end{tikzpicture}}
+% (d) beam search: a workspace adds a column; W candidates per round, the best one continues
+\def\lineagebeam{%
+\begin{tikzpicture}[lnfig]
+  \path[use as bounding box] (-1.6,-2.15) rectangle (1.4,0.25);
+  \node[root] (m) at (0,0) {main};
+  \node[br,fill=TUMBlauDunkel!25] (w) at (0,-0.45) {};
+  \draw[fk] (m) -- (w);
+  \node[note,anchor=west,text=TUMBlauDunkel] at (0.17,-0.45) {$w$: \textsf{+ score}};
+  \foreach \r/\y/\best in {1/-0.95/2, 2/-1.45/0, 3/-1.95/3}{
+    \foreach \i/\x in {0/-0.75,1/-0.25,2/0.25,3/0.75}{
+      \ifnum\i=\best \node[rd] (k\r) at (\x,\y) {};
+      \else \node[gone] at (\x,\y) {};\fi}
+  }
+  \foreach \x in {-0.75,-0.25,0.25,0.75}{\draw[fk] (w) -- (\x,-0.82); \draw[fk] (k1) -- (\x,-1.32); \draw[fk] (k2) -- (\x,-1.82);}
+  \draw[mg] (k3) to[out=0,in=0,looseness=1.7] (m);
+  \node[mgl,anchor=west] at (0.9,-2.05) {MERGE};
+  \node[note,anchor=east] at (-0.95,-1.45) {$W$ per\\round,\\one query};
+\end{tikzpicture}}
+% (e) bisection over a history of snapshots of main
+\def\lineagebisect{%
+\begin{tikzpicture}[lnfig]
+  \path[use as bounding box] (-0.35,-2.15) rectangle (2.3,0.55);
+  \node[root] (m) at (0,0) {main};
+  \draw[->,TUMBlauDunkel,thick] (m.east) -- (2.25,0);
+  \foreach \i/\x in {1/0.55,2/0.9,3/1.25,4/1.6,5/1.95}{\node[br] (s\i) at (\x,-0.6) {}; \draw[fk] (\x,0) -- (s\i);}
+  \node[gone] (p1) at (1.25,-1.2) {}; \draw[fk] (s3) -- (p1);
+  \node[gone] (p2) at (0.9,-1.2) {}; \draw[fk] (s2) -- (p2);
+  \node[note] at (1.075,-1.5) {2nd\quad 1st};
+  \node[note] at (1.4,0.3) {snapshots; \textsf{main}\\updates after each};
+  \node[note,anchor=west] at (1.45,-1.2) {probes: fork,\\update, sum,\\drop};
+\end{tikzpicture}}

@@ -1,0 +1,2 @@
+system,trace,statements,fork_ms,update_ms,alter_ms,commit_ms,evaluate_ms,drop_ms,merge_ms,total_ms
+tardisdb,trace_bisect.sql,801,2883.2,2485.9,0.0,0.0,60.3,14719.5,0.0,20169.4

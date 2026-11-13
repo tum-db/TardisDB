@@ -1,0 +1,2 @@
+system,trace,statements,fork_ms,update_ms,alter_ms,commit_ms,evaluate_ms,drop_ms,merge_ms,total_ms
+dolt,trace_beam.sql,1206,664.5,152445.4,2742.1,976.9,58754.4,1059.1,1.3,216678.8

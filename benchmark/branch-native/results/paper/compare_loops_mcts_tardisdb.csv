@@ -1,0 +1,2 @@
+system,trace,statements,fork_ms,update_ms,alter_ms,commit_ms,evaluate_ms,drop_ms,merge_ms,total_ms
+tardisdb,trace_mcts.sql,1506,6795.8,25326.4,0.0,0.0,4992.1,5331.5,35.2,42524.7

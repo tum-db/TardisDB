@@ -1,0 +1,2 @@
+system,trace,statements,fork_ms,update_ms,alter_ms,commit_ms,evaluate_ms,drop_ms,merge_ms,total_ms
+dolt,trace_bisect.sql,801,1112.2,108809.0,0.0,698.3,1960.7,542.4,0.0,113151.4
