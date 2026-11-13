@@ -1,0 +1,8 @@
+depth,n,frac,scan_leaf_ms,scan_main_ms,leaf_mtuples_per_s,main_mtuples_per_s,rss_mib,identifiers,relabels
+1,1000000,0.01,1.344,0.674,744.048,1483.68,179.953,3,0
+16,1000000,0.01,4.907,0.67,203.791,1492.54,197.859,33,0
+128,1000000,0.01,11.061,0.8,90.4077,1250,333.262,257,11
+k,n,frac,mainfrac,aggregates,threads,divergent_frac,separate_ms,perbranch_ms,shared_ms,rss_mib
+16,1000000,0.01,0,"sum(b)",18,0.14793,61.032,31.161,5.861,189.332
+64,1000000,0.01,0,"sum(b)",18,0.473015,568.049,349.321,18.187,237.473
+256,1000000,0.01,0,"sum(b)",18,0.922873,nan,nan,47.917,400.688

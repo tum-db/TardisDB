@@ -1,0 +1,10 @@
+row,topology,build,branches,statements,label,runs,membership_mib,rss_mib,fork_s,mutate_s,evaluate_s,resolve_s,alter_s,compile_s,total_s,mutatealter_s
+0,mcts,lineage,500,1506,mcts: recursive,3,61.035,303.8,7.445,31.804,4.041,4.816,0.0,2.205,50.358,31.804
+1,mcts,interval,500,1506,mcts: labels,3,61.035,303.9,7.304,25.595,3.652,5.14,0.0,2.458,43.693,25.595
+2,mcts,lazy,500,1506,mcts: lazy,3,1.0,243.9,0.021,23.757,3.206,0.347,0.0,2.466,29.812,23.757
+3,beam,lineage,401,1206,beam: recursive,3,61.035,311.8,4.587,11.134,1.791,4.061,0.006,0.814,22.402,11.14
+4,beam,interval,401,1206,beam: labels,3,61.035,311.9,4.095,5.484,0.115,3.83,0.005,0.813,14.304,5.489
+5,beam,lazy,401,1206,beam: lazy,3,1.0,251.9,0.007,5.005,0.096,0.43,0.004,0.763,6.308,5.009
+6,bisect,lineage,264,801,bisect: recursive,3,61.035,284.1,2.624,1.825,0.051,15.201,0.0,0.557,20.208,1.825
+7,bisect,interval,264,801,bisect: labels,3,61.035,284.1,2.814,1.796,0.039,15.653,0.0,0.57,20.574,1.796
+8,bisect,lazy,264,801,bisect: lazy,3,1.0,224.2,0.005,1.783,0.029,13.408,0.0,0.548,15.45,1.783

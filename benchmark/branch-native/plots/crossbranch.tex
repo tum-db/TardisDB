@@ -1,0 +1,31 @@
+% sum per branch over k branches forked from main (fan-out benchmark); reads the CSVs from \datadir
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={group size=2 by 1, horizontal sep=0.25cm, y descriptions at=edge left},
+  width=0.585\columnwidth, height=3.6cm,
+  xmode=log, log basis x=2, ymode=log,
+  ymin=0.5, ymax=20000,
+  xtick={1,4,16,64,256,1024}, xticklabels={1,4,16,64,256,1\,k},
+  xlabel={branches $k$}, ylabel={query time [ms]},
+  unbounded coords=discard,
+  tick label style={font=\scriptsize}, label style={font=\footnotesize},
+  title style={font=\footnotesize, yshift=-1ex},
+  every axis plot/.append style={thick, mark size=1.2pt}]
+\nextgroupplot[title={(a) $1\,\%$ updates per branch},
+  legend to name=legcb, legend columns=2, legend style={font=\scriptsize, draw=none, /tikz/every even column/.append style={column sep=6pt}}, legend cell align=left]
+\addplot[TUMBlau, mark=square*] table[x=k, y=perbranch_ms, col sep=comma] {\datadir/mt18_cb_interval_frac0.01.csv};
+\addlegendentry{one query, $k$ scans}
+\addplot[TUMGruenDunkel2, mark=triangle*] table[x=k, y=shared_ms, col sep=comma] {\datadir/mt18_cb_interval_frac0.01.csv};
+\addlegendentry{branch-shared scan}
+\addplot[TUMGruenDunkel2, dashed, mark=triangle, mark options={solid}] table[x=k, y=shared_ms, col sep=comma] {\datadir/mt18_cb_clineage_frac0.01.csv};
+\addlegendentry{branch-shared scan, compiled recursive visibility}
+\addplot[TUMOrange, dashed, mark=o, mark size=1.8pt, mark options={solid}] table[x=k, y=separate_ms, col sep=comma] {\datadir/mt18_cb_interval_frac0.01.csv};
+\addlegendentry{$k$ queries}
+\nextgroupplot[title={(b) $0.1\,\%$ updates per branch}]
+\addplot[TUMBlau, mark=square*] table[x=k, y=perbranch_ms, col sep=comma] {\datadir/mt18_cb_interval_frac0.001.csv};
+\addplot[TUMGruenDunkel2, mark=triangle*] table[x=k, y=shared_ms, col sep=comma] {\datadir/mt18_cb_interval_frac0.001.csv};
+\addplot[TUMGruenDunkel2, dashed, mark=triangle, mark options={solid}] table[x=k, y=shared_ms, col sep=comma] {\datadir/mt18_cb_clineage_frac0.001.csv};
+\addplot[TUMOrange, dashed, mark=o, mark size=1.8pt, mark options={solid}] table[x=k, y=separate_ms, col sep=comma] {\datadir/mt18_cb_interval_frac0.001.csv};
+\end{groupplot}
+\node[anchor=north] at ($(group c1r1.south)!0.5!(group c2r1.south) + (0,-0.75cm)$) {\ref{legcb}};
+\end{tikzpicture}

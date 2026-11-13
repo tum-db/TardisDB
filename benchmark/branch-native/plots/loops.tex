@@ -1,0 +1,23 @@
+% time per phase of the agent loops, the phases without compilation, which is a segment of its own, (mcts, beam, bisect) with recursive visibility, with interval labels, and with labels and lazy membership;
+% reads \datadir/loops.csv
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.88\columnwidth, height=5.4cm,
+  xbar stacked, bar width=5pt, table/col sep=comma,
+  xmin=0, xlabel={time [s]},
+  ytick={0,...,8}, yticklabels from table={\datadir/loops.csv}{label}, y dir=reverse,
+  enlarge y limits={abs=0.6},
+  tick label style={font=\scriptsize}, label style={font=\footnotesize},
+  legend columns=5, legend style={font=\scriptsize, draw=none, at={(0.5,-0.24)}, anchor=north, /tikz/every even column/.append style={column sep=6pt}}, legend cell align=left]
+\addplot[fill=TUMBlauDunkel, draw=none] table[y=row, x=fork_s, col sep=comma] {\datadir/loops.csv};
+\addlegendentry{fork}
+\addplot[fill=TUMOrange, draw=none] table[y=row, x=mutatealter_s, col sep=comma] {\datadir/loops.csv};
+\addlegendentry{update, alter}
+\addplot[fill=TUMGruenDunkel2, draw=none] table[y=row, x=evaluate_s, col sep=comma] {\datadir/loops.csv};
+\addlegendentry{evaluate}
+\addplot[fill=TUMGrau, draw=none] table[y=row, x=resolve_s, col sep=comma] {\datadir/loops.csv};
+\addlegendentry{drop, merge}
+\addplot[fill=TUMBlauHell, draw=none] table[y=row, x=compile_s, col sep=comma] {\datadir/loops.csv};
+\addlegendentry{compilation}
+\end{axis}
+\end{tikzpicture}

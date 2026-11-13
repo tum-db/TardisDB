@@ -1,0 +1,4 @@
+depth,n,frac,scan_leaf_ms,scan_main_ms,leaf_mtuples_per_s,main_mtuples_per_s,rss_mib,identifiers,relabels,version_map_ms
+1,1000000,0.01,6.632,0.834,150.784,1199.04,205.465,3,0,0
+16,1000000,0.01,10.935,0.728,91.4495,1373.63,225.621,33,0,0
+128,1000000,0.01,18.64,1.105,53.6481,904.977,348.859,257,11,0

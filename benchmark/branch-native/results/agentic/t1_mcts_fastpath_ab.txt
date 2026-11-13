@@ -1,0 +1,7 @@
+MCTS (1M tuples, 500 iterations, width 4, 1000 mutations), core 8, two runs each:
+variant                                   fork_ms  mutate_ms  evaluate_ms  total_ms  eval_ms_avg
+interval, fast path reads VersionEntry    3440.9   498.4      18824.4      22766.6   37.65
+interval, fast path reads VersionEntry    3293.2   483.3      18669.7      22448.8   37.34
+interval, fast path reads _head_ident     3301.4   484.9      24475.2      28264.3   48.95
+interval, fast path reads _head_ident     3296.0   485.2      24376.9      28161.1   48.75
+lineage map (copy fixed), three runs:     eval_ms_avg 53.28, 53.12, 52.79

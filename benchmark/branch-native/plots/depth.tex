@@ -1,0 +1,33 @@
+% scan of the leaf of a branch chain over its depth (chain benchmark); reads the CSVs from \datadir
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={group size=2 by 1, horizontal sep=0.25cm, y descriptions at=edge left},
+  width=0.6\columnwidth, height=3.6cm,
+  xmode=log, log basis x=2, ymode=log,
+  ytick={1,10}, yticklabels={1,10}, ymin=0.4, ymax=30,
+  xtick={1,4,16,64,256}, xticklabels={1,4,16,64,256},
+  xlabel={depth $D$}, ylabel={scan time [ms]},
+  tick label style={font=\scriptsize}, label style={font=\footnotesize},
+  title style={font=\footnotesize, yshift=-1ex},
+  every axis plot/.append style={thick, mark size=1.2pt}]
+\nextgroupplot[title={(a) no updates},
+  legend to name=legexp, legend columns=3, legend style={font=\scriptsize, draw=none, /tikz/every even column/.append style={column sep=6pt}}, legend cell align=left]
+\addplot[TUMBlau, mark=square*] table[x=depth, y=scan_leaf_ms, col sep=comma] {\datadir/mt18_lineage_frac0.csv};
+\addlegendentry{recursive visibility}
+\addplot[TUMGruenDunkel2, mark=triangle*] table[x=depth, y=scan_leaf_ms, col sep=comma] {\datadir/mt18_interval_frac0.csv};
+\addlegendentry{interval labels}
+\addplot[TUMBlau, dashed, mark=square, mark options={solid}] table[x=depth, y=scan_leaf_ms, col sep=comma] {\datadir/mt18_clineage_frac0.csv};
+\addlegendentry{recursive visibility, compiled}
+\addlegendimage{TUMOrange, mark=*}
+\addlegendentry{version map}
+\addplot[black, mark=none] table[x=depth, y=scan_main_ms, col sep=comma] {\datadir/mt18_interval_frac0.csv};
+\addlegendentry{scan of \textsf{main}}
+\nextgroupplot[title={(b) $1\,\%$ updates per fork}]
+\addplot[TUMBlau, mark=square*] table[x=depth, y=scan_leaf_ms, col sep=comma] {\datadir/mt18_lineage_frac0.01.csv};
+\addplot[TUMGruenDunkel2, mark=triangle*] table[x=depth, y=scan_leaf_ms, col sep=comma] {\datadir/mt18_interval_frac0.01.csv};
+\addplot[TUMBlau, dashed, mark=square, mark options={solid}] table[x=depth, y=scan_leaf_ms, col sep=comma] {\datadir/mt18_clineage_frac0.01.csv};
+\addplot[TUMOrange, mark=*] table[x=depth, y=scan_leaf_ms, col sep=comma] {\datadir/mt18_interval_vmap_frac0.01.csv};
+\addplot[black, mark=none] table[x=depth, y=scan_main_ms, col sep=comma] {\datadir/mt18_interval_frac0.01.csv};
+\end{groupplot}
+\node[anchor=north] at ($(group c1r1.south)!0.5!(group c2r1.south) + (0,-0.75cm)$) {\ref{legexp}};
+\end{tikzpicture}

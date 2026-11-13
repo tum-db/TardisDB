@@ -1,0 +1,2 @@
+system,trace,statements,fork_ms,update_ms,alter_ms,commit_ms,evaluate_ms,drop_ms,merge_ms,total_ms
+dolt,trace_mcts.sql,1506,5535.2,345593.5,0.0,1274.2,85738.3,590.6,11.1,438788.5

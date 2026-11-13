@@ -1,0 +1,2 @@
+n,threads,frac,add_column_ms,scan_main_ms,scan_b_ms,scan_b_added_ms,scan_b_added_updated_ms
+1000000,18,0.01,5.51363,0.597,1.317,1.188,1.127

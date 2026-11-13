@@ -1,0 +1,2 @@
+system,trace,statements,fork_ms,update_ms,alter_ms,commit_ms,evaluate_ms,drop_ms,merge_ms,total_ms
+tardisdb,trace_beam.sql,1206,4559.8,7018.0,8.2,0.0,264.2,3790.0,358.4,16030.2
