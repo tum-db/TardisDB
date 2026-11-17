@@ -44,18 +44,35 @@ except psycopg2.Error as e:
 cur.execute("select id from k where id = 4")
 assert cur.fetchall() == [(4,)]
 
-# without autocommit: psycopg2 sends BEGIN before the first statement
+# without autocommit: psycopg2 sends BEGIN before the first statement, and the block is a transaction
 c2 = psycopg2.connect(dsn)
 cur2 = c2.cursor()
 cur2.execute("select count(*) from k")
 print("psycopg2 in a block:", cur2.fetchone())
 c2.commit()
 cur2.execute("insert into k (id, name, amount, at) values (6, 'six', 6.00, '2025-01-06 00:00:00')")
+cur.execute("select count(*) from k")
+assert cur.fetchone()[0] == 5  # not before the commit
+c2.rollback()
+cur.execute("select count(*) from k")
+assert cur.fetchone()[0] == 5
+# of two writes of a tuple, the second to commit fails
+cur2.execute("update k set amount = 1.00 where id = 5")
+cur.execute("update k set amount = 2.00 where id = 5")
 try:
-    c2.rollback()
-    raise AssertionError("ROLLBACK after a write must fail")
+    c2.commit()
+    raise AssertionError("the second writer of a tuple must not commit")
 except psycopg2.Error as e:
-    print("psycopg2 rollback after a write:", e.pgcode)
+    assert e.pgcode == "40001", e.pgcode
+    print("psycopg2 commit after a concurrent update:", e.pgcode)
+    c2.rollback()
+cur2.execute("insert into k (id, name, amount, at) values (6, 'six', 6.00, '2025-01-06 00:00:00')")
+c2.commit()
+cur.execute("select count(*) from k")
+assert cur.fetchone()[0] == 6
+cur.execute("select amount from k where id = 5")
+assert cur.fetchone()[0] == decimal.Decimal("2.00")
+cur.execute("delete from k where id = 6")
 
 # psycopg 3: extended protocol with server-side parameters
 with psycopg.connect(dsn + " options='-c branch=dev'", autocommit=True) as c3:

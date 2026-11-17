@@ -177,12 +177,13 @@ void BranchMembership::removeBranch(branch_id_t branch)
 #endif
 }
 
-void BranchMembership::removeEntries(const std::vector<bool> & droppedIdents)
+void BranchMembership::removeEntries(const std::unordered_set<ident_t> & droppedIdents)
 {
+    if (droppedIdents.empty()) return;
     for (auto it = _entries.begin(); it != _entries.end(); ) {
         auto & entries = it->second;
         entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const Entry & entry) {
-            return droppedIdents[entry.ident];
+            return droppedIdents.count(entry.ident) > 0;
         }), entries.end());
         if (entries.empty()) {
             _states[it->first] &= ~diverged;
@@ -191,6 +192,25 @@ void BranchMembership::removeEntries(const std::vector<bool> & droppedIdents)
             ++it;
         }
     }
+}
+
+void BranchMembership::retagEntries(tid_t tid, ident_t from, ident_t to)
+{
+#if LAZY_MEMBERSHIP
+    auto it = _entries.find(tid);
+    if (it == _entries.end()) return;
+    auto & entries = it->second;
+    auto source = std::find_if(entries.begin(), entries.end(), [&](const Entry & entry) { return entry.ident == from; });
+    if (source == entries.end()) return;
+    auto target = std::find_if(entries.begin(), entries.end(), [&](const Entry & entry) { return entry.ident == to; });
+    if (target != entries.end()) {
+        // the entry of the child is the newer one
+        target->value = source->value;
+        entries.erase(source);
+    } else {
+        source->ident = to;
+    }
+#endif
 }
 
 void BranchMembership::addRow(branch_id_t branch)
@@ -571,6 +591,13 @@ void Table::removeBranch(branch_id_t branch)
     _schemas.erase(branch);
 }
 
+void Table::retagColumns(ident_t from, ident_t to)
+{
+    for (auto & [ci, vec] : _columns) {
+        if (ci->branchLocal && ci->addedUnder == from) ci->addedUnder = to;
+    }
+}
+
 void Table::addRow(branch_id_t branchId)
 {
     appendRow(branchId);
@@ -826,11 +853,8 @@ std::vector<branch_id_t> Database::getSubtree(branch_id_t branch) const {
     return subtree;
 }
 
-void Database::removeBranches(const std::vector<branch_id_t> & branches) {
-    std::vector<bool> droppedIdents(_identBranch.size(), false);
-    for (ident_t ident = 0; ident < _identBranch.size(); ++ident) {
-        droppedIdents[ident] = std::find(branches.begin(), branches.end(), _identBranch[ident]) != branches.end();
-    }
+void Database::removeBranches(const std::vector<branch_id_t> & branches, const std::vector<ident_t> & idents) {
+    const std::unordered_set<ident_t> droppedIdents(idents.begin(), idents.end());
     for (auto & [name, table] : _tables) {
         for (branch_id_t branch : branches) {
             table->getMembership().removeBranch(branch);
@@ -851,6 +875,9 @@ void Database::removeBranches(const std::vector<branch_id_t> & branches) {
             it = (it->second == branch) ? _branchMapping.erase(it) : std::next(it);
         }
         _branches.erase(branch);
+    }
+    for (ident_t ident : idents) {
+        freeIdent(ident);
     }
 }
 
@@ -896,16 +923,29 @@ void Database::constructBranchLineage(branch_id_t branch, ExecutionContext & dst
 }
 
 ident_t Database::newIdent(ident_t parent) {
-    ident_t id = static_cast<ident_t>(_identParent.size());
-    _identParent.push_back(parent);
-    _identBranch.push_back(invalid_branch_id); // set by createBranch()
-    _identL.push_back(0);
-    _identR.push_back(0);
-    _identNextFree.push_back(0);
-    // writers of different branches record their writes at the same time, each in the list of its own
-    // identifier: the lists exist before any write
-    for (auto & [name, table] : _tables) {
-        if (table->_writes.size() <= id) table->_writes.resize(id + 1);
+    ident_t id;
+    if (!_freeIdents.empty()) {
+        // a freed identifier: no version names it, and its lists of writes are empty
+        id = _freeIdents.back();
+        _freeIdents.pop_back();
+        _identParent[id] = parent;
+        _identBranch[id] = invalid_branch_id;
+    } else {
+        id = static_cast<ident_t>(_identParent.size());
+        _identParent.push_back(parent);
+        _identChildren.emplace_back();
+        _identBranch.push_back(invalid_branch_id); // set by createBranch()
+        _identL.push_back(0);
+        _identR.push_back(0);
+        _identNextFree.push_back(0);
+        // writers of different branches record their writes at the same time, each in the list of its own
+        // identifier: the lists exist before any write
+        for (auto & [name, table] : _tables) {
+            if (table->_writes.size() <= id) table->_writes.resize(id + 1);
+        }
+    }
+    if (parent != invalid_ident) {
+        _identChildren[parent].push_back(id);
     }
 
     if (parent == invalid_ident) {
@@ -927,22 +967,68 @@ ident_t Database::newIdent(ident_t parent) {
     return id;
 }
 
+std::vector<ident_t> Database::identPreorder() const {
+    std::vector<ident_t> order;
+    std::vector<ident_t> stack = {0}; // the identifier of the root branch
+    while (!stack.empty()) {
+        ident_t id = stack.back();
+        stack.pop_back();
+        order.push_back(id);
+        stack.insert(stack.end(), _identChildren[id].begin(), _identChildren[id].end());
+    }
+    return order;
+}
+
+ident_t Database::deadIdent() {
+    if (_deadIdent == invalid_ident) {
+        // without a parent, outside of the tree, which relabelling walks: its range stays empty
+        _deadIdent = newIdent(invalid_ident);
+        _identL[_deadIdent] = 1;
+        _identR[_deadIdent] = 0;
+    }
+    return _deadIdent;
+}
+
+void Database::freeIdent(ident_t ident) {
+    const ident_t parent = _identParent[ident];
+    if (parent != invalid_ident) {
+        auto & siblings = _identChildren[parent];
+        siblings.erase(std::remove(siblings.begin(), siblings.end(), ident), siblings.end());
+    }
+    _identChildren[ident].clear();
+    _identParent[ident] = invalid_ident;
+    _identBranch[ident] = invalid_branch_id;
+    // no reader may see what names the identifier until it is given out again
+    _identL[ident] = 1;
+    _identR[ident] = 0;
+    _freeIdents.push_back(ident);
+}
+
+void Database::foldIdent(ident_t child) {
+    const ident_t parent = _identParent[child];
+    for (ident_t grandchild : _identChildren[child]) {
+        _identParent[grandchild] = parent;
+        _identChildren[parent].push_back(grandchild); // their labels lie within those of the parent
+    }
+    _identChildren[child].clear();
+    auto branch = _branches.find(_identBranch[child]);
+    if (branch != _branches.end() && branch->second->ident == child) {
+        branch->second->ident = parent;
+    }
+    freeIdent(child);
+}
+
 void Database::relabel() {
-    // every identifier receives a range proportional to its subtree, leaving gap - 1 free labels
-    // in each; identifiers are created after their parents, so a reverse pass sums the subtrees
-    const size_t count = _identParent.size();
-    std::vector<uint64_t> size(count, 1);
-    std::vector<std::vector<ident_t>> children(count);
-    for (size_t i = count; i-- > 0; ) {
-        if (_identParent[i] != invalid_ident) {
-            size[_identParent[i]] += size[i];
+    // every identifier of the tree receives a range proportional to its subtree, leaving gap - 1
+    // free labels in each; a reverse preorder visits children before their parents
+    const auto order = identPreorder();
+    std::vector<uint64_t> size(_identParent.size(), 1);
+    for (size_t i = order.size(); i-- > 0; ) {
+        if (_identParent[order[i]] != invalid_ident) {
+            size[_identParent[order[i]]] += size[order[i]];
         }
     }
-    for (size_t i = 0; i < count; ++i) {
-        if (_identParent[i] != invalid_ident) {
-            children[_identParent[i]].push_back(static_cast<ident_t>(i));
-        }
-    }
+    const auto & children = _identChildren;
     const uint64_t gap = std::min<uint64_t>(uint64_t(1) << 20, ((uint64_t(1) << 62) - 1) / size[0]);
     std::vector<std::pair<ident_t, uint64_t>> stack = {{0, 0}};
     while (!stack.empty()) {

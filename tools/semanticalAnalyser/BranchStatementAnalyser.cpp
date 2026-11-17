@@ -67,6 +67,10 @@ namespace semanticalAnalysis {
         branch_id_t branch = lookupBranch(db, stmt->branchName);
         if (branch == master_branch_id) throw semantic_sql_error("the root branch cannot be dropped");
         auto subtree = db.getSubtree(branch);
+        for (branch_id_t b : subtree) {
+            if (db._branches.at(b)->transaction)
+                throw semantic_sql_error("branch '" + stmt->branchName + "' has an open transaction");
+        }
         if (subtree.size() > 1 && !stmt->cascade) {
             std::string children;
             for (size_t i = 1; i < subtree.size(); ++i) children += (i > 1 ? ", " : "") + db._branches.at(subtree[i])->name;

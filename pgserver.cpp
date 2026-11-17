@@ -1,8 +1,8 @@
 // A PostgreSQL-compatible server for TardisDB: frontend/backend protocol 3.0, so that psql, psycopg2,
 // psycopg 3 and JDBC connect to it. One thread per connection; each connection is a session with a
 // current branch (SET branch = b, or options=-c branch=b when connecting), in which the statements
-// without VERSION run. Statements autocommit: BEGIN and COMMIT are accepted, ROLLBACK of a block that
-// wrote is an error, since TardisDB cannot undo the writes.
+// without VERSION run. Statements outside of a transaction block autocommit; a block (BEGIN ... COMMIT)
+// is a transaction with snapshot isolation in a private branch (QueryCompiler::Transaction).
 //
 // Usage: pgserver [-h host] [-p port] [-t threads]
 
@@ -381,6 +381,18 @@ class Session {
 public:
     explicit Session(int fd) : _fd(fd) { }
 
+    ~Session()
+    {
+        // a connection that ends in a transaction block rolls it back
+        if (_transaction) {
+            try {
+                QueryCompiler::rollbackTransaction(*_db, *_transaction);
+            } catch (const std::exception & e) {
+                std::cerr << "pgserver: rollback at the end of the connection failed: " << e.what() << std::endl;
+            }
+        }
+    }
+
     void run()
     {
         try {
@@ -568,6 +580,7 @@ private:
     {
         std::string state = "XX000";
         if (auto * s = dynamic_cast<const SqlError *>(&e)) state = s->sqlState;
+        else if (auto * t = dynamic_cast<const QueryCompiler::TransactionError *>(&e)) state = t->sqlState;
         else if (dynamic_cast<const tardisParser::syntactical_error *>(&e)) state = "42601";
         else if (dynamic_cast<const semanticalAnalysis::semantic_sql_error *>(&e)) state = "42000";
         else if (dynamic_cast<const NotImplementedException *>(&e)) state = "0A000";
@@ -611,30 +624,36 @@ private:
         Outcome outcome;
         const std::string & first = words[0];
         if (first == "begin" || (first == "start" && words.size() > 1 && words[1] == "transaction")) {
-            _inBlock = true;
-            _blockWrote = false;
-            outcome.tag = "BEGIN";
-        } else if (first == "commit" || first == "end") {
-            outcome.tag = _failedBlock ? "ROLLBACK" : "COMMIT"; // as PostgreSQL, for a failed block
-            _inBlock = _failedBlock = _blockWrote = false;
-        } else if (first == "rollback" || first == "abort") {
-            bool wrote = _blockWrote;
-            _inBlock = _failedBlock = _blockWrote = false;
-            if (wrote) {
-                throw SqlError("0A000", "TardisDB cannot roll back: its statements autocommit, and this transaction block wrote");
+            if (!_inBlock) { // as PostgreSQL, a BEGIN in a block changes nothing
+                _transaction = QueryCompiler::beginTransaction(*_db, _branch);
+                _inBlock = true;
             }
-            outcome.tag = "ROLLBACK";
+            outcome.tag = "BEGIN";
+        } else if (first == "commit" || first == "end" || first == "rollback" || first == "abort") {
+            bool commit = (first == "commit" || first == "end") && !_failedBlock; // as PostgreSQL, a failed block rolls back
+            auto transaction = std::move(_transaction);
+            _transaction.reset();
+            _inBlock = _failedBlock = false;
+            if (transaction) {
+                // a commit that conflicts is an error and rolls back
+                if (commit) QueryCompiler::commitTransaction(*_db, *transaction);
+                else QueryCompiler::rollbackTransaction(*_db, *transaction);
+            }
+            outcome.tag = commit ? "COMMIT" : "ROLLBACK";
         } else if (first == "set") {
             static const std::regex set(R"(^\s*set\s+(?:session\s+|local\s+)?([a-z_][\w.]*)\s*(?:=|\s+to\s+)\s*(.*?)\s*$)", std::regex::icase);
             std::smatch match;
             if (!std::regex_match(statement, match, set)) throw SqlError("42601", "syntax error in SET");
-            if (isBranchSetting(match[1].str())) setBranch(match[2].str());
+            if (isBranchSetting(match[1].str())) {
+                if (_inBlock) throw SqlError("25001", "SET branch cannot run inside a transaction block");
+                setBranch(match[2].str());
+            }
             outcome.tag = "SET"; // other settings are accepted and have no effect
         } else if (first == "show" && words.size() == 2 && words[1] != "databases" && words[1] != "tables" && words[1] != "branches") {
             std::string name = words[1];
             std::string value = isBranchSetting(name) ? _branch
                     : name == "server_version" ? "16.0 (TardisDB)"
-                    : name == "transaction_isolation" || name == "default_transaction_isolation" ? "read committed"
+                    : name == "transaction_isolation" || name == "default_transaction_isolation" ? "repeatable read"
                     : name == "standard_conforming_strings" ? "on"
                     : name == "client_encoding" || name == "server_encoding" ? "UTF8"
                     : name == "timezone" ? "UTC" : name == "datestyle" ? "ISO, MDY" : "";
@@ -654,6 +673,7 @@ private:
                                                               words[1] == "branches" || words[1] == "columns")) {
             catalog(outcome, words, statement);
         } else if (first == "discard" || (first == "reset" && words.size() > 1 && words[1] == "all")) {
+            if (_inBlock) throw SqlError("25001", lower(trim(statement)) + " cannot run inside a transaction block");
             _branch = "master";
             outcome.tag = first == "discard" ? "DISCARD ALL" : "RESET";
         } else if (s == "select version()" || s == "select current_database()" || s == "select current_schema()") {
@@ -710,7 +730,7 @@ private:
             outcome.columnNames = {"branch_name"};
             outcome.columnTypes = {text};
             std::vector<std::string> names;
-            for (auto & [name, id] : _db->_branchMapping) if (name != "main") names.push_back(name);
+            for (auto & [name, id] : _db->_branchMapping) if (name != "main" && !_db->_branches.at(id)->transaction) names.push_back(name);
             std::sort(names.begin(), names.end());
             for (auto & name : names) outcome.rows.push_back({name});
         } else {
@@ -718,7 +738,8 @@ private:
             std::string tableName = trim(statement.substr(statement.size() - words[3].size()));
             Table * table = _db->getTable(tableName);
             if (table == nullptr) throw SqlError("42P01", "relation \"" + tableName + "\" does not exist");
-            branch_id_t branch = (_branch == "master" || _branch == "main") ? master_branch_id : _db->_branchMapping.at(_branch);
+            const std::string & name = _transaction ? _transaction->snapshot : _branch;
+            branch_id_t branch = _db->_branchMapping.at(name);
             const auto & key = table->getPrimaryKey();
             outcome.columnNames = {"column_name", "data_type", "is_nullable", "key_position"};
             outcome.columnTypes = {text, text, text, integer};
@@ -750,6 +771,7 @@ private:
         Outcome outcome;
         QueryCompiler::StatementResult result;
         try {
+        const QueryCompiler::Transaction * transaction = _transaction ? &*_transaction : nullptr;
         result = QueryCompiler::execute(statement + ";", *_db, _branch, [&outcome](Native::Sql::SqlTuple * tuple) {
             std::vector<std::optional<std::string>> row;
             row.reserve(tuple->values.size());
@@ -761,7 +783,7 @@ private:
             // the columns are known before the first tuple arrives
             outcome.columnNames = described.columnNames;
             outcome.columnTypes = described.columnTypes;
-        });
+        }, transaction);
         } catch (const char * message) {
             throw SqlError("22000", message); // parts of TardisDB throw C strings, e.g. for invalid values
         } catch (const std::exception &) {
@@ -777,7 +799,6 @@ private:
         else if (result.tag == "INSERT") outcome.tag = "INSERT 0 " + std::to_string(result.rows);
         else if (result.tag == "UPDATE" || result.tag == "DELETE" || result.tag == "COPY" || result.tag == "MERGE") outcome.tag = result.tag + " " + std::to_string(result.rows);
         else outcome.tag = result.tag.empty() ? "OK" : result.tag;
-        if (_inBlock && result.tag != "SELECT") _blockWrote = true;
         return outcome;
     }
 
@@ -971,8 +992,8 @@ private:
     std::string _database;
     std::string _branch = "master";
     bool _inBlock = false;     // between BEGIN and COMMIT
-    bool _blockWrote = false;  // a statement of the block wrote
     bool _failedBlock = false; // a statement of the block failed
+    std::optional<QueryCompiler::Transaction> _transaction; // of the block
     bool _skipUntilSync = false;
     std::map<std::string, Prepared> _statements;
     std::map<std::string, Portal> _portals;

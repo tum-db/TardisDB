@@ -163,9 +163,11 @@ namespace semanticalAnalysis {
             }
         } else {
             const branch_id_t root = lookup(relation.version);
+            // the private branches of transactions are neither selected nor make their parent an inner branch
             std::set<branch_id_t> parents;
-            for (auto &[id, branch] : db._branches) parents.insert(branch->parent_id);
+            for (auto &[id, branch] : db._branches) if (!branch->transaction) parents.insert(branch->parent_id);
             for (auto &[id, branch] : db._branches) {
+                if (branch->transaction) continue;
                 bool selected = (relation.versionScope == "all");
                 if (!selected) {
                     // a descendant of the root, without the root itself

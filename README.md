@@ -194,7 +194,9 @@ DROP BRANCH b17 CASCADE;
 `benchmark/branch-native/NOTES.md` describes their semantics and limits;
 `test/branch_statements_test.cpp`, `test/schema_test.cpp` and `test/dialect_test.cpp` test them,
 including randomised comparisons with a reference model. Statements may be issued from several threads
-at once (one agent per branch); NOTES.md, concurrent clients, describes what excludes what.
+at once (one agent per branch); NOTES.md, concurrent clients, describes what excludes what. In
+`pgserver`, a transaction block (`BEGIN` ... `COMMIT`) has snapshot isolation in a private branch that
+`COMMIT` merges back and `ROLLBACK` drops.
 
 ## SQL shell
 

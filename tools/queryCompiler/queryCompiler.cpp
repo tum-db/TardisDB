@@ -46,6 +46,42 @@ namespace QueryCompiler {
 
     std::mutex serialLatch;
 
+    /// Confines a statement of a transaction to its snapshot: the session's branch is read and written
+    /// in the snapshot. VERSION ALL, DESCENDANTS and LEAVES select committed branches only, as they are
+    /// when the statement runs. Statements that change the catalog would survive a rollback, and writes
+    /// of other branches would not be merged at commit: neither runs.
+    void confine(semanticalAnalysis::SQLParserResult & statement, const Transaction & transaction, Database & db) {
+        using OpType = semanticalAnalysis::SQLParserResult::OpType;
+        auto redirect = [&](std::string & version) {
+            auto it = db._branchMapping.find(version); // main is also called master
+            auto session = db._branchMapping.find(transaction.branch);
+            if (it != db._branchMapping.end() && session != db._branchMapping.end() && it->second == session->second) {
+                version = transaction.snapshot;
+            }
+        };
+        auto write = [&](semanticalAnalysis::Relation & relation, const std::string & tag) {
+            redirect(relation.version);
+            if (relation.version != transaction.snapshot) {
+                throw TransactionError("25001", tag + " of branch " + relation.version + " cannot run inside a transaction of branch " + transaction.branch);
+            }
+        };
+        switch (statement.opType) {
+            case OpType::Select:
+                for (auto & relation : statement.selectStmt->relations) {
+                    if (relation.versionScope.empty() || relation.versionScope == "set" || relation.versionScope == "diff") {
+                        redirect(relation.version);
+                        for (auto & version : relation.versionSet) redirect(version);
+                    }
+                }
+                break;
+            case OpType::Insert: write(statement.insertStmt->relation, "INSERT"); break;
+            case OpType::Update: write(statement.updateStmt->relation, "UPDATE"); break;
+            case OpType::Delete: write(statement.deleteStmt->relation, "DELETE"); break;
+            default:
+                throw TransactionError("25001", "only SELECT, INSERT, UPDATE and DELETE run inside a transaction");
+        }
+    }
+
     /// The latches of a statement, held from its analysis to the end of its execution. Statements that
     /// change tables or branches hold the catalog latch exclusive; all others hold it shared and latch
     /// the tables they access in the order of their addresses, shared for reading and exclusive for
@@ -61,10 +97,12 @@ namespace QueryCompiler {
     /// keep overlapping do not starve one that changes the catalog.
     class StatementLatches {
     public:
-        StatementLatches(Database & db, const semanticalAnalysis::SQLParserResult & statement) {
+        StatementLatches(Database & db, semanticalAnalysis::SQLParserResult & statement, const Transaction * transaction = nullptr) {
             using OpType = semanticalAnalysis::SQLParserResult::OpType;
+            // a transaction's statement is confined to its snapshot under the latches, since BEGIN changes the catalog
             if (latching == Latching::Serial) {
                 _serial = std::unique_lock<std::mutex>(serialLatch);
+                if (transaction != nullptr) confine(statement, *transaction, db);
                 return;
             }
             std::vector<std::string> read, written;
@@ -86,9 +124,11 @@ namespace QueryCompiler {
 #endif
                 default:
                     _exclusiveCatalog = std::unique_lock<SharedLatch>(db._catalogLatch);
+                    if (transaction != nullptr) confine(statement, *transaction, db);
                     return;
             }
             _sharedCatalog = std::shared_lock<SharedLatch>(db._catalogLatch);
+            if (transaction != nullptr) confine(statement, *transaction, db);
 
             Branch * writtenBranch = nullptr;
             if (insertInto != nullptr) {
@@ -190,7 +230,56 @@ namespace QueryCompiler {
         std::vector<std::shared_lock<SharedLatch>> _sharedBranches;
     };
 
+    /// BEGIN, COMMIT and ROLLBACK create, merge and drop a branch: they hold the latches of a statement
+    /// that changes the catalog
+    class TransactionLatch {
+    public:
+        explicit TransactionLatch(Database & db) {
+            if (latching == Latching::Serial) {
+                _serial = std::unique_lock<std::mutex>(serialLatch);
+            } else {
+                _catalog = std::unique_lock<SharedLatch>(db._catalogLatch);
+            }
+        }
+
+    private:
+        std::unique_lock<std::mutex> _serial;
+        std::unique_lock<SharedLatch> _catalog;
+    };
+
     } // end anonymous namespace
+
+    Transaction beginTransaction(Database & db, const std::string & branch) {
+        static std::atomic<uint64_t> transactions(0);
+        TransactionLatch latch(db);
+        auto parent = db._branchMapping.find(branch);
+        if (parent == db._branchMapping.end()) throw TransactionError("3D000", "branch \"" + branch + "\" does not exist");
+        // identifiers do not begin with an underscore
+        Transaction transaction{branch, "_tx" + std::to_string(++transactions)};
+        branch_id_t snapshot = db.createBranch(transaction.snapshot, parent->second);
+        db._branches.at(snapshot)->transaction = true;
+        return transaction;
+    }
+
+    void commitTransaction(Database & db, const Transaction & transaction) {
+        TransactionLatch latch(db);
+        const branch_id_t snapshot = db._branchMapping.at(transaction.snapshot);
+        MergeResult result = merge_branch(db, snapshot, db._branches.at(snapshot)->parent_id, MergePolicy::FirstCommitterWins);
+        drop_branches(db, {snapshot});
+        if (!result.conflicts.empty()) {
+            const size_t shown = std::min<size_t>(result.conflicts.size(), 10);
+            std::string message = "could not serialize access due to concurrent update; the transaction was rolled back (" +
+                                  std::to_string(result.conflicts.size()) + " conflict" + (result.conflicts.size() > 1 ? "s" : "") + "):";
+            for (size_t i = 0; i < shown; ++i) message += "\n  " + result.conflicts[i];
+            if (shown < result.conflicts.size()) message += "\n  ...";
+            throw TransactionError("40001", message);
+        }
+    }
+
+    void rollbackTransaction(Database & db, const Transaction & transaction) {
+        TransactionLatch latch(db);
+        drop_branches(db, {db._branchMapping.at(transaction.snapshot)});
+    }
 
     static llvm::Function *compileQuery(const std::string &query, std::unique_ptr<Operator> &queryTree, QueryContext &queryContext) {
         auto &codeGen = getThreadLocalCodeGen();
@@ -272,15 +361,16 @@ namespace QueryCompiler {
 
     StatementResult execute(const std::string & query, Database & db, const std::string & branch,
                             const std::function<void(Native::Sql::SqlTuple *)> & sink,
-                            const std::function<void(const StatementResult &)> & described) {
+                            const std::function<void(const StatementResult &)> & described,
+                            const Transaction * transaction) {
         QueryContext queryContext(db);
         queryContext.tupleSink = sink;
         ModuleGen moduleGen("QueryModule");
 
-        queryContext.parsingContext.defaultBranch = branch;
+        queryContext.parsingContext.defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
         tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
-        StatementLatches latches(db, queryContext.analyzingContext.parserResult);
+        StatementLatches latches(db, queryContext.analyzingContext.parserResult, transaction);
 
         auto & parserResult = queryContext.analyzingContext.parserResult;
         StatementResult result;

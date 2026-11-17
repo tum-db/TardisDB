@@ -142,7 +142,10 @@ public:
     void removeBranch(branch_id_t branch);
 
     /// Removes the entries of the identifiers of dropped branches
-    void removeEntries(const std::vector<bool> & droppedIdents);
+    void removeEntries(const std::unordered_set<ident_t> & droppedIdents);
+
+    /// Moves the entry of the tuple under \p from to \p to, its parent identifier (see fold_ident())
+    void retagEntries(tid_t tid, ident_t from, ident_t to);
 
     /// Adds a tuple, which the branch has inserted
     void addRow(branch_id_t branch);
@@ -286,6 +289,9 @@ public:
 
     /// Forgets the schema of a dropped branch
     void removeBranch(branch_id_t branch);
+
+    /// The branch-local columns added under \p from count as added under \p to (see fold_ident())
+    void retagColumns(ident_t from, ident_t to);
 
     /// Adds a row and counts it in size()
     void addRow(branch_id_t branchId);
@@ -438,6 +444,9 @@ struct Branch {
     branch_id_t parent_id;
     std::string name;
     ident_t ident; // current identifier
+    /// the private branch of a transaction (QueryCompiler::beginTransaction): not listed, not selected
+    /// by VERSION ALL, DESCENDANTS or LEAVES, and its parent cannot be dropped while it exists
+    bool transaction = false;
     /// held shared by the statements that read the branch and exclusive by those that update or delete
     /// in it while they hold the tables shared (see QueryCompiler::Latching::Branch)
     SharedLatch latch;
@@ -474,9 +483,10 @@ public:
     /// \returns The branch and its descendants, children after their parents
     std::vector<branch_id_t> getSubtree(branch_id_t branch) const;
 
-    /// Removes the branches from the catalogue and their bits from the bitmaps; their identifiers
-    /// are not reused. Versions are collected by drop_branches() in version_management.hpp.
-    void removeBranches(const std::vector<branch_id_t> & branches);
+    /// Removes the branches from the catalogue and their bits from the bitmaps, and frees their
+    /// identifiers \p idents, which no version names any more, for reuse; branch ids are not reused.
+    /// Versions are collected by drop_branches() in version_management.hpp.
+    void removeBranches(const std::vector<branch_id_t> & branches, const std::vector<ident_t> & idents);
     void constructBranchLineage(branch_id_t branch, ExecutionContext & dstCtx);
     /// The lineage of a reader as a dense array over all branches: a version written by branch b at
     /// creation_ts is visible to the reader iff creation_ts < limits[b]. limits[reader] is the
@@ -488,8 +498,24 @@ public:
     /// \returns The branch that writes or wrote under the identifier
     branch_id_t getIdentBranch(ident_t ident) const { return _identBranch[ident]; }
     ident_t getIdentParent(ident_t ident) const { return _identParent[ident]; }
+    const std::vector<ident_t> & getIdentChildren(ident_t ident) const { return _identChildren[ident]; }
+    /// \returns Whether \p p is \p q or one of its ancestors
+    bool isAncestorIdent(ident_t p, ident_t q) const { return _identL[p] <= _identL[q] && _identL[q] <= _identR[p]; }
+    /// \returns The identifiers of the tree from the root, parents before their children. Identifiers
+    /// are reused, so a child's may be smaller than its parent's.
+    std::vector<ident_t> identPreorder() const;
+    /// \returns The size of the identifier arrays, freed identifiers included
     size_t getIdentCount() const { return _identParent.size(); }
     size_t getRelabelCount() const { return _relabelCount; }
+
+    /// \returns An identifier outside of the tree that no reader sees, for the in-place versions of
+    /// tuples that a dropped branch inserted (see drop_branches())
+    ident_t deadIdent();
+
+    /// Folds \p child, the only child left of its parent, into the parent: the children and the
+    /// branch of \p child move to the parent, and \p child is freed. Versions are retagged by
+    /// fold_ident() in version_management.cpp.
+    void foldIdent(ident_t child);
 
     /// Interval labels of the identifier tree: identifier p is an ancestor of q (or q itself)
     /// iff _identL[p] <= _identL[q] <= _identR[p]. Versions store identifiers, not labels,
@@ -501,9 +527,14 @@ private:
     ident_t newIdent(ident_t parent);
     void relabel();
 
+    void freeIdent(ident_t ident);
+
     std::vector<ident_t> _identParent;
+    std::vector<std::vector<ident_t>> _identChildren;
     std::vector<branch_id_t> _identBranch;
     std::vector<uint64_t> _identNextFree; // first label not yet given to a child
+    std::vector<ident_t> _freeIdents;     // reused by newIdent()
+    ident_t _deadIdent = invalid_ident;
     size_t _relabelCount = 0;
 
 public:

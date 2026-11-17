@@ -867,27 +867,37 @@ size_t add_branch_column(Table & table, branch_id_t branch, const std::string & 
 }
 
 // the identifiers of the branch and of its ancestors
-static std::unordered_set<ident_t> ident_path(const Database & db, branch_id_t branch) {
-    std::unordered_set<ident_t> idents;
-    for (ident_t ident = db.getIdent(branch); ident != invalid_ident; ident = db.getIdentParent(ident)) {
-        idents.insert(ident);
+/// The identifiers under which each of two branches wrote since they split: those from its current
+/// identifier up to, without, the deepest identifier that both descend from, which is returned.
+/// Folding (fold_ident()) keeps these paths as short as the forks that are still alive.
+static ident_t split_paths(const Database & db, branch_id_t a, branch_id_t b,
+                           std::vector<ident_t> & sinceA, std::vector<ident_t> & sinceB) {
+    const ident_t identB = db.getIdent(b);
+    ident_t common = db.getIdent(a);
+    while (!db.isAncestorIdent(common, identB)) {
+        sinceA.push_back(common);
+        common = db.getIdentParent(common);
     }
-    return idents;
+    for (ident_t ident = identB; ident != common; ident = db.getIdentParent(ident)) {
+        sinceB.push_back(ident);
+    }
+    return common;
 }
 
 std::vector<tid_t> diverging_tuples(Table & table, branch_id_t a, branch_id_t b) {
     const Database & db = table.getDatabase();
-    const auto pathA = ident_path(db, a), pathB = ident_path(db, b);
+    std::vector<ident_t> sinceA, sinceB;
+    split_paths(db, a, b, sinceA, sinceB);
     std::vector<tid_t> tids;
-    auto add = [&](const std::unordered_set<ident_t> & own, const std::unordered_set<ident_t> & other) {
-        for (ident_t ident : own) {
-            if (other.count(ident) == 0 && ident < table._writes.size()) {
+    auto add = [&](const std::vector<ident_t> & idents) {
+        for (ident_t ident : idents) {
+            if (ident < table._writes.size()) {
                 tids.insert(tids.end(), table._writes[ident].begin(), table._writes[ident].end());
             }
         }
     };
-    add(pathA, pathB);
-    add(pathB, pathA);
+    add(sinceA);
+    add(sinceB);
     std::sort(tids.begin(), tids.end());
     tids.erase(std::unique(tids.begin(), tids.end()), tids.end());
     return tids;
@@ -920,10 +930,9 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergeP
     std::vector<Action> actions;
     std::vector<std::pair<Table *, size_t>> addedColumns; // to the schema of dst
     MergeResult result;
-    const auto targetPath = ident_path(db, dst);
-    const auto sourcePath = ident_path(db, src);
-    std::vector<ident_t> commonPath;
-    for (ident_t ident : sourcePath) if (targetPath.count(ident) > 0) commonPath.push_back(ident);
+    const bool resolves = (policy == MergePolicy::KeepTarget || policy == MergePolicy::KeepSource);
+    std::vector<ident_t> sourceSince, targetSince;
+    const ident_t common = split_paths(db, src, dst, sourceSince, targetSince);
 
     // tables in the order of their names, so that conflicts are reported deterministically
     std::vector<std::pair<std::string, Table *>> tables;
@@ -937,15 +946,15 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergeP
         auto conflict = [&, &name = name](tid_t tid, const std::string & what) {
             result.conflicts.push_back("table " + name + ", tuple " + std::to_string(tid) + ": " + what);
         };
-        // the tuples each side wrote (or deleted) since the split: under its identifiers that are not the other's
-        auto writtenSince = [&](const std::unordered_set<ident_t> & own, const std::unordered_set<ident_t> & other) {
+        // the tuples each side wrote (or deleted) since the split
+        auto writtenSince = [&](const std::vector<ident_t> & since) {
             std::unordered_set<tid_t> tids;
-            for (ident_t ident : own) {
-                if (other.count(ident) == 0 && ident < table->_writes.size()) tids.insert(table->_writes[ident].begin(), table->_writes[ident].end());
+            for (ident_t ident : since) {
+                if (ident < table->_writes.size()) tids.insert(table->_writes[ident].begin(), table->_writes[ident].end());
             }
             return tids;
         };
-        const auto sourceWrote = writtenSince(sourcePath, targetPath), targetWrote = writtenSince(targetPath, sourcePath);
+        const auto sourceWrote = writtenSince(sourceSince), targetWrote = writtenSince(targetSince);
 
         // the columns of src that the target never had, i.e. that were not added on its path: src or
         // a branch merged into it added them; a column the target lacks otherwise was dropped there
@@ -954,7 +963,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergeP
         for (size_t column : table->getSchema(src)) {
             ci_p_t ci = table->getCI(column);
             if (std::find(targetSchema.begin(), targetSchema.end(), column) != targetSchema.end()) continue;
-            if (!ci->branchLocal || targetPath.count(ci->addedUnder) > 0) continue;
+            if (!ci->branchLocal || db.isAncestorIdent(ci->addedUnder, db.getIdent(dst))) continue;
             if (table->findColumn(ci->columnName, dst) != nullptr) {
                 result.conflicts.push_back("table " + name + ": column " + ci->columnName + " was added in both branches");
                 continue;
@@ -963,6 +972,10 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergeP
         }
 
         for (tid_t tid : candidates(*table, src, dst)) {
+            if (policy == MergePolicy::FirstCommitterWins && sourceWrote.count(tid) > 0 && targetWrote.count(tid) > 0) {
+                conflict(tid, "written in both branches since the split");
+                continue;
+            }
             const VersionEntry * entry = table->_version_mgmt_column[tid].get();
             const void * inSource = membership.contains(tid, src) ? source.visible(entry) : nullptr;
             const void * inTarget = membership.contains(tid, dst) ? target.visible(entry) : nullptr;
@@ -981,13 +994,15 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergeP
                                      (inTarget != nullptr || targetWrote.count(tid) > 0);
                 for (const void * element = chain_head(entry); bothContained && element != nullptr; element = chain_next(entry, element)) {
                     if (source.sees(entry, element) && target.sees(entry, element)) {
-                        // not if the common path deleted the tuple since this version: identifiers grow
-                        // along a path, so one at least as large as the version's wrote later
+                        // not if the common path deleted the tuple since this version: under the version's
+                        // identifier or one below it, up to where the two split
                         const ident_t written = (element == entry) ? entry->ident
                                               : static_cast<const VersionedTupleStorage *>(element)->ident;
-                        bool deletedSince = std::any_of(commonPath.begin(), commonPath.end(), [&](ident_t ident) {
-                            return ident >= written && ident < table->_deleted.size() && table->_deleted[ident].count(tid) > 0;
-                        });
+                        bool deletedSince = false;
+                        for (ident_t ident = common; !deletedSince && db.isAncestorIdent(written, ident); ident = db.getIdentParent(ident)) {
+                            deletedSince = ident < table->_deleted.size() && table->_deleted[ident].count(tid) > 0;
+                            if (ident == written) break;
+                        }
                         if (!deletedSince) base = load_version(tid, *table, element);
                         break;
                     }
@@ -1007,7 +1022,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergeP
                         merged.push_back(dv.clone());
                     } else if (base && base->values[i]->equals(dv)) {
                         merged.push_back(sv.clone());
-                    } else if (policy != MergePolicy::Fail) {
+                    } else if (resolves) {
                         merged.push_back(policy == MergePolicy::KeepTarget ? dv.clone() : sv.clone());
                         result.resolved += 1;
                     } else {
@@ -1032,7 +1047,7 @@ MergeResult merge_branch(Database & db, branch_id_t src, branch_id_t dst, MergeP
                     auto copy = Native::Sql::SqlTuple::load(tuple_bytes(*s).data(), types);
                     actions.push_back({table, tid, Kind::Insert, std::move(copy), std::move(s), nullptr});
                 } else if (!equal_tuples(*s, *base)) {
-                    if (policy == MergePolicy::Fail) {
+                    if (!resolves) {
                         conflict(tid, "deleted in the target and changed in the source");
                     } else if (policy == MergePolicy::KeepTarget) {
                         // stays deleted; the version of src is the base of the next merge
@@ -1176,12 +1191,14 @@ static void unlink_versions(Table & table, tid_t tid, const std::unordered_set<c
 // the newest version of which is the base of a merge of branches below them
 static std::vector<uint64_t> needed_readers(const Database & db) {
     const size_t count = db.getIdentCount();
+    const auto order = db.identPreorder();
     std::vector<bool> current(count, false);
     for (auto & [id, branch] : db._branches) current[branch->ident] = true;
     std::vector<uint32_t> below(count, 0);    // current identifiers in the subtree
     std::vector<uint32_t> children(count, 0); // children whose subtrees hold some
-    // children are created after their parents
-    for (size_t ident = count; ident-- > 0; ) {
+    // children before their parents
+    for (size_t i = order.size(); i-- > 0; ) {
+        const ident_t ident = order[i];
         below[ident] += current[ident];
         ident_t parent = db.getIdentParent(ident);
         if (parent != invalid_ident && below[ident] > 0) {
@@ -1190,7 +1207,7 @@ static std::vector<uint64_t> needed_readers(const Database & db) {
         }
     }
     std::vector<uint64_t> labels;
-    for (size_t ident = 0; ident < count; ++ident) {
+    for (ident_t ident : order) {
         if (current[ident] || children[ident] >= 2) labels.push_back(db._identL[ident]);
     }
     std::sort(labels.begin(), labels.end());
@@ -1227,20 +1244,57 @@ static void needed_versions(const Database & db, const VersionEntry * entry, con
 // identifiers of some branches but not of all; frees the other lists
 static void prune_writes(Database & db) {
     const size_t count = db.getIdentCount();
+    const auto order = db.identPreorder();
     std::vector<uint32_t> below(count, 0);
     for (auto & [id, branch] : db._branches) below[branch->ident] += 1;
-    for (size_t ident = count; ident-- > 0; ) {
-        ident_t parent = db.getIdentParent(ident);
-        if (parent != invalid_ident) below[parent] += below[ident];
+    for (size_t i = order.size(); i-- > 0; ) {
+        ident_t parent = db.getIdentParent(order[i]);
+        if (parent != invalid_ident) below[parent] += below[order[i]];
     }
+    // the lists of freed identifiers are empty already
     const uint32_t live = db._branches.size();
     for (auto & [name, table] : db.getTables()) {
-        for (ident_t ident = 0; ident < table->_writes.size(); ++ident) {
-            if (below[ident] == 0 || below[ident] == live) {
+        for (ident_t ident : order) {
+            if (ident < table->_writes.size() && (below[ident] == 0 || below[ident] == live)) {
                 std::vector<tid_t>().swap(table->_writes[ident]);
             }
         }
     }
+}
+
+// Folds the identifier child into its parent, after the other children of the parent were dropped and
+// while no branch writes under the parent: every reader that sees a version of one sees the other's,
+// so the versions written under child are retagged to the parent and child is freed. Its writes are
+// found in its lists; they are those of its branch since the fork, which a commit merges anyway.
+static void fold_ident(Database & db, ident_t child) {
+    const ident_t parent = db.getIdentParent(child);
+    for (auto & [name, table] : db.getTables()) {
+        table->retagColumns(child, parent);
+        if (child >= table->_writes.size()) continue;
+        std::vector<tid_t> tids;
+        tids.swap(table->_writes[child]);
+        std::sort(tids.begin(), tids.end());
+        tids.erase(std::unique(tids.begin(), tids.end()), tids.end());
+        std::unordered_set<tid_t> deleted;
+        if (child < table->_deleted.size()) deleted.swap(table->_deleted[child]);
+        if (table->_deleted.size() <= parent) table->_deleted.resize(parent + 1);
+        auto & parentWrites = table->_writes[parent];
+        for (tid_t tid : tids) {
+            VersionEntry * entry = table->_version_mgmt_column[tid].get();
+            for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
+                ident_t & ident = (element == entry) ? entry->ident
+                                : const_cast<VersionedTupleStorage *>(static_cast<const VersionedTupleStorage *>(element))->ident;
+                if (ident == child) ident = parent;
+            }
+            if (chain_head(entry) == entry) store_head(*table, tid, entry);
+            table->getMembership().retagEntries(tid, child, parent);
+            // the writes of child came after those of the parent
+            parentWrites.push_back(tid);
+            if (deleted.count(tid) > 0) table->_deleted[parent].insert(tid);
+            else table->_deleted[parent].erase(tid);
+        }
+    }
+    db.foldIdent(child);
 }
 
 size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
@@ -1248,16 +1302,20 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
     size_t freed = 0;
 
     // the identifiers under which tuples were written since the fork of the subtree: those of the
-    // dropped branches and those of the parent after the fork
+    // dropped branches, each a path from its current identifier up to its first, and those of the
+    // parent after the fork, up to the identifier it forked the subtree from
     const branch_id_t root = branches.front();
     const branch_id_t parent = db._branches.at(root)->parent_id;
-    std::unordered_set<ident_t> rootPath;
-    for (ident_t ident = db.getIdent(root); ident != invalid_ident; ident = db.getIdentParent(ident)) rootPath.insert(ident);
-    std::vector<ident_t> written;
-    for (ident_t ident = 0; ident < db.getIdentCount(); ++ident) {
-        if (dropped.count(db.getIdentBranch(ident)) > 0) written.push_back(ident);
+    std::vector<ident_t> dead;
+    ident_t fork = invalid_ident;
+    for (branch_id_t branch : branches) {
+        ident_t ident = db.getIdent(branch);
+        for (; ident != invalid_ident && db.getIdentBranch(ident) == branch; ident = db.getIdentParent(ident)) dead.push_back(ident);
+        if (branch == root) fork = ident;
     }
-    for (ident_t ident = db.getIdent(parent); ident != invalid_ident && rootPath.count(ident) == 0; ident = db.getIdentParent(ident)) {
+    const std::unordered_set<ident_t> deadSet(dead.begin(), dead.end());
+    std::vector<ident_t> written = dead;
+    for (ident_t ident = db.getIdent(parent); ident != invalid_ident && ident != fork; ident = db.getIdentParent(ident)) {
         written.push_back(ident);
     }
     std::unordered_map<Table *, std::vector<tid_t>> candidates;
@@ -1274,31 +1332,45 @@ size_t drop_branches(Database & db, const std::vector<branch_id_t> & branches) {
     std::unordered_set<const void *> garbage;
     for (auto & [table, tids] : candidates) {
         for (tid_t tid : tids) {
-            const VersionEntry * entry = table->_version_mgmt_column[tid].get();
+            VersionEntry * entry = table->_version_mgmt_column[tid].get();
             garbage.clear();
             for (const void * element = chain_head(entry); element != nullptr; element = chain_next(entry, element)) {
                 if (element != entry && dropped.count(static_cast<const VersionedTupleStorage *>(element)->branch_id) > 0) {
                     garbage.insert(element);
                 }
             }
-            if (garbage.empty()) continue;
-            unlink_versions(*table, tid, garbage);
-            freed += garbage.size();
+            if (!garbage.empty()) {
+                unlink_versions(*table, tid, garbage);
+                freed += garbage.size();
+            }
+            // an in-place version of a dropped branch heads a tuple it inserted and no other branch
+            // contains: no reader sees it, also once its identifier is reused
+            if (deadSet.count(entry->ident) > 0) {
+                entry->ident = db.deadIdent();
+                if (chain_head(entry) == entry) store_head(*table, tid, entry);
+            }
         }
     }
     for (auto & [name, table] : db.getTables()) {
-        for (ident_t ident = 0; ident < table->_writes.size(); ++ident) {
-            if (dropped.count(db.getIdentBranch(ident)) > 0) {
-                std::vector<tid_t>().swap(table->_writes[ident]);
-                if (ident < table->_deleted.size()) std::unordered_set<tid_t>().swap(table->_deleted[ident]);
-            }
+        for (ident_t ident : dead) {
+            table->retagColumns(ident, db.deadIdent()); // in no branch's path, as merges ask
+            if (ident < table->_writes.size()) std::vector<tid_t>().swap(table->_writes[ident]);
+            if (ident < table->_deleted.size()) std::unordered_set<tid_t>().swap(table->_deleted[ident]);
         }
     }
     for (auto it = db._mergeBases.begin(); it != db._mergeBases.end(); ) {
         bool obsolete = dropped.count(it->first.first) > 0 || dropped.count(it->first.second) > 0;
         it = obsolete ? db._mergeBases.erase(it) : std::next(it);
     }
-    db.removeBranches(branches);
+    db.removeBranches(branches, dead);
+
+    // the parent forked the subtree under an identifier it no longer writes with: if no other child
+    // of it is left, the parent's later identifiers fold into it, so that paths do not grow with the
+    // number of branches that were forked and dropped
+    if (fork != invalid_ident && db.getIdentChildren(fork).size() == 1 && db.getIdent(parent) != fork) {
+        const ident_t child = db.getIdentChildren(fork).front();
+        if (db.getIdentBranch(child) == db.getIdentBranch(fork)) fold_ident(db, child);
+    }
 
     // versions the remaining branches do not need, such as those the parent kept for the dropped ones
     if (collect_garbage) {

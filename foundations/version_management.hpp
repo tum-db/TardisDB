@@ -209,8 +209,11 @@ struct MergeResult {
 };
 
 /// What a merge does with a conflict: fail (nothing is merged), keep the target's side or take the
-/// source's (MERGE ... ON CONFLICT KEEP TARGET | KEEP SOURCE); the other changes are merged
-enum class MergePolicy { Fail, KeepTarget, KeepSource };
+/// source's (MERGE ... ON CONFLICT KEEP TARGET | KEEP SOURCE); the other changes are merged.
+/// FirstCommitterWins fails as Fail does, and in addition on every tuple both sides wrote since the
+/// split, whatever the values: the commit of a transaction (QueryCompiler::commitTransaction), so that
+/// of two transactions that write the same tuple only the first commits, as in snapshot isolation
+enum class MergePolicy { Fail, KeepTarget, KeepSource, FirstCommitterWins };
 
 /// Merges the changes of src since its common versions with dst into dst. Per tuple, the base is
 /// the newest version visible in both branches, or the version of src merged last into dst.

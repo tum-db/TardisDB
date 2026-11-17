@@ -439,6 +439,18 @@ Section V-D, lineage-aware garbage collection:
   proportion to the divergence, not to the table.
 * **Write lists**: the list of an identifier whose subtree holds the current identifiers of all
   branches or of none can no longer tell two branches apart and is freed at `DROP`.
+* **Identifiers** (added with the transactions of `pgserver`): `DROP` frees the identifiers of the
+  dropped branches for reuse by later forks, and folds the parent's identifiers back: the identifier
+  it forked the subtree from, left with one child under which the parent continues, absorbs that child
+  (`fold_ident()` retags the versions, deletes, membership entries and branch-local columns under the
+  child, found in its write list: the parent's writes since the fork). The identifier tree, the paths
+  and relabelling thus grow with the forks that are alive, not with all forks so far; `MERGE` and `DIFF`
+  walk the paths up to where they split, `DROP` the paths of the dropped branches and of the parent
+  since the fork, and the collection the tree from its root (`Database::identPreorder()`). Since
+  identifiers are reused, a child's may be smaller than its parent's: ancestry is decided by labels
+  (`Database::isAncestorIdent()`), not by order. The in-place version of a tuple that only a dropped
+  branch inserted gets an identifier without labels (`Database::deadIdent()`), so that no reader sees
+  it under a reused identifier. Branch ids are still not reused.
 * `live_versions()` counts the versions in chains; `test/gc_test.cpp` checks that create-and-drop
   cycles leave no versions and that the base of a merge survives a drop (the test fails without the
   identifiers with branches in two subtrees).
@@ -678,8 +690,24 @@ connection.
   parameters in text or binary for bool, int2/4/8, float4/8, numeric, text, date and timestamp; results
   in text). Errors carry an SQLSTATE; after an error in the extended protocol, messages are skipped
   until Sync.
-* **Transactions**: statements autocommit. `BEGIN` and `COMMIT` are accepted; `ROLLBACK` of a block that
-  wrote is an error (TardisDB cannot undo the writes), as is every statement after an error of the block.
+* **Transactions**: statements outside of a block autocommit. A block (`BEGIN` ... `COMMIT`) is a
+  transaction with snapshot isolation (`QueryCompiler::Transaction`): `BEGIN` forks a private branch from
+  the session's branch, the block's statements read and write it (also under `VERSION` of the session's
+  branch), `COMMIT` merges it back with `MergePolicy::FirstCommitterWins` and drops it, `ROLLBACK` drops
+  it. A tuple that another transaction, or a statement outside of transactions, wrote since the `BEGIN`
+  makes the commit fail with 40001, and nothing of the block is committed; write skew remains possible.
+  In a block, only `SELECT`, `INSERT`, `UPDATE` and `DELETE` run, writes only of the session's branch,
+  and `SET branch` is refused (25001); `VERSION ALL`, `DESCENDANTS` and `LEAVES` read the committed
+  branches as they are. The private branch has no name a statement can use and is not listed; its
+  parent cannot be dropped while it exists. A connection that ends in a block rolls it back, and after
+  an error of the block, every statement but `COMMIT` and `ROLLBACK` is refused until its end, as in
+  PostgreSQL. Keys are not checked at commit: two transactions may insert the same key.
+  `test/transaction_test.cpp` (8 tests) checks snapshot reads, own writes, rollback, first-committer-wins
+  and which statements run, and has 6 threads increment a counter that they read and write in separate
+  statements of a transaction, retrying on 40001, without losing an increment. A commit drops its
+  snapshot, which folds main's identifiers back (Garbage collection, Identifiers): over 20 000
+  transactions through `pgserver` (1 000 tuples, one thread per query), `COMMIT` stays at 0.13-0.21 ms;
+  without folding it grew from 0.6 to 7.8 ms, since merge and drop walked all identifiers so far.
 * **Databases**: `tardisdb` exists, others are created with `CREATE DATABASE` and dropped with `DROP
   DATABASE [IF EXISTS]` (not while a session uses them); connecting to another one is an error, as in
   PostgreSQL. Catalog (TardisDB has no `information_schema`): `SHOW DATABASES`, `SHOW TABLES`,
@@ -767,8 +795,8 @@ back by a merge, and a later fork shares the deleted state), and it also hit mer
 Now a version is the base only if both sides contained the tuple at the split: a side that lacks the
 tuple and has not written it since did not contain it then, and the common path must not have deleted
 the tuple since the version. For the latter, every identifier keeps the tuples whose last write under it
-was a delete (`Table::_deleted`, freed when its branch is dropped; identifiers grow along a path, so
-one at least as large as the version's identifier wrote later). Without a base, a tuple the target
+was a delete (`Table::_deleted`, freed when its branch is dropped; the identifiers from the version's
+down to the one at which the two sides split wrote later). Without a base, a tuple the target
 has alone stays, and one the source has alone is inserted.
 
 Checks: `MergePoliciesResolveConflicts`, `MergePoliciesResolveDeleteChangeConflicts`, and the randomised
