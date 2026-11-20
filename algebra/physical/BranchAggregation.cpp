@@ -1,6 +1,7 @@
 #include "algebra/physical/BranchAggregation.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <numeric>
 
@@ -30,6 +31,17 @@ using State = BranchAggregation::State;
 static Function slot_function(const State * state, size_t slot)
 {
     return (slot >= 1 && slot <= state->functions.size()) ? static_cast<Function>(state->functions[slot - 1]) : Function::Count;
+}
+
+// the bits of doubles as slots hold them
+static int64_t addDoubles(int64_t a, int64_t b)
+{
+    double x, y;
+    std::memcpy(&x, &a, 8);
+    std::memcpy(&y, &b, 8);
+    x += y;
+    std::memcpy(&a, &x, 8);
+    return a;
 }
 
 static void reset_state(State * state)
@@ -66,7 +78,9 @@ static void finish_state(State * state)
                 switch (slot_function(state, slot)) {
                     case Function::Min: merged[slot] = std::min(merged[slot], own[slot]); break;
                     case Function::Max: merged[slot] = std::max(merged[slot], own[slot]); break;
-                    default: merged[slot] += own[slot];
+                    default:
+                        if (state->doubleSums[slot]) merged[slot] = addDoubles(merged[slot], own[slot]);
+                        else merged[slot] += own[slot];
                 }
             }
         }
@@ -88,7 +102,9 @@ static void finish_state(State * state)
             switch (slot_function(state, slot)) {
                 case Function::Min: combined[slot] = std::min(own[slot], all[slot]); break;
                 case Function::Max: combined[slot] = std::max(own[slot], all[slot]); break;
-                default: combined[slot] = own[slot] + all[slot] + prefix[slot];
+                default:
+                    if (state->doubleSums[slot]) combined[slot] = addDoubles(addDoubles(own[slot], all[slot]), prefix[slot]);
+                    else combined[slot] = own[slot] + all[slot] + prefix[slot];
             }
         }
         std::copy(combined.begin(), combined.end(), out);
@@ -98,7 +114,16 @@ static void finish_state(State * state)
             switch (static_cast<Function>(state->functions[i])) {
                 case Function::Count: out[slot] = values; break;
                 case Function::Sum: out[slot] = combined[slot]; break;
-                case Function::Avg: out[slot] = (values > 0) ? combined[slot] / values : 0; break;
+                case Function::Avg:
+                    if (state->doubleSums[slot]) {
+                        double sum;
+                        std::memcpy(&sum, &combined[slot], 8);
+                        sum = (values > 0) ? sum / static_cast<double>(values) : 0.0;
+                        std::memcpy(&out[slot], &sum, 8);
+                    } else {
+                        out[slot] = (values > 0) ? combined[slot] / values : 0;
+                    }
+                    break;
                 case Function::Min:
                 case Function::Max: out[slot] = combined[slot]; break;
             }
@@ -239,9 +264,22 @@ void BranchAggregation::produce()
         for (size_t b = 0; b < limits.size(); ++b) state.minLimits[b] = std::min(state.minLimits[b], limits[b]);
     }
 #endif
+    // sums of doubles: the slots that hold the bits of a double
+    state.doubleSums.assign(state.width, 0);
+    bool doubleSums = false;
+    for (size_t i = 0; i < op.getAggregates().size(); ++i) {
+        const auto & aggregate = op.getAggregates()[i];
+        if ((aggregate.function == Function::Sum || aggregate.function == Function::Avg) && aggregate.input != nullptr &&
+            aggregate.input->sqlType.typeID == SqlType::TypeID::DoubleID) {
+            state.doubleSums[1 + i] = 1;
+            doubleSums = true;
+        }
+    }
 #if INTERVAL_VISIBILITY || COMPILED_LINEAGE
-    state.perBranch = (Logical::BranchAggregation::_strategy == Logical::BranchAggregation::Strategy::PerBranch);
+    // the difference arrays of the shared scan would cancel sums of doubles (1e20 + 1 - 1e20 is 0)
+    state.perBranch = doubleSums || (Logical::BranchAggregation::_strategy == Logical::BranchAggregation::Strategy::PerBranch);
 #else
+    (void) doubleSums;
     // without labels, the readers of a version cannot be told by range tests
     state.perBranch = true;
 #endif
@@ -516,6 +554,12 @@ void BranchAggregation::genOutput(State & state)
                 const SqlType type = aggregates[i].produced->sqlType;
                 if (type.typeID == SqlType::TypeID::IntegerID) {
                     raw = _codeGen->CreateTrunc(raw, i32Ty);
+                } else if (type.typeID == SqlType::TypeID::DoubleID) {
+                    if (aggregates[i].function == Function::Min || aggregates[i].function == Function::Max) {
+                        llvm::Value * negative = _codeGen->CreateICmpSLT(raw, llvm::ConstantInt::get(i64Ty, 0));
+                        raw = _codeGen->CreateSelect(negative, _codeGen->CreateXor(raw, llvm::ConstantInt::get(i64Ty, INT64_MAX)), raw);
+                    }
+                    raw = _codeGen->CreateBitCast(raw, llvm::Type::getDoubleTy(context));
                 }
                 outputs.push_back(Value::fromRawValues({raw}, toNotNullableTy(type)));
                 if (type.nullable) {
@@ -648,6 +692,20 @@ llvm::Value * BranchAggregation::genInputValue(const iu_value_mapping_t & values
     auto & op = static_cast<const Logical::BranchAggregation &>(_logicalOperator);
     const Value & value = getAssociatedValue(*values.at(op.getAggregates()[aggregate].input));
     llvm::Value * raw = value.getLLVMValue();
+    llvm::Type * i64Ty = llvm::Type::getInt64Ty(_codeGen.getLLVMContext());
+    if (raw->getType()->isDoubleTy()) {
+        Function function = op.getAggregates()[aggregate].function;
+        // a NaN as the greatest double (as PostgreSQL), then the bits
+        llvm::Value * isNaN = _codeGen->CreateFCmpUNO(raw, raw);
+        raw = _codeGen->CreateSelect(isNaN, llvm::ConstantFP::getNaN(raw->getType()), raw);
+        llvm::Value * bits = _codeGen->CreateBitCast(raw, i64Ty);
+        if (function == Function::Min || function == Function::Max) {
+            // ordered as the doubles: the negative ones with their other bits flipped
+            llvm::Value * negative = _codeGen->CreateICmpSLT(bits, llvm::ConstantInt::get(i64Ty, 0));
+            bits = _codeGen->CreateSelect(negative, _codeGen->CreateXor(bits, llvm::ConstantInt::get(i64Ty, INT64_MAX)), bits);
+        }
+        return bits;
+    }
     if (raw->getType()->getIntegerBitWidth() < 64) {
         raw = _codeGen->CreateSExt(raw, llvm::Type::getInt64Ty(_codeGen.getLLVMContext()));
     }
@@ -684,7 +742,14 @@ void BranchAggregation::genAccumulate(State & state, llvm::Value * group, const 
         switch (aggregates[i].function) {
             case Function::Min: updated = _codeGen->CreateSelect(_codeGen->CreateICmpSLT(value, current), value, current); break;
             case Function::Max: updated = _codeGen->CreateSelect(_codeGen->CreateICmpSGT(value, current), value, current); break;
-            default: updated = _codeGen->CreateAdd(current, value);
+            default:
+                if (state.doubleSums[1 + i]) {
+                    llvm::Type * doubleTy = llvm::Type::getDoubleTy(_codeGen.getLLVMContext());
+                    updated = _codeGen->CreateBitCast(_codeGen->CreateFAdd(_codeGen->CreateBitCast(current, doubleTy),
+                                                                           _codeGen->CreateBitCast(value, doubleTy)), i64Ty);
+                } else {
+                    updated = _codeGen->CreateAdd(current, value);
+                }
         }
         if (present != nullptr) updated = _codeGen->CreateSelect(present, updated, current);
         _codeGen->CreateStore(updated, slotPtr);

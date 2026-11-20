@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "codegen/CodeGen.hpp"
+#include "native/sql/Array.hpp"
 #include "sql/SqlType.hpp"
 
 namespace Sql {
@@ -381,6 +382,73 @@ protected:
 };
 
 //-----------------------------------------------------------------------------
+// Double
+
+/// DOUBLE PRECISION; as in PostgreSQL, NaN equals NaN and is greater than all other values
+class Double : public Value {
+public:
+    static value_op_t castString(const std::string & str);
+
+    static value_op_t castString(cg_ptr8_t str, cg_size_t length);
+
+    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values);
+
+    static value_op_t load(llvm::Value * ptr);
+
+    value_op_t clone() const override;
+
+    void store(llvm::Value * ptr) const override;
+
+    cg_hash_t hash() const override;
+
+    void accept(ValueVisitor & visitor) override;
+
+    cg_bool_t equals(const Value & other) const override;
+
+    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
+
+    explicit Double(llvm::Value * value);
+};
+
+//-----------------------------------------------------------------------------
+// Array
+
+/// An array: the handle of its representation (see native/sql/Array.hpp) as an LLVM [2 x i64]
+class Array : public Value {
+public:
+    static value_op_t castString(const std::string & str, SqlType type);
+
+    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values, SqlType type);
+
+    static value_op_t load(llvm::Value * ptr, SqlType type);
+
+    value_op_t clone() const override;
+
+    void store(llvm::Value * ptr) const override;
+
+    cg_hash_t hash() const override;
+
+    void accept(ValueVisitor & visitor) override;
+
+    cg_bool_t equals(const Value & other) const override;
+
+    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
+
+    /// \returns A pointer to a copy of the handle (for calls of the runtime)
+    llvm::Value * spill() const;
+
+    Array(SqlType type, llvm::Value * value);
+};
+
+/// \returns A slot of the type in the entry block of the current function (not one per iteration of a loop)
+llvm::Value * genEntryAlloca(llvm::Type * type);
+
+/// Calls the runtime for a function of arrays (Native::Sql::Arrays::tardisArrayCall) with the values
+/// (which may be NULL); computed arrays go to the arena. \returns The result of the type.
+value_op_t genArrayCall(Native::Sql::Arrays::Function function, Native::Sql::Arrays::Arena * arena, SqlType resultType,
+                        const std::vector<const Value *> & arguments);
+
+//-----------------------------------------------------------------------------
 // UnknownValue
 
 /// Represents a null value without any type associated
@@ -502,6 +570,8 @@ public:
     virtual void visit(UnknownValue & value) = 0;
     virtual void visit(Varchar & value) = 0;
     virtual void visit(NullableValue & value) = 0;
+    virtual void visit(Double & value) { }
+    virtual void visit(Array & value) { }
 };
 
 //-----------------------------------------------------------------------------

@@ -211,6 +211,17 @@ public:
         _translated.push( std::make_unique<Physical::Expressions::NullConstant>() );
     }
 
+    void visit(Logical::Expressions::ArrayFunction & exp)
+    {
+        std::vector<physical_expression_op_t> arguments;
+        for (auto & argument : exp._arguments) {
+            argument->accept(*this);
+            arguments.push_back(std::move(_translated.top()));
+            _translated.pop();
+        }
+        _translated.push( std::make_unique<Physical::Expressions::ArrayFunction>(exp._function, exp.getType(), std::move(arguments)) );
+    }
+
 private:
     std::stack<physical_expression_op_t> _translated;
 };
@@ -391,7 +402,15 @@ public:
 
     void visit(Logical::Map & op) override
     {
-        throw NotImplementedException();
+        auto child = std::move(_translated.top());
+        _translated.pop();
+
+        std::vector<Physical::Mapping> mappings;
+        for (auto & mapping : op._mappings) {
+            ExpressionTranslator expTranslator(*mapping.exp);
+            mappings.push_back({ mapping.src, expTranslator.getResult() });
+        }
+        _translated.push( std::make_unique<Physical::Map>(op, std::move(child), std::move(mappings), _queryContext) );
     }
 
     void visit(Logical::Insert & op) override

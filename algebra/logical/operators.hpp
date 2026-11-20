@@ -190,20 +190,23 @@ protected:
 //-----------------------------------------------------------------------------
 // Map operator
 
+/// the attribute (an IU of a value) that the expression computes
 struct Mapping {
     iu_p_t src;
     logical_exp_op_t exp;
 };
 
+/// Computes attributes of the tuples of its input (the computed columns of a select list)
 class Map : public UnaryOperator {
 public:
-    // single mapping: iu -> exp -> new iu
     Map(std::unique_ptr<Operator> input, std::vector<Mapping> mappings) :
             UnaryOperator(std::move(input)),
             _mappings(std::move(mappings))
     { }
 
     std::vector<Mapping> _mappings;
+
+    void accept(OperatorVisitor & visitor) override;
 
 protected:
     void computeProduced() override;

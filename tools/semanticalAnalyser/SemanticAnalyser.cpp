@@ -94,9 +94,89 @@ namespace semanticalAnalysis {
         }
     }
 
-    void SemanticAnalyser::construct_predicates(AnalyzingContext& context, std::vector<Predicate> &predicates) {
+    ColumnResolver SemanticAnalyser::columnResolver(AnalyzingContext & context, std::set<std::string> * productions) {
+        return [&context, productions](const std::string & table, const std::string & name) -> iu_p_t {
+            iu_p_t iu = nullptr;
+            std::string production = table;
+            if (production.empty()) {
+                for (auto & [productionName, columns] : context.ius) {
+                    auto it = columns.find(name);
+                    if (it != columns.end() && name != "tid") {
+                        if (iu != nullptr) throw semantic_sql_error("column '" + name + "' is ambiguous");
+                        iu = it->second;
+                        production = productionName;
+                    }
+                }
+            } else if (context.ius.count(production) > 0 && context.ius[production].count(name) > 0) {
+                iu = context.ius[production][name];
+            } else if (context.ius.count(production) == 0) {
+                throw semantic_sql_error("binding '" + table + "' is not specified");
+            }
+            if (iu != nullptr && productions != nullptr) productions->insert(production);
+            return iu;
+        };
+    }
+
+    Expressions::exp_op_t SemanticAnalyser::predicateExpression(const Predicate & predicate, const std::vector<iu_p_t> & ius) {
         using Expressions::ComparisonMode;
+        auto value = [&](size_t i, const std::string & v) {
+            return std::make_unique<Expressions::Constant>(v, ius[i]->columnInformation->type);
+        };
+        auto comparison = [&](ComparisonMode mode, size_t i, const std::string & v) -> Expressions::exp_op_t {
+            return std::make_unique<Expressions::Comparison>(mode, std::make_unique<Expressions::Identifier>(ius[i]), value(i, v));
+        };
+        auto modeOf = [](const std::string & op) {
+            if (op == "<") return ComparisonMode::less;
+            if (op == "<=") return ComparisonMode::leq;
+            if (op == ">") return ComparisonMode::gtr;
+            if (op == ">=") return ComparisonMode::geq;
+            throw semantic_sql_error("unknown comparison '" + op + "'");
+        };
+
+        Expressions::exp_op_t exp;
+        if (predicate.op == "is null" || predicate.op == "is not null") {
+            exp = std::make_unique<Expressions::IsNull>(std::make_unique<Expressions::Identifier>(ius[0]), predicate.op == "is not null");
+        } else if (predicate.op == "in") {
+            for (auto & v : predicate.values) {
+                auto eq = comparison(ComparisonMode::eq, 0, v);
+                exp = exp ? std::make_unique<Expressions::Or>(std::move(exp), std::move(eq)) : std::move(eq);
+            }
+        } else if (predicate.op == "<>") {
+            // not all equal
+            for (size_t i = 0; i < ius.size(); ++i) {
+                auto eq = comparison(ComparisonMode::eq, i, predicate.values[i]);
+                exp = exp ? std::make_unique<Expressions::And>(std::move(exp), std::move(eq)) : std::move(eq);
+            }
+            exp = std::make_unique<Expressions::Not>(std::move(exp));
+        } else {
+            // lexicographic: c0 < v0 OR (c0 = v0 AND (c1 < v1 OR (c1 = v1 AND ... cn <= vn))) for <=
+            ComparisonMode last = modeOf(predicate.op);
+            ComparisonMode strict = (last == ComparisonMode::less || last == ComparisonMode::leq) ? ComparisonMode::less : ComparisonMode::gtr;
+            size_t n = ius.size();
+            exp = comparison(last, n - 1, predicate.values[n - 1]);
+            for (size_t i = n - 1; i-- > 0;) {
+                auto eqAndRest = std::make_unique<Expressions::And>(comparison(ComparisonMode::eq, i, predicate.values[i]), std::move(exp));
+                exp = std::make_unique<Expressions::Or>(comparison(strict, i, predicate.values[i]), std::move(eqAndRest));
+            }
+        }
+        return exp;
+    }
+
+    void SemanticAnalyser::construct_predicates(AnalyzingContext& context, std::vector<Predicate> &predicates) {
         for (auto & predicate : predicates) {
+            if (predicate.op == "expr") {
+                // any condition: over the production of its table, or over the joined tree
+                std::set<std::string> productions;
+                ExpressionAnalyser analyser(columnResolver(context, &productions));
+                Expressions::exp_op_t exp = analyser.analyseCondition(*predicate.expression);
+                if (productions.size() > 1 || context.dangling_productions.empty()) {
+                    context.joinedPredicates.push_back(std::move(exp));
+                    continue;
+                }
+                std::string table = productions.empty() ? context.dangling_productions.begin()->first : *productions.begin();
+                context.dangling_productions[table] = std::make_unique<Select>(std::move(context.dangling_productions[table]), std::move(exp));
+                continue;
+            }
             // the columns, all of one table
             std::vector<iu_p_t> ius;
             std::string table;
@@ -120,46 +200,7 @@ namespace semanticalAnalysis {
                 table = production;
                 ius.push_back(iu);
             }
-            auto value = [&](size_t i, const std::string & v) {
-                return std::make_unique<Expressions::Constant>(v, ius[i]->columnInformation->type);
-            };
-            auto comparison = [&](ComparisonMode mode, size_t i, const std::string & v) -> Expressions::exp_op_t {
-                return std::make_unique<Expressions::Comparison>(mode, std::make_unique<Expressions::Identifier>(ius[i]), value(i, v));
-            };
-            auto modeOf = [](const std::string & op) {
-                if (op == "<") return ComparisonMode::less;
-                if (op == "<=") return ComparisonMode::leq;
-                if (op == ">") return ComparisonMode::gtr;
-                if (op == ">=") return ComparisonMode::geq;
-                throw semantic_sql_error("unknown comparison '" + op + "'");
-            };
-
-            Expressions::exp_op_t exp;
-            if (predicate.op == "is null" || predicate.op == "is not null") {
-                exp = std::make_unique<Expressions::IsNull>(std::make_unique<Expressions::Identifier>(ius[0]), predicate.op == "is not null");
-            } else if (predicate.op == "in") {
-                for (auto & v : predicate.values) {
-                    auto eq = comparison(ComparisonMode::eq, 0, v);
-                    exp = exp ? std::make_unique<Expressions::Or>(std::move(exp), std::move(eq)) : std::move(eq);
-                }
-            } else if (predicate.op == "<>") {
-                // not all equal
-                for (size_t i = 0; i < ius.size(); ++i) {
-                    auto eq = comparison(ComparisonMode::eq, i, predicate.values[i]);
-                    exp = exp ? std::make_unique<Expressions::And>(std::move(exp), std::move(eq)) : std::move(eq);
-                }
-                exp = std::make_unique<Expressions::Not>(std::move(exp));
-            } else {
-                // lexicographic: c0 < v0 OR (c0 = v0 AND (c1 < v1 OR (c1 = v1 AND ... cn <= vn))) for <=
-                ComparisonMode last = modeOf(predicate.op);
-                ComparisonMode strict = (last == ComparisonMode::less || last == ComparisonMode::leq) ? ComparisonMode::less : ComparisonMode::gtr;
-                size_t n = ius.size();
-                exp = comparison(last, n - 1, predicate.values[n - 1]);
-                for (size_t i = n - 1; i-- > 0;) {
-                    auto eqAndRest = std::make_unique<Expressions::And>(comparison(ComparisonMode::eq, i, predicate.values[i]), std::move(exp));
-                    exp = std::make_unique<Expressions::Or>(comparison(strict, i, predicate.values[i]), std::move(eqAndRest));
-                }
-            }
+            Expressions::exp_op_t exp = predicateExpression(predicate, ius);
             context.dangling_productions[table] = std::make_unique<Select>(std::move(context.dangling_productions[table]), std::move(exp));
         }
     }

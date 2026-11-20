@@ -6,6 +6,11 @@
 
 #include "ValueTranslator.hpp"
 
+static void ownArray(Native::Sql::Array * array)
+{
+    array->ownTemporary();
+}
+
 void ValueTranslator::storeStringInTextFormat(Native::Sql::Varchar* destination, char* source, size_t length) {
     destination->value = source;
     destination->len = length;
@@ -98,6 +103,19 @@ std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sq
             returnValue = std::make_unique<Native::Sql::Text>(original->type);
             original->store(cg_ptr8_t::fromRawPointer((void*)((Native::Sql::Text*) returnValue.get())->value.data()));
             break;
+        case Sql::SqlType::TypeID::DoubleID:
+            returnValue = std::make_unique<Native::Sql::Double>();
+            original->store(cg_ptr8_t::fromRawPointer(&((Native::Sql::Double*) returnValue.get())->value));
+            break;
+        case Sql::SqlType::TypeID::ArrayID: {
+            auto * array = new Native::Sql::Array(original->type, Native::Sql::Arrays::Handle());
+            returnValue.reset(array);
+            original->store(cg_ptr8_t::fromRawPointer(&array->value));
+            // a computed array is copied, as the tuple may outlive the query
+            funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(context), {cg_voidptr_t::getType()}, false);
+            codeGen.CreateCall(&ownArray, funcTy, {cg_ptr8_t::fromRawPointer(array)});
+            break;
+        }
         default:
             return nullptr;
     }

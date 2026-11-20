@@ -333,6 +333,36 @@ public:
     }
 };
 
+/// A function or an operator of arrays: a call of the runtime with the values of the arguments; the
+/// arrays it computes live in the arena of the expression, as long as the query's plan
+class ArrayFunction : public Expression {
+public:
+    ArrayFunction(Native::Sql::Arrays::Function function, Sql::SqlType type, std::vector<exp_op_t> arguments) :
+            Expression(type),
+            _function(function),
+            _arguments(std::move(arguments)),
+            _arena(Native::Sql::Arrays::createQueryArena())
+    { }
+
+    ~ArrayFunction() override { }
+
+    Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
+    {
+        std::vector<Sql::value_op_t> arguments;
+        std::vector<const Sql::Value *> pointers;
+        for (auto & argument : _arguments) {
+            arguments.push_back(argument->evaluate(values));
+            pointers.push_back(arguments.back().get());
+        }
+        return Sql::genArrayCall(_function, _arena, getType(), pointers);
+    }
+
+private:
+    Native::Sql::Arrays::Function _function;
+    std::vector<exp_op_t> _arguments;
+    Native::Sql::Arrays::Arena * _arena; // of the query
+};
+
 } // end namespace Expressions
 } // end namespace Physical
 } // end namespace Algebra

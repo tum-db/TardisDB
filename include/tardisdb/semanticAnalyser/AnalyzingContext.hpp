@@ -33,6 +33,9 @@ namespace semanticalAnalysis {
 
         std::unique_ptr<Operator> joinedTree;
 
+        /// conditions of WHERE on the columns of several tables, which apply to the joined tree
+        std::vector<Expressions::exp_op_t> joinedPredicates;
+
         /// of statements without a plan: the tuples they changed, and a message for the client
         uint64_t changedTuples = 0;
         std::string notice;

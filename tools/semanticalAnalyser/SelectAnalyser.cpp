@@ -53,7 +53,10 @@ namespace semanticalAnalysis {
             }
         };
         for (auto &column : stmt->selections) checkColumn(column.first);
-        for (auto &column : stmt->projections) checkColumn(column);
+        for (auto &column : stmt->projections) {
+            if (column.expression) continue; // its columns are checked when it is analysed
+            checkColumn(column);
+        }
         for (auto &column : stmt->joinConditions) {
             checkColumn(column.first);
             checkColumn(column.second);
@@ -82,13 +85,36 @@ namespace semanticalAnalysis {
         construct_selects(_context, stmt->selections);
         construct_predicates(_context, stmt->predicates);
         construct_joins(_context);
+        for (auto & exp : _context.joinedPredicates) {
+            _context.joinedTree = std::make_unique<Select>(std::move(_context.joinedTree), std::move(exp));
+        }
+        _context.joinedPredicates.clear();
 
         auto & db = _context.db;
 
+        // the computed columns of the select list
+        std::vector<Mapping> mappings;
+        std::vector<iu_p_t> computedIUs;
+        {
+            ExpressionAnalyser analyser(columnResolver(_context));
+            for (auto &column : stmt->projections) {
+                if (!column.expression) { computedIUs.push_back(nullptr); continue; }
+                Expressions::exp_op_t exp = analyser.analyse(*column.expression);
+                if (exp->getType().typeID == Sql::SqlType::TypeID::UnknownID) throw semantic_sql_error("the type of '" + column.name + "' is unknown (a NULL without a type)");
+                iu_p_t iu = _context.iuFactory.createIU(exp->getType());
+                computedIUs.push_back(iu);
+                mappings.push_back({iu, std::move(exp)});
+            }
+        }
+        if (!mappings.empty()) _context.joinedTree = std::make_unique<Map>(std::move(_context.joinedTree), std::move(mappings));
+
         //get projected IUs
         std::vector<iu_p_t> projectedIUs;
-        for (auto &column : stmt->projections) {
-            if (column.table.length() == 0) {
+        for (size_t p = 0; p < stmt->projections.size(); ++p) {
+            auto &column = stmt->projections[p];
+            if (computedIUs[p] != nullptr) {
+                projectedIUs.push_back(computedIUs[p]);
+            } else if (column.table.length() == 0) {
                 projectedIUs.push_back(_context.getUniqueColumnIU(column.name));
             } else {
                 projectedIUs.push_back(_context.ius[column.table][column.name]);
@@ -107,11 +133,6 @@ namespace semanticalAnalysis {
         }
 
         _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
-    }
-
-    /// \returns Whether the condition is column IS [ NOT ] NULL
-    static bool isNullTest(const Predicate &predicate) {
-        return predicate.op == "is null" || predicate.op == "is not null";
     }
 
     bool SelectAnalyser::isBranchQuery(SelectStatement *stmt) {
@@ -164,6 +185,9 @@ namespace semanticalAnalysis {
     void SelectAnalyser::verifyBranchQuery() {
         Database &db = _context.db;
         SelectStatement *stmt = _context.parserResult.selectStmt;
+        for (auto &column : stmt->projections) {
+            if (column.expression) throw semantic_sql_error("queries over several branches take columns and aggregates of columns, not expressions");
+        }
         if (stmt->relations.size() != 1 || !stmt->joinConditions.empty())
             throw semantic_sql_error("queries over several branches read exactly one table");
         Relation &relation = stmt->relations.front();
@@ -203,7 +227,8 @@ namespace semanticalAnalysis {
             ci_p_t ci = checkColumn(column);
             auto type = ci->type.typeID;
             if (column.aggregate != "count" && type != Sql::SqlType::TypeID::IntegerID &&
-                type != Sql::SqlType::TypeID::LongIntegerID && type != Sql::SqlType::TypeID::NumericID)
+                type != Sql::SqlType::TypeID::LongIntegerID && type != Sql::SqlType::TypeID::NumericID &&
+                type != Sql::SqlType::TypeID::DoubleID)
                 throw semantic_sql_error(column.aggregate + "(" + column.name + ") needs a numeric column");
         }
         if (stmt->projections.empty()) throw semantic_sql_error("queries over several branches need aggregates or GROUP BY branch, not *");
@@ -211,8 +236,7 @@ namespace semanticalAnalysis {
         if (!aggregates && !groupByBranch) throw semantic_sql_error("queries over several branches need aggregates or GROUP BY branch");
         if (branchCount > 1 && !groupByBranch) throw semantic_sql_error("aggregates over several branches need GROUP BY branch");
         for (auto &predicate : stmt->predicates) {
-            if (!isNullTest(predicate)) throw semantic_sql_error("queries over several branches take only equalities and IS [ NOT ] NULL in WHERE");
-            checkColumn(predicate.columns.front());
+            for (auto &column : predicate.columns) checkColumn(column); // those of any condition are checked when it is analysed
         }
         for (auto &selection : stmt->selections) checkColumn(selection.first);
     }
@@ -253,10 +277,21 @@ namespace semanticalAnalysis {
                     std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type)
             ));
         }
+        // the columns of conditions: those that every branch has
+        auto resolve = [&](const std::string &binding, const std::string &name) -> iu_p_t {
+            if (!binding.empty() && binding != relation.name && binding != relation.alias)
+                throw semantic_sql_error("binding '" + binding + "' is not specified");
+            return table->findColumn(name, branches) != nullptr ? aggregation->getColumnIU(name) : nullptr;
+        };
         for (auto &predicate : stmt->predicates) {
-            aggregation->addPredicate(std::make_unique<Expressions::IsNull>(
-                    std::make_unique<Expressions::Identifier>(aggregation->getColumnIU(predicate.columns.front().name)),
-                    predicate.op == "is not null"));
+            if (predicate.op == "expr") {
+                ExpressionAnalyser analyser(resolve);
+                aggregation->addPredicate(analyser.analyseCondition(*predicate.expression));
+                continue;
+            }
+            std::vector<iu_p_t> ius;
+            for (auto &column : predicate.columns) ius.push_back(aggregation->getColumnIU(column.name));
+            aggregation->addPredicate(predicateExpression(predicate, ius));
         }
 
         _context.joinedTree = std::make_unique<Result>(std::move(aggregation), projectedIUs);
@@ -283,6 +318,9 @@ namespace semanticalAnalysis {
     void SelectAnalyser::verifyDiffQuery() {
         Database &db = _context.db;
         SelectStatement *stmt = _context.parserResult.selectStmt;
+        for (auto &column : stmt->projections) {
+            if (column.expression) throw semantic_sql_error("DIFF takes columns, not expressions");
+        }
         if (stmt->relations.size() != 1 || !stmt->joinConditions.empty())
             throw semantic_sql_error("DIFF cannot be combined with other relations yet");
         if (!stmt->groupBy.empty()) throw semantic_sql_error("DIFF does not support GROUP BY yet");
@@ -313,8 +351,7 @@ namespace semanticalAnalysis {
             }
         }
         for (auto &predicate : stmt->predicates) {
-            if (!isNullTest(predicate)) throw semantic_sql_error("DIFF takes only equalities and IS [ NOT ] NULL in WHERE");
-            checkColumn(predicate.columns.front());
+            for (auto &column : predicate.columns) checkColumn(column);
         }
         for (auto &selection : stmt->selections) checkColumn(selection.first);
     }
@@ -347,10 +384,22 @@ namespace semanticalAnalysis {
                     std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type)
             ));
         }
+        const auto columnNames = diffColumnNames(*table, relation);
+        auto resolve = [&](const std::string &binding, const std::string &name) -> iu_p_t {
+            if (!binding.empty() && binding != relation.name && binding != relation.alias)
+                throw semantic_sql_error("binding '" + binding + "' is not specified");
+            if (std::find(columnNames.begin(), columnNames.end(), name) == columnNames.end()) return nullptr;
+            return diff->getColumnIU(name);
+        };
         for (auto &predicate : stmt->predicates) {
-            diff->addPredicate(std::make_unique<Expressions::IsNull>(
-                    std::make_unique<Expressions::Identifier>(diff->getColumnIU(predicate.columns.front().name)),
-                    predicate.op == "is not null"));
+            if (predicate.op == "expr") {
+                ExpressionAnalyser analyser(resolve);
+                diff->addPredicate(analyser.analyseCondition(*predicate.expression));
+                continue;
+            }
+            std::vector<iu_p_t> ius;
+            for (auto &column : predicate.columns) ius.push_back(diff->getColumnIU(column.name));
+            diff->addPredicate(predicateExpression(predicate, ius));
         }
 
         _context.joinedTree = std::make_unique<Result>(std::move(diff), projectedIUs);

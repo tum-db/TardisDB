@@ -724,22 +724,23 @@ The SQL that clients send needed these changes of the parser and the engine (`te
 10 tests; `test/test_pgserver.py` with psycopg2 and psycopg 3):
 
 * Tokenizer: a string literal is one token (spaces, commas, parentheses, semicolons, `''`); casts behind
-  literals (`'...'::timestamp`, `5::integer`, as psycopg2 writes them) are dropped, as TardisDB casts every
-  literal to its column's type; `<`, `<=`, `>`, `>=`, `<>`, `!=` are operators, also without spaces;
-  `true` and `false` are constants.
-* `WHERE` (one parser for SELECT, UPDATE and DELETE, `parseWhere`): conjunctions of comparisons of a
-  column and a value (either side), row values compared lexicographically (`(a, b) >= (1, 2)`, the range
-  predicate on composite keys), `BETWEEN`, `IN`, `<>`, joins on `=`. Equalities with a value
-  stay selections (index probes); the others become `Predicate`s, which `construct_predicates` turns into
-  comparison expressions (a row value into `c0 < v0 OR (c0 = v0 AND ...)`). Not yet over several branches.
+  literals (`'...'::timestamp`, `5::integer`, as psycopg2 writes them) are dropped outside of expressions,
+  as TardisDB casts every literal to its column's type (in expressions, see arrays, they are casts);
+  `<`, `<=`, `>`, `>=`, `<>`, `!=` are operators, also without spaces; `true` and `false` are constants.
+* `WHERE` (one parser for SELECT, UPDATE and DELETE, `parseWhere`): any condition (see arrays); of its
+  conjuncts, comparisons of a column and a value (either side), row values compared lexicographically
+  (`(a, b) >= (1, 2)`, the range predicate on composite keys), `BETWEEN`, `IN`, `<>` and joins on `=`
+  are kept apart. Equalities with a value stay selections (index probes); the others become
+  `Predicate`s, which `construct_predicates` turns into comparison expressions (a row value into
+  `c0 < v0 OR (c0 = v0 AND ...)`), also over several branches and in `DIFF`.
 * Fixed on the way: the logical `ExpressionVisitor` had no `visit` for `Not`, `And` and `Or`, so these
   expressions reached `unreachable()` and could not be used at all; `And` and `Or` left their type
   unset; the logical and the physical `Not` dereferenced their moved-from child; `Select::computeRequired`
   did not look into them. `char` and `varchar` had no `compare` (`<`, `>`; also `=` reaches compare).
 * `CREATE TABLE`: `PRIMARY KEY (...)` and `PRIMARY KEY` of a column (recorded in `Table::getPrimaryKey()`,
   for catalogs, not enforced); the type names of PostgreSQL (`smallint`, `int2/4/8`, `bigint`,
-  `decimal`, `boolean`, `bpchar`; `float`, `real`, `double` become `numeric(18, 6)`); columns declared
-  without `NOT NULL` are nullable (see NULL values).
+  `decimal`, `boolean`, `bpchar`; `float`, `real`, `double [precision]` are double precision, see arrays);
+  columns declared without `NOT NULL` are nullable (see NULL values).
 * Multi-row `INSERT ... VALUES (...), (...)`. `Insert` loops over its tuples instead of generating one
   call per tuple: `COPY` of 100,000 rows takes 0.19 s instead of 33 s (the generated function grew with
   the number of tuples, and its compile time quadratically).
@@ -818,6 +819,63 @@ threw `std::bad_array_new_length`; the table has at least one bucket now (`Stati
 
 Checks: `DialectTest.JoinsOfTables` (with the parallel scans of the test and `TARDISDB_VERIFY_IR=1`),
 joins of both drivers in `test/test_pgserver.py`.
+
+# Arrays, double precision and expressions
+
+Arrays of PostgreSQL: columns of any element type with `[]` or `ARRAY` (`integer[]`, `numeric(6,2)[]`,
+`text ARRAY`, also `bool`, `bigint`, `double precision`, `char(n)`, `varchar(n)`, `date`, `timestamp`),
+of any number of dimensions (the declared dimensions are not enforced, as in PostgreSQL), with lower
+bounds and `NULL` elements, in `native/sql/Array.hpp`.
+
+* **Storage**: a tuple holds a handle of 16 bytes (address and length, as `text`) of an immutable
+  representation in the string pool: number of dimensions, widths, lower bounds, the elements (a string
+  element is the end of its characters), the `NULL` bitmap, then the characters. Versions, version
+  chains, merge bases, `MERGE` and `DIFF` copy handles. The arrays a query computes go to arenas of the
+  query (an `ExecutionResource`, as the plan that generated the code is gone when it runs; the workers of
+  a parallel scan take chunks of their own); a store into a table moves them to the string pool (the top
+  bit of the length marks them), result tuples copy them.
+* **Text**: `'{1,2}'`, `'[0:1]={7,NULL}'`, `'{{"a b",NULL},{c,d}}'` (quotes, backslashes, `NULL` in any
+  case) in and out; `ARRAY[...]` of constants in `INSERT`, also nested; `COPY`; pgserver sends the
+  array types of PostgreSQL (`int4[]` 1007, `float8[]` 1022, `text[]` 1009, ...) and takes them as
+  parameters, also in binary (psycopg 3).
+* **Expressions** (new: the select list, `WHERE` and `SET` take expressions; before, columns, aggregates
+  of columns and the comparisons above): a parser by precedence (`ExpressionParser`; `OR`, `AND`, `NOT`,
+  comparisons with `IS [NOT] NULL`, `[NOT] BETWEEN`, `[NOT] IN`, `op ANY/SOME/ALL (array)`, `||`, `@>`,
+  `<@`, `&&`, `+ -`, `* /`, unary minus, subscripts, casts `::type` and `CAST(x AS type)`, function calls,
+  `ARRAY[...]`), whose tree (`sqlExpressions::Node`) the `ExpressionAnalyser` types: constants take the
+  type of the other side, numbers are cast to a common type (integer, bigint, numeric, double). Computed
+  columns of the select list (named as in PostgreSQL, `AS` aliases) are a `Map` (now implemented,
+  logical and physical); conditions over one table go to its production, those over several above the
+  joins; `SET c = expr` is an update expression in the column's type. Queries over several branches and
+  `DIFF` take any condition, but columns and aggregates of columns only.
+* **Functions and operators**: subscripts `a[i][j]` (`NULL` out of range), slices `a[l:u]`, `a[:u]`,
+  `a[l:]`; `array_append`, `array_prepend`, `array_cat`, `||` (array or element on either side),
+  `array_length`, `array_lower`, `array_upper`, `array_ndims`, `array_dims`, `cardinality`,
+  `array_position(s)`, `array_remove`, `array_replace`, `array_fill`, `array_to_string`,
+  `string_to_array`, `trim_array`; `@>`, `<@`, `&&`, `= ANY`, `<> ALL` (three-valued); `=`, `<>`, `<`, ...
+  of arrays as PostgreSQL's btree order (elements, then the number of elements, then the shape; `NULL`
+  elements equal each other). Each is one physical `ArrayFunction`, a call of the runtime
+  (`tardisArrayCall`) with the values, their `NULL` indicators and types; its errors end the statement.
+  `unnest` and other set-returning functions are missing.
+* **Double precision** (`DoubleID`; `double precision`, `float`, `float8`, `real`, `float4`; before,
+  `numeric(18, 6)`): arithmetic (IEEE, division by zero as for integers), casts with the other numbers
+  (to integers half to even, to numerics half away from zero, as PostgreSQL), the order of PostgreSQL
+  (`NaN` equals `NaN` and is greater than all), the text of PostgreSQL (shortest exact digits, `1e+20`,
+  `NaN`, `Infinity`), pgserver's `float8` (701). Aggregates: `min` and `max` in the slots of integers
+  (order-preserving keys), `sum` and `avg` in doubles per branch: the difference arrays of the shared
+  scan would cancel them (1e20 + 1 - 1e20 - 1 is -1), so such queries take the per-branch strategy.
+* Fixed on the way: the parser kept the current token by reference while later tokens could move it
+  (`MERGE ... ON CONFLICT` read freed memory once the tokens grew); text constants emitted their
+  instructions where the expression was translated, which could be another function than the one using
+  it (a parallel scan read garbage); casts from numerics to integers divided by the scale of the target
+  (1) instead of the numeric's; casts of arithmetic took the nullability of the other operand; the
+  booleans of `t`, `yes`, `on`, `1` and their negations are accepted, as in PostgreSQL.
+* Not changed: `COPY` does not quote fields (also text with `;`).
+
+Checks: `test/array_test.cpp` (10 tests: literals and their text, malformed arrays, subscripts and
+slices, the functions and operators, expressions, updates with branches, `MERGE` and `DIFF`, `ALTER
+TABLE` and `COPY`, computed arrays in parallel scans, double precision with both strategies), with
+`TARDISDB_VERIFY_IR=1`; `test/test_pgserver.py` (lists of both drivers, arrays and floats in results).
 
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 

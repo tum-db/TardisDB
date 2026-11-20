@@ -214,7 +214,7 @@ std::string decodeBinaryParameter(int32_t oid, const std::string & bytes)
         case 23: return std::to_string(static_cast<int32_t>(be(0, 4)));
         case 20: return std::to_string(static_cast<int64_t>(be(0, 8)));
         case 700: { uint32_t raw = static_cast<uint32_t>(be(0, 4)); float f; memcpy(&f, &raw, 4); return std::to_string(f); }
-        case 701: { uint64_t raw = be(0, 8); double d; memcpy(&d, &raw, 8); std::ostringstream s; s.precision(17); s << d; return s.str(); }
+        case 701: { uint64_t raw = be(0, 8); double d; memcpy(&d, &raw, 8); return Native::Sql::formatDouble(d); }
         case 25: case 1042: case 1043: case 19: case 705: case 0: return bytes;
         case 1082: return formatDate(days(static_cast<int32_t>(be(0, 4))));
         case 1114: case 1184: {
@@ -224,6 +224,52 @@ std::string decodeBinaryParameter(int32_t oid, const std::string & bytes)
             int64_t rest = ms % (24 * 3600 * 1000);
             if (rest < 0) { rest += 24 * 3600 * 1000; --day; }
             return formatTimestamp(static_cast<uint64_t>(days(day)) * 24 * 3600 * 1000 + static_cast<uint64_t>(rest));
+        }
+        // arrays: ndim, flags, element type, (length, lower bound) per dimension, then the elements
+        case 1000: case 1005: case 1007: case 1016: case 1231: case 1021: case 1022: case 1014: case 1015:
+        case 1009: case 1182: case 1115: case 1185: {
+            int32_t ndim = static_cast<int32_t>(be(0, 4)), elementOid = static_cast<int32_t>(be(8, 4));
+            if (ndim < 0 || ndim > 6) throw std::runtime_error("malformed binary parameter");
+            std::vector<int32_t> lengths, lowers;
+            size_t offset = 12;
+            bool decorate = false;
+            for (int32_t d = 0; d < ndim; ++d) {
+                lengths.push_back(static_cast<int32_t>(be(offset, 4)));
+                lowers.push_back(static_cast<int32_t>(be(offset + 4, 4)));
+                decorate = decorate || lowers.back() != 1;
+                offset += 8;
+            }
+            std::string out;
+            if (decorate) {
+                for (int32_t d = 0; d < ndim; ++d) out += "[" + std::to_string(lowers[d]) + ":" + std::to_string(lowers[d] + lengths[d] - 1) + "]";
+                out += "=";
+            }
+            size_t count = ndim ? 1 : 0;
+            for (int32_t l : lengths) count *= static_cast<size_t>(std::max(l, 0));
+            if (count == 0) return out + "{}";
+            std::vector<int32_t> index(ndim, 0);
+            for (size_t i = 0; i < count; ++i) {
+                if (i > 0) out += ',';
+                for (int32_t d = ndim; d > 0 && index[d - 1] == 0; --d) out += '{';
+                int32_t length = static_cast<int32_t>(be(offset, 4));
+                offset += 4;
+                if (length < 0) {
+                    out += "NULL";
+                } else {
+                    if (offset + static_cast<size_t>(length) > bytes.size()) throw std::runtime_error("malformed binary parameter");
+                    std::string element = decodeBinaryParameter(elementOid, bytes.substr(offset, static_cast<size_t>(length)));
+                    offset += static_cast<size_t>(length);
+                    out += '"';
+                    for (char c : element) { if (c == '"' || c == '\\') out += '\\'; out += c; }
+                    out += '"';
+                }
+                for (int32_t d = ndim; d > 0; --d) {
+                    if (++index[d - 1] < lengths[d - 1]) break;
+                    index[d - 1] = 0;
+                    out += '}';
+                }
+            }
+            return out;
         }
         case 1700: { // numeric: ndigits, weight, sign, dscale, base-10000 digits
             int16_t ndigits = static_cast<int16_t>(be(0, 2)), weight = static_cast<int16_t>(be(2, 2));
@@ -251,7 +297,24 @@ std::string decodeBinaryParameter(int32_t oid, const std::string & bytes)
 std::pair<int32_t, int16_t> pgType(const Sql::SqlType & type)
 {
     using T = Sql::SqlType::TypeID;
+    if (type.typeID == T::ArrayID) {
+        // the array types of the element types
+        switch (Sql::getElementTy(type).typeID) {
+            case T::BoolID: return {1000, -1};
+            case T::IntegerID: return {1007, -1};
+            case T::LongIntegerID: return {1016, -1};
+            case T::NumericID: return {1231, -1};
+            case T::DoubleID: return {1022, -1};
+            case T::CharID: return {1014, -1};
+            case T::VarcharID: return {1015, -1};
+            case T::TextID: return {1009, -1};
+            case T::DateID: return {1182, -1};
+            case T::TimestampID: return {1115, -1};
+            default: return {705, -2};
+        }
+    }
     switch (type.typeID) {
+        case T::DoubleID: return {701, 8};
         case T::BoolID: return {16, 1};
         case T::IntegerID: return {23, 4};
         case T::LongIntegerID: return {20, 8};
@@ -311,6 +374,8 @@ std::optional<std::string> formatValue(const Native::Sql::Value * value, const S
         }
         case T::DateID: return formatDate(static_cast<const Native::Sql::Date *>(value)->value);
         case T::TimestampID: return formatTimestamp(static_cast<const Native::Sql::Timestamp *>(value)->value);
+        case T::DoubleID: return Native::Sql::formatDouble(static_cast<const Native::Sql::Double *>(value)->value);
+        case T::ArrayID: return static_cast<const Native::Sql::Array *>(value)->toString();
         default: throw std::runtime_error("cannot send a value of this type");
     }
 }
@@ -704,6 +769,8 @@ private:
             case T::TextID: return "text";
             case T::DateID: return "date";
             case T::TimestampID: return "timestamp without time zone";
+            case T::DoubleID: return "double precision";
+            case T::ArrayID: return typeName(Sql::toNotNullableTy(Sql::getElementTy(type))) + "[]";
             default: return "unknown";
         }
     }

@@ -289,6 +289,14 @@ namespace QueryCompiler {
         // query function signature
         llvm::FunctionType *funcTy = llvm::TypeBuilder<void(int, void *), false>::get(llvmContext);
 
+        // the arrays the query computes live in arenas until the query ends
+        struct ArenaResource : public ExecutionResource {
+            Native::Sql::Arrays::QueryArenas arenas;
+        };
+        auto arenas = std::make_unique<ArenaResource>();
+        Native::Sql::Arrays::ArenaScope arenaScope(arenas->arenas);
+        queryContext.executionContext.acquireResource(std::move(arenas));
+
         llvm::Function *queryFunc;
         {
             FunctionGen funcGen(moduleGen, "query", funcTy);
@@ -401,7 +409,7 @@ namespace QueryCompiler {
                 std::string name = "?column?";
                 if (aligned && position < select->projections.size()) {
                     auto & projection = select->projections[position];
-                    name = projection.aggregate.empty() ? projection.name : projection.aggregate;
+                    name = !projection.alias.empty() ? projection.alias : projection.aggregate.empty() ? projection.name : projection.aggregate;
                 } else if (iu->iuType == InformationUnit::Type::ColumnRef) {
                     name = getColumnInformation(iu)->columnName;
                 }

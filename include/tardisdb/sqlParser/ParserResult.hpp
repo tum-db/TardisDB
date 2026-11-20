@@ -6,6 +6,8 @@
 #define PROTODB_PARSINGCONTEXT_HPP
 
 #include <deque>
+
+#include "sqlParser/Expression.hpp"
 #include <vector>
 #include <string>
 
@@ -192,6 +194,8 @@ namespace tardisParser {
         std::string name;
         std::string table;
         std::string aggregate; // "", "count", "sum", "min", "max" or "avg"; count(*) has name "*"
+        std::string alias; // AS alias of the select list
+        sqlExpressions::node_p_t expression; // a computed column of the select list (name: its default name)
     };
 
     /// A condition of WHERE other than an equality of a column with a constant (those are
@@ -201,6 +205,7 @@ namespace tardisParser {
         std::vector<Column> columns;
         std::string op;
         std::vector<std::string> values;
+        sqlExpressions::node_p_t expression; // op "expr": any condition
     };
 
     /// A term of the right-hand side of SET: a column or a constant, preceded by an operator
@@ -233,6 +238,7 @@ namespace tardisParser {
         std::vector<std::pair<Column,std::string>> updates;
         std::vector<std::pair<Column,std::string>> selections;
         std::vector<std::vector<UpdateTerm>> expressions; // the right-hand side of each update
+        std::vector<sqlExpressions::node_p_t> trees; // or any expression (then without terms)
         std::vector<Predicate> predicates;
     };
     struct InsertStatement {

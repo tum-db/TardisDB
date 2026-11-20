@@ -87,6 +87,31 @@ SqlType getTextTy(bool nullable)
     return type;
 }
 
+SqlType getDoubleTy(bool nullable)
+{
+    SqlType type(TypeID::DoubleID, nullable);
+    return type;
+}
+
+SqlType getArrayTy(SqlType elementType, bool nullable)
+{
+    if (elementType.typeID == TypeID::ArrayID || elementType.typeID == TypeID::UnknownID) {
+        throw InvalidOperationException("no array of type " + getName(toNotNullableTy(elementType)));
+    }
+    SqlType type(TypeID::ArrayID, nullable);
+    type.length = elementType.length; // also the numeric layout
+    type.padding[0] = static_cast<uint8_t>(elementType.typeID);
+    return type;
+}
+
+SqlType getElementTy(SqlType arrayType)
+{
+    assert(arrayType.typeID == TypeID::ArrayID);
+    SqlType type(static_cast<TypeID>(arrayType.padding[0]), true);
+    type.length = arrayType.length;
+    return type;
+}
+
 size_t getValueSize(SqlType type)
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -131,6 +156,12 @@ std::string getName(SqlType type)
             break;
         case TypeID::TextID:
             signature = "Text";
+            break;
+        case TypeID::DoubleID:
+            signature = "Double";
+            break;
+        case TypeID::ArrayID:
+            signature = "Array<" + getName(toNotNullableTy(getElementTy(type))) + ">";
             break;
         default:
             throw NotImplementedException("getName()");
@@ -207,10 +238,13 @@ static llvm::Type * createLLVMTy(const SqlType & type, const std::string & name)
             return llvm::Type::getInt32Ty(context);
         case TypeID::TimestampID:
             return llvm::Type::getInt64Ty(context);
-        case TypeID::TextID: {
+        case TypeID::TextID:
+        case TypeID::ArrayID: { // an array is a handle of 16 bytes, as a text
             llvm::ArrayType * arrayType = llvm::ArrayType::get(llvm::Type::getInt64Ty(context), 2);
             return arrayType;
         }
+        case TypeID::DoubleID:
+            return llvm::Type::getDoubleTy(context);
         default:
             throw NotImplementedException("createLLVMTy()");
     }

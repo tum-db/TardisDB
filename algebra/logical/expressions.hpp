@@ -10,6 +10,7 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/InformationUnit.hpp"
+#include "native/sql/Array.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlOperators.hpp"
@@ -37,6 +38,13 @@ public:
 
 using exp_op_t = std::unique_ptr<Expression>;
 using logical_exp_op_t = exp_op_t;
+
+/// \returns The type, nullable as the other (a cast keeps whether its input may be NULL)
+inline Sql::SqlType withNullability(Sql::SqlType type, Sql::SqlType other)
+{
+    type.nullable = other.nullable;
+    return type;
+}
 
 class UnaryOperator : public Expression {
 public:
@@ -189,13 +197,13 @@ public:
 
         // cast if necessary
         if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), _right->getType());
+            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
             _left = std::move(newLeft);
 
             valid = Sql::Operators::inferAddTy(_left->getType(), _right->getType(), _type);
             assert(valid);
         } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), _left->getType());
+            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
             _right = std::move(newRight);
 
             valid = Sql::Operators::inferAddTy(_left->getType(), _right->getType(), _type);
@@ -228,13 +236,13 @@ public:
 
         // cast if necessary
         if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), _right->getType());
+            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
             _left = std::move(newLeft);
 
             valid = Sql::Operators::inferSubTy(_left->getType(), _right->getType(), _type);
             assert(valid);
         } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), _left->getType());
+            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
             _right = std::move(newRight);
 
             valid = Sql::Operators::inferSubTy(_left->getType(), _right->getType(), _type);
@@ -267,13 +275,13 @@ public:
 
         // cast if necessary
         if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), _right->getType());
+            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
             _left = std::move(newLeft);
 
             valid = Sql::Operators::inferMulTy(_left->getType(), _right->getType(), _type);
             assert(valid);
         } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), _left->getType());
+            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
             _right = std::move(newRight);
 
             valid = Sql::Operators::inferMulTy(_left->getType(), _right->getType(), _type);
@@ -306,13 +314,13 @@ public:
 
         // cast if necessary
         if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), _right->getType());
+            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
             _left = std::move(newLeft);
 
             valid = Sql::Operators::inferDivTy(_left->getType(), _right->getType(), _type);
             assert(valid);
         } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), _left->getType());
+            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
             _right = std::move(newRight);
 
             valid = Sql::Operators::inferDivTy(_left->getType(), _right->getType(), _type);
@@ -414,6 +422,27 @@ public:
     }
 };
 
+/// A function or an operator of arrays (see Native::Sql::Arrays::Function), which the runtime computes
+class ArrayFunction : public Expression {
+public:
+    Native::Sql::Arrays::Function _function;
+    Sql::SqlType _type;
+    std::vector<exp_op_t> _arguments;
+
+    ArrayFunction(Native::Sql::Arrays::Function function, Sql::SqlType type, std::vector<exp_op_t> arguments) :
+            _function(function), _type(type), _arguments(std::move(arguments))
+    { }
+
+    ~ArrayFunction() override { }
+
+    void accept(ExpressionVisitor & visitor) override;
+
+    Sql::SqlType getType() const override
+    {
+        return _type;
+    }
+};
+
 class ExpressionVisitor {
 public:
     void visit(Expression & exp)
@@ -434,6 +463,7 @@ public:
     virtual void visit(Identifier & exp) = 0;
     virtual void visit(Constant & exp) = 0;
     virtual void visit(NullConstant & exp) = 0;
+    virtual void visit(ArrayFunction & exp) = 0;
 };
 
 } // end namespace Expressions

@@ -51,7 +51,8 @@ namespace tardisParser {
             tok.type == Type::keyword)
             return false;
         if (tok.type == Type::op) return true;
-        static const std::set<std::string> comparisons = {"=", "<", "<=", ">", ">=", "<>", "!="};
+        // comparisons, and the operators of arrays
+        static const std::set<std::string> comparisons = {"=", "<", "<=", ">", ">=", "<>", "!=", "@>", "<@", "&&", "||"};
         if (comparisons.count(tok.value) > 0) {
             tok.type = Type::op;
             return true;
@@ -102,16 +103,54 @@ namespace tardisParser {
 
     // Skips a PostgreSQL cast (::type, ::numeric(10,2)) behind a string literal: TardisDB casts every
     // literal to the type of the column it is compared with or stored in
-    void Tokenizer::skipCast() {
+    std::string Tokenizer::skipCast() {
         while (std::isspace(_in.peek())) _in.get();
-        if (_in.peek() != ':') return;
+        if (_in.peek() != ':') return "";
         _in.get();
-        if (_in.peek() != ':') { _in.putback(':'); return; }
+        if (_in.peek() != ':') { _in.putback(':'); return ""; }
         _in.get();
-        while (std::isalnum(_in.peek()) || _in.peek() == '_') _in.get();
-        if (_in.peek() == '(') {
-            while (_in.peek() != EOF && _in.get() != ')') { }
+        while (std::isspace(_in.peek())) _in.get();
+        auto word = [this]() {
+            std::string w;
+            while (std::isalnum(_in.peek()) || _in.peek() == '_') w += static_cast<char>(std::tolower(_in.get()));
+            return w;
+        };
+        std::string type = word();
+        if (type == "double" || type == "character") {
+            // double precision, character varying
+            while (_in.peek() == ' ') _in.get();
+            std::streampos position = _in.tellg();
+            std::string second = word();
+            if (second == "varying") type = "varchar";
+            if (second != "precision" && second != "varying") { _in.clear(); _in.seekg(position); }
         }
+        if (_in.peek() == '(') {
+            type += static_cast<char>(_in.get());
+            while (_in.peek() != EOF && _in.peek() != ')') {
+                int c = _in.get();
+                if (!std::isspace(c)) type += static_cast<char>(c);
+            }
+            if (_in.peek() == ')') type += static_cast<char>(_in.get());
+        }
+        bool array = false;
+        // array types: [] (with sizes) and ARRAY
+        for (;;) {
+            if (_in.peek() == '[') {
+                while (_in.peek() != EOF && _in.get() != ']') { }
+                array = true;
+                continue;
+            }
+            std::streampos position = _in.tellg();
+            while (_in.peek() == ' ') _in.get();
+            if (std::tolower(_in.peek()) == 'a') {
+                std::string w = word();
+                if (w == "array") { array = true; continue; }
+            }
+            _in.clear();
+            _in.seekg(position);
+            break;
+        }
+        return array ? type + "[]" : type;
     }
 
     const Token &Tokenizer::next() {
@@ -130,8 +169,10 @@ namespace tardisParser {
                 }
                 value += static_cast<char>(c);
             }
-            skipCast();
+            std::string cast = _keepCasts ? "" : skipCast();
             _tokens.emplace_back(Type::literal, value);
+            _tokens.back().quoted = true;
+            _tokens.back().cast = cast;
             return _tokens.back();
         }
 
@@ -153,14 +194,35 @@ namespace tardisParser {
                     // If no token character has been read so far discard the spaces until one appears
                     continue;
                 }
-            } else if (c == '<' || c == '>' || c == '=' || c == '!') {
-                // a comparison ends the token before it: a>=5 is a, >=, 5
+            } else if (c == ':') {
+                // a cast (::type), which is skipped, or the colon of a slice (a[1:2])
+                if (i > 0) {
+                    _in.putback(c);
+                    break;
+                }
+                if (_in.peek() == ':') {
+                    if (_keepCasts) {
+                        // the operator of a cast in an expression
+                        _in.get();
+                        _tokens.emplace_back(Type::op, "::");
+                        return _tokens.back();
+                    }
+                    _in.putback(c);
+                    skipCast();
+                    continue;
+                }
+                ss << static_cast<char>(c);
+                break;
+            } else if (c == '<' || c == '>' || c == '=' || c == '!' || c == '@' ||
+                       ((c == '&' || c == '|') && _in.peek() == c)) {
+                // a comparison or an operator ends the token before it: a>=5 is a, >=, 5
                 if (i > 0) {
                     _in.putback(c);
                 } else {
                     ss << static_cast<char>(c);
                     int n = _in.peek();
-                    if ((c == '<' && (n == '=' || n == '>')) || ((c == '>' || c == '!') && n == '=')) {
+                    if ((c == '<' && (n == '=' || n == '>' || n == '@')) || ((c == '>' || c == '!') && n == '=') ||
+                        (c == '@' && n == '>') || c == '&' || c == '|') {
                         ss << static_cast<char>(_in.get());
                     }
                 }

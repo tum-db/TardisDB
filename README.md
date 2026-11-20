@@ -198,7 +198,9 @@ at once (one agent per branch); NOTES.md, concurrent clients, describes what exc
 `pgserver`, a transaction block (`BEGIN` ... `COMMIT`) has snapshot isolation in a private branch that
 `COMMIT` merges back and `ROLLBACK` drops. Columns declared without `NOT NULL` take `NULL` values in
 every branch: `WHERE` has SQL's three-valued logic, aggregates skip `NULL`s, and `MERGE` and `DIFF`
-treat two `NULL`s as equal (`test/null_test.cpp`).
+treat two `NULL`s as equal (`test/null_test.cpp`). Columns may be arrays of PostgreSQL (`integer[]`,
+`text[]`, ... of any number of dimensions, with their functions and operators) and of type
+`double precision`; the select list, `WHERE` and `SET` take expressions (`test/array_test.cpp`).
 
 ## SQL shell
 

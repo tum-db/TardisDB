@@ -80,6 +80,17 @@ namespace semanticalAnalysis {
         for (size_t i = 0; i < stmt->updates.size(); ++i) {
             auto &terms = stmt->expressions[i];
             iu_p_t target = ius[stmt->updates[i].first.name];
+            if (i < stmt->trees.size() && stmt->trees[i]) {
+                // any expression, in the type of the column
+                ExpressionAnalyser analyser(columnResolver(_context));
+                Sql::SqlType columnType = target->columnInformation->type;
+                Expressions::exp_op_t expression = analyser.analyseValue(*stmt->trees[i], Sql::toNotNullableTy(columnType), stmt->updates[i].first.name);
+                if (!columnType.nullable && expression->getType().nullable) {
+                    throw not_null_violation("column '" + stmt->updates[i].first.name + "' is NOT NULL, but its new value may be null");
+                }
+                update->addUpdateExpression(target, std::move(expression));
+                continue;
+            }
             if (!target->columnInformation->type.nullable) {
                 for (auto &term : terms) {
                     const bool mayBeNull = term.column.name.empty() ? term.value == Native::Sql::nullLiteral :

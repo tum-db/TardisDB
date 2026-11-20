@@ -81,7 +81,11 @@ namespace tardisParser {
 
         const std::string star = "*";
 
-        static std::set<std::string> controlSymbolSet = { separator, openBracket, closeBracket, star };
+        // subscripts and array types
+        const std::string openSquare = "[";
+        const std::string closeSquare = "]";
+
+        static std::set<std::string> controlSymbolSet = { separator, openBracket, closeBracket, star, openSquare, closeSquare };
     }
 
     enum Type : unsigned int {
@@ -91,6 +95,8 @@ namespace tardisParser {
     struct Token {
         Type type;
         std::string value;
+        bool quoted = false; // a string literal
+        std::string cast;    // the type of a skipped cast of a string literal ('5'::integer)
 
         Token(Type type, std::string value) : type(type), value(value) {}
 
@@ -116,12 +122,16 @@ namespace tardisParser {
 
         const Token &next();
 
-        /// Skips a cast (::type) behind a string literal
-        void skipCast();
+        /// Skips a cast (::type) behind a string literal; \returns the type ("" without a cast)
+        std::string skipCast();
+
+        /// Whether casts are tokens (:: and the type, in expressions) rather than skipped
+        bool keepCasts(bool keep) { bool previous = _keepCasts; _keepCasts = keep; return previous; }
 
     private:
         std::istream &_in;
         std::vector<Token> _tokens;
+        bool _keepCasts = false;
 
         static bool is_delimiter(Token &tok);
 

@@ -1,3 +1,6 @@
+#include <functional>
+#include <map>
+#include <set>
 #include <string>
 #include <memory>
 #include <unordered_map>
@@ -46,6 +49,10 @@ namespace semanticalAnalysis {
         static void construct_selects(AnalyzingContext& context, std::vector<std::pair<Column,std::string>> &selections);
         /// A Select per predicate (ranges, row values, IN, <>) over the production of its table
         static void construct_predicates(AnalyzingContext& context, std::vector<Predicate> &predicates);
+        /// The condition of a predicate (IS [NOT] NULL, IN, <>, ranges of columns or of row values) over the attributes of its columns
+        static Expressions::exp_op_t predicateExpression(const Predicate & predicate, const std::vector<iu_p_t> & ius);
+        /// The columns of the productions of the context; adds the productions they belong to
+        static std::function<iu_p_t(const std::string &, const std::string &)> columnResolver(AnalyzingContext & context, std::set<std::string> * productions = nullptr);
     };
 
     //
@@ -144,6 +151,40 @@ namespace semanticalAnalysis {
         AlterTableAnalyser(AnalyzingContext &context) : SemanticAnalyser(context) {}
         void verify() override;
         void constructTree() override;
+    };
+
+    /// The attribute of a column (binding may be empty), or nullptr
+    using ColumnResolver = std::function<iu_p_t(const std::string & table, const std::string & name)>;
+
+    /// The logical expression of a parsed expression (of the select list, WHERE or SET): the types of
+    /// constants from their context, casts between numbers, the functions and operators of arrays
+    class ExpressionAnalyser {
+    public:
+        explicit ExpressionAnalyser(ColumnResolver resolve);
+
+        Expressions::exp_op_t analyse(const sqlExpressions::Node & n, const Sql::SqlType * expected = nullptr);
+
+        /// a condition of WHERE (boolean)
+        Expressions::exp_op_t analyseCondition(const sqlExpressions::Node & n);
+
+        /// the new value of a column of SET
+        Expressions::exp_op_t analyseValue(const sqlExpressions::Node & n, Sql::SqlType target, const std::string & column);
+
+    private:
+        ColumnResolver _resolve;
+
+        Expressions::exp_op_t constant(const sqlExpressions::Node & n, Sql::SqlType type);
+        Expressions::exp_op_t coerce(Expressions::exp_op_t e, Sql::SqlType target, const std::string & what);
+        std::pair<Expressions::exp_op_t, Expressions::exp_op_t> typedPair(const sqlExpressions::Node & l, const sqlExpressions::Node & r, const std::string & what);
+        Expressions::exp_op_t arrayConstructor(const sqlExpressions::Node & n, const Sql::SqlType * expected);
+        Expressions::exp_op_t integerArgument(const sqlExpressions::Node & n, const std::string & what);
+        Expressions::exp_op_t textArgument(const sqlExpressions::Node & n, const std::string & what);
+        Expressions::exp_op_t subscript(const sqlExpressions::Node & n);
+        Expressions::exp_op_t polymorphic(const std::string & name, const std::vector<const sqlExpressions::Node *> & arrays,
+                                          const std::vector<const sqlExpressions::Node *> & elements, std::vector<Expressions::exp_op_t> & arrayOut,
+                                          std::vector<Expressions::exp_op_t> & elementOut, Sql::SqlType & arrayType);
+        Expressions::exp_op_t function(const sqlExpressions::Node & n);
+        Expressions::exp_op_t operation(const sqlExpressions::Node & n);
     };
 
     /// \returns Whether CREATE TABLE and ALTER TABLE know the type

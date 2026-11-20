@@ -70,6 +70,11 @@ void NullConstant::accept(ExpressionVisitor & visitor)
     visitor.visit(*this);
 }
 
+void ArrayFunction::accept(ExpressionVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
 } // end namespace Expressions
 } // end namespace Logical
 } // end namespace Algebra

@@ -1,4 +1,3 @@
- 
 #pragma once
 
 #include "Operator.hpp"
@@ -8,15 +7,14 @@ namespace Algebra {
 namespace Physical {
 
 struct Mapping {
-    iu_p_t source;
     iu_p_t dest;
     Expressions::exp_op_t exp;
 };
 
-/// The map operator
+/// The map operator: computes attributes of the tuples (the computed columns of a select list)
 class Map : public UnaryOperator {
 public:
-    Map(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, std::vector<Mapping> mappings);
+    Map(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, std::vector<Mapping> mappings, QueryContext & queryContext);
     virtual ~Map();
 
     void produce() override;

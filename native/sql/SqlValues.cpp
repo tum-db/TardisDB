@@ -2,6 +2,10 @@
 #include "codegen/LLVMCompat.hpp"
 #include "codegen/CodeGen.hpp"
 
+#include <cerrno>
+#include <charconv>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <map>
@@ -62,6 +66,10 @@ value_op_t Value::castString(const std::string & str, SqlType type)
             return Timestamp::castString(str);
         case SqlType::TypeID::TextID:
             return Text::castString(str);
+        case SqlType::TypeID::DoubleID:
+            return Double::castString(str);
+        case SqlType::TypeID::ArrayID:
+            return Array::castString(str, type);
         default:
             unreachable();
     }
@@ -96,6 +104,10 @@ value_op_t Value::load(const void * ptr, SqlType type)
             return Timestamp::load(ptr);
         case SqlType::TypeID::TextID:
             return Text::load(ptr);
+        case SqlType::TypeID::DoubleID:
+            return Double::load(ptr);
+        case SqlType::TypeID::ArrayID:
+            return Array::load(ptr, type);
         default:
             throw InvalidOperationException("unknown type");
     }
@@ -292,13 +304,16 @@ value_op_t Bool::clone() const
 
 value_op_t Bool::castString(const std::string & str)
 {
+    // the spellings of PostgreSQL, in any case and with surrounding spaces
+    std::string s;
+    for (char c : str) if (!std::isspace(static_cast<unsigned char>(c))) s += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     bool value;
-    if (str == "true") { // TODO case insensitive
+    if (s == "t" || s == "true" || s == "y" || s == "yes" || s == "on" || s == "1") {
         value = true;
-    } else if (str == "false") {
+    } else if (s == "f" || s == "false" || s == "n" || s == "no" || s == "off" || s == "0") {
         value = false;
     } else {
-        throw InvalidOperationException("invalid string representation of a boolean value");
+        throw InvalidOperationException("invalid input syntax for type boolean: \"" + str + "\"");
     }
 
     value_op_t sqlValue( new Bool(value) );
@@ -823,6 +838,216 @@ bool Timestamp::equals(const Value & other) const
 bool Timestamp::compare(const Value & other, ComparisonMode mode) const
 {
     throw NotImplementedException();
+}
+
+//-----------------------------------------------------------------------------
+// Double
+
+Double::Double(value_type constantValue) :
+    Value(::Sql::getDoubleTy()),
+    value(constantValue)
+{ }
+
+std::string formatDouble(double value)
+{
+    if (std::isnan(value)) return "NaN";
+    if (std::isinf(value)) return value > 0 ? "Infinity" : "-Infinity";
+    if (value == 0) return std::signbit(value) ? "-0" : "0";
+    // the shortest digits that read back exactly, laid out as PostgreSQL does
+    char buffer[64];
+    auto result = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::scientific);
+    std::string scientific(buffer, result.ptr);
+    size_t e = scientific.find('e');
+    std::string mantissa = scientific.substr(0, e);
+    int exponent = std::stoi(scientific.substr(e + 1));
+    bool negative = mantissa[0] == '-';
+    std::string digits;
+    for (char c : mantissa) if (std::isdigit(static_cast<unsigned char>(c))) digits += c;
+    std::string out = negative ? "-" : "";
+    if (exponent < -4 || exponent >= 15) {
+        out += digits.substr(0, 1);
+        if (digits.size() > 1) out += "." + digits.substr(1);
+        out += exponent < 0 ? "e-" : "e+";
+        std::string ex = std::to_string(std::abs(exponent));
+        if (ex.size() < 2) ex.insert(0, "0");
+        return out + ex;
+    }
+    if (exponent < 0) {
+        return out + "0." + std::string(static_cast<size_t>(-exponent - 1), '0') + digits;
+    }
+    size_t integerDigits = static_cast<size_t>(exponent) + 1;
+    if (digits.size() <= integerDigits) return out + digits + std::string(integerDigits - digits.size(), '0');
+    return out + digits.substr(0, integerDigits) + "." + digits.substr(integerDigits);
+}
+
+double parseDouble(const std::string & str)
+{
+    size_t begin = 0, end = str.size();
+    while (begin < end && std::isspace(static_cast<unsigned char>(str[begin]))) ++begin;
+    while (end > begin && std::isspace(static_cast<unsigned char>(str[end - 1]))) --end;
+    std::string s = str.substr(begin, end - begin);
+    std::string lower;
+    for (char c : s) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower == "nan") return std::numeric_limits<double>::quiet_NaN();
+    if (lower == "infinity" || lower == "+infinity" || lower == "inf" || lower == "+inf") return std::numeric_limits<double>::infinity();
+    if (lower == "-infinity" || lower == "-inf") return -std::numeric_limits<double>::infinity();
+    bool valid = !s.empty() && lower.find_first_not_of("0123456789+-.e") == std::string::npos;
+    char * stop = nullptr;
+    errno = 0;
+    double value = valid ? std::strtod(s.c_str(), &stop) : 0;
+    if (!valid || stop != s.c_str() + s.size()) {
+        throw std::invalid_argument("invalid input syntax for type double precision: \"" + str + "\"");
+    }
+    if (errno == ERANGE && std::isinf(value)) {
+        throw std::invalid_argument("\"" + str + "\" is out of range for type double precision");
+    }
+    return value;
+}
+
+std::string formatNumeric(int64_t raw, unsigned scale)
+{
+    uint64_t magnitude = raw < 0 ? 0 - static_cast<uint64_t>(raw) : static_cast<uint64_t>(raw);
+    std::string digits = std::to_string(magnitude);
+    if (scale > 0) {
+        if (digits.size() <= scale) digits.insert(0, scale - digits.size() + 1, '0');
+        digits.insert(digits.size() - scale, ".");
+    }
+    return (raw < 0 ? "-" : "") + digits;
+}
+
+value_op_t Double::castString(const std::string & str)
+{
+    return value_op_t(new Double(parseDouble(str)));
+}
+
+value_op_t Double::load(const void * ptr)
+{
+    double v;
+    std::memcpy(&v, ptr, sizeof(v));
+    return value_op_t(new Double(v));
+}
+
+value_op_t Double::clone() const
+{
+    return value_op_t(new Double(value));
+}
+
+void Double::store(void * ptr) const
+{
+    std::memcpy(ptr, &value, sizeof(value));
+}
+
+hash_t Double::hash() const
+{
+    if (std::isnan(value)) return hashInteger<uint64_t>(0x7ff8000000000000ull);
+    double v = value + 0.0; // -0 hashes as 0
+    uint64_t bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    return hashInteger(bits);
+}
+
+static int compareDoubles(double a, double b)
+{
+    bool aNaN = std::isnan(a), bNaN = std::isnan(b);
+    if (aNaN || bNaN) return aNaN == bNaN ? 0 : (aNaN ? 1 : -1);
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+bool Double::equals(const Value & other) const
+{
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
+    }
+    if (isNullable(other)) {
+        return other.equals(*this);
+    }
+    return compareDoubles(value, dynamic_cast<const Double &>(other).value) == 0;
+}
+
+bool Double::compare(const Value & other, ComparisonMode mode) const
+{
+    int c = compareDoubles(value, dynamic_cast<const Double &>(getAssociatedValue(other)).value);
+    switch (mode) {
+        case ComparisonMode::less: return c < 0;
+        case ComparisonMode::leq: return c <= 0;
+        case ComparisonMode::eq: return c == 0;
+        case ComparisonMode::geq: return c >= 0;
+        case ComparisonMode::gtr: return c > 0;
+    }
+    return false;
+}
+
+//-----------------------------------------------------------------------------
+// Array
+
+Array::Array(SqlType type, Arrays::Handle handle) :
+    Value(type),
+    value(handle)
+{ }
+
+value_op_t Array::castString(const std::string & str, SqlType type)
+{
+    return value_op_t(new Array(type, Arrays::parse(str, type, nullptr)));
+}
+
+value_op_t Array::load(const void * ptr, SqlType type)
+{
+    auto * array = new Array(type, Arrays::loadHandle(ptr));
+    array->ownTemporary(); // the arena of the query may go before the value
+    return value_op_t(array);
+}
+
+void Array::ownTemporary()
+{
+    if (!value.isTemporary() || (_owned && reinterpret_cast<const uint8_t *>(_owned->data()) == value.data)) return;
+    _owned = std::make_shared<const std::string>(reinterpret_cast<const char *>(value.data), value.size());
+    value = Arrays::Handle{reinterpret_cast<const uint8_t *>(_owned->data()), value.size() | Arrays::Handle::temporary};
+}
+
+value_op_t Array::clone() const
+{
+    auto * array = new Array(type, value);
+    array->_owned = _owned;
+    return value_op_t(array);
+}
+
+void Array::store(void * ptr) const
+{
+    Arrays::storeHandle(ptr, Arrays::persist(value));
+}
+
+hash_t Array::hash() const
+{
+    return Arrays::hash(value, type);
+}
+
+bool Array::equals(const Value & other) const
+{
+    if (!::Sql::equals(type, other.type, ::Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return false;
+    }
+    if (isNullable(other)) {
+        return other.equals(*this);
+    }
+    return Arrays::equals(value, dynamic_cast<const Array &>(other).value, type);
+}
+
+bool Array::compare(const Value & other, ComparisonMode mode) const
+{
+    int c = Arrays::compare(value, dynamic_cast<const Array &>(getAssociatedValue(other)).value, type);
+    switch (mode) {
+        case ComparisonMode::less: return c < 0;
+        case ComparisonMode::leq: return c <= 0;
+        case ComparisonMode::eq: return c == 0;
+        case ComparisonMode::geq: return c >= 0;
+        case ComparisonMode::gtr: return c > 0;
+    }
+    return false;
+}
+
+std::string Array::toString() const
+{
+    return Arrays::format(value, type);
 }
 
 //-----------------------------------------------------------------------------
@@ -1453,6 +1678,10 @@ std::string toString(const Value & sqlValue)
             const Text * text = dynamic_cast<const Text *>(&sqlValue);
             return std::string(text->getView());
         }
+        case SqlType::TypeID::DoubleID:
+            return formatDouble(dynamic_cast<const Double &>(sqlValue).value);
+        case SqlType::TypeID::ArrayID:
+            return dynamic_cast<const Array &>(sqlValue).toString();
         default:
             throw NotImplementedException();
     }

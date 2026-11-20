@@ -308,6 +308,37 @@ void Join::computeRequired()
 }
 
 //-----------------------------------------------------------------------------
+// Map operator
+
+void Map::accept(OperatorVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+void Map::computeProduced()
+{
+    produced.clear();
+    const iu_set_t & childProduced = child->getProduced();
+    produced.insert(childProduced.begin(), childProduced.end());
+    for (auto & mapping : _mappings) produced.insert(mapping.src);
+}
+
+void Map::computeRequired()
+{
+    required.clear();
+    // what the parent expects, except the computed attributes, and what the expressions read
+    iu_set_t expected = computeExpected(parent, this);
+    for (iu_p_t iu : expected) {
+        bool computed = std::any_of(_mappings.begin(), _mappings.end(), [iu](const Mapping & m) { return m.src == iu; });
+        if (!computed) required.insert(iu);
+    }
+    for (auto & mapping : _mappings) {
+        iu_set_t expRequired = collectRequired(*mapping.exp);
+        required.insert(expRequired.begin(), expRequired.end());
+    }
+}
+
+//-----------------------------------------------------------------------------
 // Select operator
 
 void Select::accept(OperatorVisitor & visitor)
@@ -701,6 +732,11 @@ struct ExpressionIUCollector : public Expressions::ExpressionVisitor {
 
     void visit(Expressions::Constant & exp) override { /* NOP */ }
     void visit(Expressions::NullConstant & exp) override { /* NOP */ }
+
+    void visit(Expressions::ArrayFunction & exp) override
+    {
+        for (auto & argument : exp._arguments) argument->accept(*this);
+    }
 };
 
 iu_set_t collectRequired(const Expressions::Expression & exp)

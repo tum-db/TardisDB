@@ -11,7 +11,8 @@ namespace Sql {
 struct SqlType {
     // data:
     enum class TypeID : uint8_t {
-        UnknownID, BoolID, IntegerID, LongIntegerID, CharID, VarcharID, NumericID, DateID, TimestampID, TextID
+        UnknownID, BoolID, IntegerID, LongIntegerID, CharID, VarcharID, NumericID, DateID, TimestampID, TextID,
+        DoubleID, ArrayID
     } typeID;
     union {
         // char/varchar specific:
@@ -25,6 +26,7 @@ struct SqlType {
 
     bool nullable;
 
+    // array specific: padding[0] is the TypeID of the elements, whose length (or numeric layout) is the one above
     uint8_t padding[2] = { };
 
     // constructors:
@@ -62,6 +64,14 @@ SqlType getVarcharTy(uint32_t capacity, bool nullable = false);
 SqlType getTimestampTy(bool nullable = false);
 
 SqlType getTextTy(bool nullable = false);
+
+SqlType getDoubleTy(bool nullable = false);
+
+/// \brief An array of the given elements (of any number of dimensions, as in PostgreSQL)
+SqlType getArrayTy(SqlType elementType, bool nullable = false);
+
+/// \returns The type of the elements of an array, which may be NULL
+SqlType getElementTy(SqlType arrayType);
 
 /// \brief calculate the storage size
 size_t getValueSize(SqlType type);

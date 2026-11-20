@@ -47,28 +47,43 @@ namespace semanticalAnalysis {
         _context.joinedTree = nullptr;
     }
 
-    bool isColumnType(const std::string &type) {
+    /// The type without the suffix of an array type ("integer[]": "integer")
+    static std::string elementTypeName(const std::string &type, bool &array) {
+        array = type.size() > 2 && type.compare(type.size() - 2, 2, "[]") == 0;
+        return array ? type.substr(0, type.size() - 2) : type;
+    }
+
+    bool isColumnType(const std::string &spelled) {
         static const std::vector<std::string> typeNames = {"bool","date","integer","int","longinteger","numeric","char","varchar","timestamp","text",
                 // names of PostgreSQL
-                "boolean","smallint","int2","int4","bigint","int8","decimal","float","float4","float8","real","double","bpchar"};
+                "boolean","smallint","int2","int4","bigint","int8","decimal","float","float4","float8","real","double","bpchar","character"};
+        bool array;
+        std::string type = elementTypeName(spelled, array);
         return std::find(typeNames.begin(), typeNames.end(), type) != typeNames.end();
     }
 
     Sql::SqlType toColumnType(const ColumnSpec &spec) {
-        // the names of PostgreSQL map to the types of TardisDB; there is no floating point type, so
-        // float, real and double become numeric(18, 6)
+        // the names of PostgreSQL map to the types of TardisDB; float, real and double (precision) are
+        // double precision; a type with [] (or ARRAY) is an array of the type
         ColumnSpec columnSpec = spec;
+        bool array;
+        columnSpec.type = elementTypeName(spec.type, array);
+        if (array) {
+            ColumnSpec element = columnSpec;
+            element.nullable = false;
+            return Sql::getArrayTy(toColumnType(element), spec.nullable);
+        }
         static const std::map<std::string, std::string> aliases = {
                 {"boolean", "bool"}, {"smallint", "integer"}, {"int2", "integer"}, {"int4", "integer"},
-                {"bigint", "longinteger"}, {"int8", "longinteger"}, {"decimal", "numeric"}, {"bpchar", "char"}};
+                {"bigint", "longinteger"}, {"int8", "longinteger"}, {"decimal", "numeric"}, {"bpchar", "char"},
+                {"character", "char"}};
         if (aliases.count(columnSpec.type)) columnSpec.type = aliases.at(columnSpec.type);
+        if (columnSpec.type == "char" && columnSpec.length == 0) columnSpec.length = 1; // char is char(1)
+        Sql::SqlType sqlType;
         if (columnSpec.type == "float" || columnSpec.type == "float4" || columnSpec.type == "float8" ||
             columnSpec.type == "real" || columnSpec.type == "double") {
-            columnSpec.type = "numeric";
-            columnSpec.length = 18;
-            columnSpec.precision = 6;
+            return Sql::getDoubleTy(columnSpec.nullable);
         }
-        Sql::SqlType sqlType;
         if (columnSpec.type.compare("bool") == 0) {
             sqlType = Sql::getBoolTy(columnSpec.nullable);
         } else if (columnSpec.type.compare("date") == 0) {

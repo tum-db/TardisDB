@@ -40,6 +40,7 @@ public:
         size_t width;                       // slots per group: count, one per aggregate, one per aggregate of a nullable column
         std::vector<int> functions;         // Logical::BranchAggregation::Function per aggregate
         std::vector<size_t> nonNull;        // per aggregate, the slot that counts its values that are not NULL; 0 (the count) if it has no NULLs
+        std::vector<uint8_t> doubleSums;    // per slot: whether it sums doubles (it holds the bits of a double)
         size_t workers;
         size_t tuples;
         bool perBranch;

@@ -4,6 +4,7 @@
 
 #include "sql/SqlOperators.hpp"
 
+#include <cmath>
 #include <unordered_map>
 
 #include "codegen/CodeGen.hpp"
@@ -108,6 +109,13 @@ static value_op_t sqlAddImpl(const Numeric & lhs, const Numeric & rhs, SqlType r
     return value_op_t( Numeric::fromRawValues({ raw }, resultType) );
 }
 
+/// the arithmetic of doubles (no overflow checks: IEEE infinities, as PostgreSQL's float8 except for its error)
+static value_op_t doubleArithmetic(const Value & lhs, const Value & rhs, llvm::Instruction::BinaryOps op)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    return Double::fromRawValues({ codeGen->CreateBinOp(op, lhs.getLLVMValue(), rhs.getLLVMValue()) });
+}
+
 value_op_t sqlAdd(const Value & outerLhs, const Value & outerRhs)
 {
     SqlType resultType;
@@ -123,11 +131,29 @@ value_op_t sqlAdd(const Value & outerLhs, const Value & outerRhs)
             return sqlAddImpl(static_cast<const Integer &>(lhs), static_cast<const Integer &>(rhs), notNullableType);
         } else if (lhs.type.typeID == TypeID::NumericID && rhs.type.typeID == TypeID::NumericID) {
             return sqlAddImpl(static_cast<const Numeric &>(lhs), static_cast<const Numeric &>(rhs), notNullableType);
+        } else if (lhs.type.typeID == TypeID::DoubleID && rhs.type.typeID == TypeID::DoubleID) {
+            return doubleArithmetic(lhs, rhs, llvm::Instruction::FAdd);
         } else {
             throw InvalidOperationException("attempt to add incompatible types");
         }
     };
     return Utils::nullHandler(action, outerLhs, outerRhs, resultType);
+}
+
+static bool isNumberType(SqlType type)
+{
+    return type.typeID == TypeID::IntegerID || type.typeID == TypeID::LongIntegerID ||
+           type.typeID == TypeID::NumericID || type.typeID == TypeID::DoubleID;
+}
+
+/// a double with a number (or two doubles) is a double
+static bool inferDoubleTy(SqlType lhs, SqlType rhs, SqlType & result)
+{
+    if ((lhs.typeID == TypeID::DoubleID || rhs.typeID == TypeID::DoubleID) && isNumberType(lhs) && isNumberType(rhs)) {
+        result = getDoubleTy(lhs.nullable || rhs.nullable);
+        return true;
+    }
+    return false;
 }
 
 bool inferAddTy(SqlType lhs, SqlType rhs, SqlType & result)
@@ -145,7 +171,9 @@ bool inferAddTy(SqlType lhs, SqlType rhs, SqlType & result)
         rhs.nullable = true;
     }
 
-    if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::IntegerID) {
+    if (inferDoubleTy(lhs, rhs, result)) {
+        return true;
+    } else if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::IntegerID) {
         result = lhs;
     } else if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::NumericID) {
         result = rhs;
@@ -212,6 +240,8 @@ value_op_t sqlSub(const Value & outerLhs, const Value & outerRhs)
             return sqlSubImpl(static_cast<const Integer &>(lhs), static_cast<const Integer &>(rhs), notNullableType);
         } else if (lhs.type.typeID == TypeID::NumericID && rhs.type.typeID == TypeID::NumericID) {
             return sqlSubImpl(static_cast<const Numeric &>(lhs), static_cast<const Numeric &>(rhs), notNullableType);
+        } else if (lhs.type.typeID == TypeID::DoubleID && rhs.type.typeID == TypeID::DoubleID) {
+            return doubleArithmetic(lhs, rhs, llvm::Instruction::FSub);
         } else {
             throw InvalidOperationException("attempt to subtract incompatible types");
         }
@@ -258,6 +288,8 @@ value_op_t sqlMul(const Value & outerLhs, const Value & outerRhs)
             return sqlMulImpl(static_cast<const Integer &>(lhs), static_cast<const Integer &>(rhs), notNullableType);
         } else if (lhs.type.typeID == TypeID::NumericID && rhs.type.typeID == TypeID::NumericID) {
             return sqlMulImpl(static_cast<const Numeric &>(lhs), static_cast<const Numeric &>(rhs), notNullableType);
+        } else if (lhs.type.typeID == TypeID::DoubleID && rhs.type.typeID == TypeID::DoubleID) {
+            return doubleArithmetic(lhs, rhs, llvm::Instruction::FMul);
         } else {
             throw InvalidOperationException("attempt to multiply incompatible types");
         }
@@ -269,7 +301,9 @@ bool inferMulTy(SqlType lhs, SqlType rhs, SqlType & result)
 {
     bool valid = true;
 
-    if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::IntegerID) {
+    if (inferDoubleTy(lhs, rhs, result)) {
+        return true;
+    } else if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::IntegerID) {
         result = lhs;
     } else if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::NumericID) {
         result = rhs;
@@ -347,8 +381,13 @@ value_op_t sqlDiv(const Value & outerLhs, const Value & outerRhs)
         SqlType notNullableType = toNotNullableTy(resultType);
 
         llvm::Value * raw = rhs.getLLVMValue();
-        llvm::Value * zero = codeGen->getIntN( raw->getType()->getPrimitiveSizeInBits(), 0 );
-        cg_bool_t isZero( codeGen->CreateICmpEQ(raw, zero) );
+        cg_bool_t isZero(false);
+        if (raw->getType()->isDoubleTy()) {
+            isZero = cg_bool_t( codeGen->CreateFCmpOEQ(raw, llvm::ConstantFP::get(raw->getType(), 0.0)) );
+        } else {
+            llvm::Value * zero = codeGen->getIntN( raw->getType()->getPrimitiveSizeInBits(), 0 );
+            isZero = cg_bool_t( codeGen->CreateICmpEQ(raw, zero) );
+        }
 
         // a division by zero ends the generated function; the return needs a block of its own
         llvm::Function * function = codeGen->GetInsertBlock()->getParent();
@@ -369,6 +408,8 @@ value_op_t sqlDiv(const Value & outerLhs, const Value & outerRhs)
             return sqlDivImpl(static_cast<const Integer &>(lhs), static_cast<const Integer &>(rhs), notNullableType);
         } else if (lhs.type.typeID == TypeID::NumericID && rhs.type.typeID == TypeID::NumericID) {
             return sqlDivImpl(static_cast<const Numeric &>(lhs), static_cast<const Numeric &>(rhs), notNullableType);
+        } else if (lhs.type.typeID == TypeID::DoubleID && rhs.type.typeID == TypeID::DoubleID) {
+            return doubleArithmetic(lhs, rhs, llvm::Instruction::FDiv);
         } else {
             throw InvalidOperationException("attempt to divide incompatible types");
         }
@@ -380,7 +421,9 @@ bool inferDivTy(SqlType lhs, SqlType rhs, SqlType & result)
 {
     bool valid = true;
 
-    if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::IntegerID) {
+    if (inferDoubleTy(lhs, rhs, result)) {
+        return true;
+    } else if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::IntegerID) {
         result = lhs;
     } else if (lhs.typeID == TypeID::IntegerID && rhs.typeID == TypeID::NumericID) {
         result = rhs;
@@ -468,14 +511,90 @@ std::unique_ptr<Sql::Bool> sqlIsNull(const Value & value)
 //-----------------------------------------------------------------------------
 // casts
 
+/// a double rounded to the nearest integer, which must fit into the bits: half to even (as PostgreSQL
+/// casts to integers) or half away from zero (as it casts to numerics)
+static llvm::Value * roundDoubleToInt(llvm::Value * value, unsigned bits, bool halfToEven = true)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Function * rint = llvm::Intrinsic::getDeclaration(&codeGen.getCurrentModuleGen().getModule(),
+                                                            halfToEven ? llvm::Intrinsic::rint : llvm::Intrinsic::round, {value->getType()});
+    llvm::Value * rounded = codeGen->CreateCall(rint, {value});
+    double limit = std::ldexp(1.0, static_cast<int>(bits) - 1);
+    llvm::Value * inRange = codeGen->CreateAnd(
+            codeGen->CreateFCmpOGE(rounded, llvm::ConstantFP::get(value->getType(), -limit)),
+            codeGen->CreateFCmpOLT(rounded, llvm::ConstantFP::get(value->getType(), limit)));
+    IfGen check(cg_bool_t(codeGen->CreateNot(inRange)));
+    {
+        genOverflowException();
+    }
+    check.EndIf();
+    return codeGen->CreateFPToSI(rounded, codeGen->getIntNTy(bits));
+}
+
+static llvm::Value * toDouble(llvm::Value * raw)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    return codeGen->CreateSIToFP(raw, codeGen->getDoubleTy());
+}
+
+static value_op_t castDouble(const Double & value, SqlType newType)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Value * raw = value.getLLVMValue();
+    switch (newType.typeID) {
+        case TypeID::DoubleID:
+            return value.clone();
+        case TypeID::IntegerID:
+            return Integer::fromRawValues({ roundDoubleToInt(raw, 32) });
+        case TypeID::LongIntegerID:
+            return LongInteger::fromRawValues({ roundDoubleToInt(raw, 64) });
+        case TypeID::NumericID: {
+            llvm::Value * scaled = codeGen->CreateFMul(raw, llvm::ConstantFP::get(raw->getType(), static_cast<double>(numericShifts[newType.numericLayout.precision])));
+            return Numeric::fromRawValues({ roundDoubleToInt(scaled, 64, false) }, newType);
+        }
+        default:
+            throw ArithmeticException("no known conversion");
+    }
+}
+
+static value_op_t castLongInteger(const LongInteger & value, SqlType newType)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Value * raw = value.getLLVMValue();
+    switch (newType.typeID) {
+        case TypeID::LongIntegerID:
+            return value.clone();
+        case TypeID::IntegerID: {
+            llvm::Value * truncated = codeGen->CreateTrunc(raw, codeGen->getInt32Ty());
+            IfGen check(cg_bool_t(codeGen->CreateICmpNE(codeGen->CreateSExt(truncated, codeGen->getInt64Ty()), raw)));
+            {
+                genOverflowException();
+            }
+            check.EndIf();
+            return Integer::fromRawValues({ truncated });
+        }
+        case TypeID::NumericID: {
+            Numeric::cg_value_type shift( numericShifts[newType.numericLayout.precision] );
+            return Numeric::fromRawValues({ CreateOverflowSMul(raw, shift, newType, &genOverflowException) }, newType);
+        }
+        case TypeID::DoubleID:
+            return Double::fromRawValues({ toDouble(raw) });
+        default:
+            throw ArithmeticException("no known conversion");
+    }
+}
+
 value_op_t castInteger(const Integer & value, SqlType newType)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
-    // only Integer <-> Numeric conversions for now
     switch (newType.typeID) {
         case TypeID::IntegerID:
             return value.clone(); // identity
+        case TypeID::LongIntegerID:
+            return LongInteger::fromRawValues({ codeGen->CreateSExt(value.getLLVMValue(), codeGen->getInt64Ty()) });
+        case TypeID::DoubleID:
+            return Double::fromRawValues({ toDouble(value.getLLVMValue()) });
         case TypeID::NumericID: {
             llvm::Value * raw = value.getLLVMValue();
             raw = codeGen->CreateSExt(raw, Numeric::cg_value_type::getType());
@@ -492,11 +611,19 @@ value_op_t castNumeric(const Numeric & value, SqlType newType)
 {
     auto & codeGen = getThreadLocalCodeGen();
 
-    // only Integer <-> Numeric conversions for now
     switch (newType.typeID) {
+        case TypeID::DoubleID: {
+            llvm::Value * raw = toDouble(value.getLLVMValue());
+            raw = codeGen->CreateFDiv(raw, llvm::ConstantFP::get(raw->getType(), static_cast<double>(numericShifts[value.type.numericLayout.precision])));
+            return Double::fromRawValues({ raw });
+        }
+        case TypeID::LongIntegerID: {
+            Numeric::cg_value_type shift( numericShifts[value.type.numericLayout.precision] );
+            return LongInteger::fromRawValues({ codeGen->CreateSDiv(value.getLLVMValue(), shift) });
+        }
         case TypeID::IntegerID: {
             llvm::Value * raw = value.getLLVMValue();
-            Numeric::cg_value_type shift( numericShifts[newType.numericLayout.precision] );
+            Numeric::cg_value_type shift( numericShifts[value.type.numericLayout.precision] );
             raw = codeGen->CreateSDiv(raw, shift);
             raw = codeGen->CreateTrunc(raw, Integer::cg_value_type::getType());
             return Integer::fromRawValues({ raw });
@@ -540,7 +667,12 @@ value_op_t sqlCast(const Value & outerValue, SqlType newType)
                 return castInteger(static_cast<const Integer &>(value), castType);
             case TypeID::NumericID:
                 return castNumeric(static_cast<const Numeric &>(value), castType);
+            case TypeID::LongIntegerID:
+                return castLongInteger(static_cast<const LongInteger &>(value), castType);
+            case TypeID::DoubleID:
+                return castDouble(static_cast<const Double &>(value), castType);
             default:
+                if (Sql::equals(value.type, castType, SqlTypeEqualsMode::WithoutNullable)) return value.clone();
                 throw ArithmeticException("no known conversion");
         }
     };

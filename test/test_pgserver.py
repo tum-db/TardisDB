@@ -127,6 +127,29 @@ assert rows == [("left", "c"), ("left", "cc")], rows
 with psycopg.connect(dsn, autocommit=True) as c3:
     rows = c3.execute("select k.id, v from k, nn where k.id = nn.id and k.id = %s", (2,)).fetchall()
     assert rows == [(2, 20)], rows
+# arrays and doubles: Python lists of both drivers (psycopg2 sends ARRAY[...], psycopg 3 typed
+# parameters), arrays and floats in results, array functions and operators
+cur.execute("create table ar ( id integer not null, v integer[], s text[], d double precision, m double precision[] )")
+cur.execute("insert into ar (id, v, s, d, m) values (%s, %s, %s, %s, %s)", (1, [1, 2, 3], ["a b", None, "c"], 0.1, [[1.5, 2], [3, 4]]))
+cur.execute("select id, v, s, d, m from ar")
+row = cur.fetchone()
+print("psycopg2 arrays:", row)
+assert row == (1, [1, 2, 3], ["a b", None, "c"], 0.1, [[1.5, 2.0], [3.0, 4.0]]), row
+cur.execute("select v[2], v[2:3], cardinality(v), array_append(v, %s), m[2][1] from ar where %s = any(v)", (9, 3))
+assert cur.fetchone() == (2, [2, 3], 3, [1, 2, 3, 9], 3.0)
+with psycopg.connect(dsn, autocommit=True) as c3:
+    c3.execute("insert into ar (id, v, s, d) values (%s, %s, %s, %s)", (2, [4, None], ["x"], 1e20))
+    assert c3.execute("select id, v, s, d from ar where id = %s", (2,)).fetchone() == (2, [4, None], ["x"], 1e20)
+    assert c3.execute("select id from ar where v @> %s", ([2],)).fetchall() == [(1,)]
+    c3.execute("update ar set v = v || %s where id = %s", ([5, 6], 2))
+    assert c3.execute("select v, array_to_string(v, ',', '*') from ar where id = 2").fetchone() == ([4, None, 5, 6], "4,*,5,6")
+    assert c3.execute("select sum(d), avg(d) from ar").fetchone() == (1e20 + 0.1, (1e20 + 0.1) / 2)
+    # parameters in binary: arrays (with NULLs and two dimensions) and doubles
+    c3.execute("insert into ar (id, v, s, d, m) values (%b, %b, %b, %b, %b)", (3, [7, None, 9], ["q", None], 2.5, [[1.0, 2.0], [3.0, 4.5]]))
+    assert c3.execute("select v, s, d, m from ar where id = 3").fetchone() == ([7, None, 9], ["q", None], 2.5, [[1.0, 2.0], [3.0, 4.5]])
+cur.execute("show columns from ar")
+types = {r[0]: r[1] for r in cur.fetchall()}
+assert types["v"] == "integer[]" and types["d"] == "double precision", types
 c.close()
 c2.close()
 with admin.cursor() as cur:

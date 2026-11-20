@@ -104,7 +104,11 @@ namespace {
         EXPECT_EQ(exec("UPDATE p SET v = 'y' WHERE c BETWEEN 2 AND 5;", "b").rows, 2u);
         EXPECT_EQ(query("SELECT v FROM p WHERE v = 'y';", "b"), (std::vector<std::string>{"(y)", "(y)"}));
         EXPECT_TRUE(query("SELECT v FROM p WHERE v = 'y';").empty());
-        EXPECT_THROW(exec("SELECT branch, count(*) FROM p VERSION (master, b) WHERE c > 1 GROUP BY branch;"), std::exception);
+        // queries over several branches take any condition
+        EXPECT_EQ(query("SELECT branch, count(*) FROM p VERSION (master, b) WHERE c > 1 GROUP BY branch;"),
+                  (std::vector<std::string>{"(b, 2)", "(master, 2)"}));
+        EXPECT_EQ(query("SELECT branch, count(*) FROM p VERSION (master, b) WHERE v = 'y' OR w = 1 GROUP BY branch;"),
+                  (std::vector<std::string>{"(b, 4)", "(master, 3)"}));
     }
 
     TEST_F(DialectTest, InsertOfSeveralRows) {
@@ -140,14 +144,13 @@ namespace {
         EXPECT_EQ(typeOf("b").typeID, T::IntegerID);
         EXPECT_EQ(typeOf("c").typeID, T::LongIntegerID);
         EXPECT_EQ(typeOf("d").typeID, T::NumericID);
-        EXPECT_EQ(typeOf("e").typeID, T::NumericID); // float has no counterpart: numeric(18, 6)
-        EXPECT_EQ(typeOf("e").numericLayout.precision, 6u);
+        EXPECT_EQ(typeOf("e").typeID, T::DoubleID); // float is double precision
         EXPECT_EQ(typeOf("f").typeID, T::BoolID);
         // declared without NOT NULL: nullable
         EXPECT_TRUE(typeOf("a").nullable);
         exec("INSERT INTO s VALUES (1, 2, 9000000000, -3.25, 1000.5, true, 'a long text', 'q', 'abc', '2025-01-02T03:04:05.5', '2025-01-02');");
         EXPECT_EQ(query("SELECT a, c, d, e, g, h, i, j, k FROM s;"),
-                  (std::vector<std::string>{"(1, 9000000000, -3.25, 1000.500000, a long text, q, abc, 2025-01-02 03:04:05.500, 2025-01-02)"}));
+                  (std::vector<std::string>{"(1, 9000000000, -3.25, 1000.5, a long text, q, abc, 2025-01-02 03:04:05.500, 2025-01-02)"}));
         EXPECT_EQ(query("SELECT a FROM s WHERE h = 'q' AND c > 8000000000;"), (std::vector<std::string>{"(1)"}));
         EXPECT_THROW(exec("INSERT INTO s VALUES (1, 2, 3, 1, 1, true, 'x', 'toolong', 'abc', '2025-01-01', '2025-01-01');"), std::exception);
         exec("INSERT INTO s VALUES (NULL, 2, 3, 1, 1, true, 'x', 'q', 'abc', '2025-01-01', NULL);");

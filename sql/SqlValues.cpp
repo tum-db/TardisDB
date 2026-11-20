@@ -16,6 +16,8 @@
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
 #include "foundations/StringPool.hpp"
+#include "native/sql/Array.hpp"
+#include "native/sql/SqlValues.hpp"
 #include "sql/SqlType.hpp"
 #include "utils/general.hpp"
 #include "utils/llvm.hpp"
@@ -115,6 +117,10 @@ value_op_t Value::castString(const std::string & str, SqlType type)
             return Timestamp::castString(str);
         case SqlType::TypeID::TextID:
             return Text::castString(str, type);
+        case SqlType::TypeID::DoubleID:
+            return Double::castString(str);
+        case SqlType::TypeID::ArrayID:
+            return Array::castString(str, type);
         default:
             unreachable();
     }
@@ -143,6 +149,8 @@ value_op_t Value::castString(cg_ptr8_t str, cg_size_t length, SqlType type)
             return Timestamp::castString(str, length);
         case SqlType::TypeID::TextID:
             return Text::castString(str, length, type);
+        case SqlType::TypeID::DoubleID:
+            return Double::castString(str, length);
         default:
             unreachable();
     }
@@ -181,6 +189,12 @@ value_op_t Value::fromRawValues(const std::vector<llvm::Value *> & values, SqlTy
             break;
         case SqlType::TypeID::TextID:
             sqlValue = Text::fromRawValues(values, notNullType);
+            break;
+        case SqlType::TypeID::DoubleID:
+            sqlValue = Double::fromRawValues(values);
+            break;
+        case SqlType::TypeID::ArrayID:
+            sqlValue = Array::fromRawValues(values, notNullType);
             break;
         default:
             unreachable();
@@ -224,6 +238,10 @@ value_op_t Value::load(llvm::Value * ptr, SqlType type)
             return Timestamp::load(ptr);
         case SqlType::TypeID::TextID:
             return Text::load(ptr, type);
+        case SqlType::TypeID::DoubleID:
+            return Double::load(ptr);
+        case SqlType::TypeID::ArrayID:
+            return Array::load(ptr, type);
         default:
             unreachable();
     }
@@ -976,30 +994,17 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 
     value_op_t Text::castString(const std::string & str, SqlType type)
     {
+        // a constant global of the 16 bytes (inline or of the string pool), which every function of the
+        // module reads; instructions here could land in another function than the one that uses it
         auto & codeGen = getThreadLocalCodeGen();
-        //llvm::Value * strValue = codeGen->CreateGlobalString(std::string("AAAAAAAAAAAAAAAA"));
-        cg_voidptr_t arrayPtr = cg_voidptr_t( llvm::cast<llvm::Value>(codeGen->CreateAlloca(llvm::Type::getInt64Ty(codeGen.getLLVMContext()),2)) );
-
-
-        size_t len = str.size();
-        uint8_t* data = new uint8_t[len];
-        std::memcpy(data, str.c_str(), len);
-
-        uint8_t * beginPtr;
-        if (len > 15) {
-            std::unique_ptr<uint8_t[]> dataPtr(data);
-            auto & storedStr = StringPool::instance().put(sql_string_t(len, std::move(dataPtr)));
-            beginPtr = storedStr.second.get();
-        } else {
-            beginPtr = data;
-        }
-
-        llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *, void *, size_t), false>::get(codeGen.getLLVMContext());
-        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "storeText", funcTy);
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&storeText);
-        codeGen->CreateCall(func, { arrayPtr, cg_ptr8_t::fromRawPointer(beginPtr) , cg_u64_t(len) });
-
-        return value_op_t( new Text(type, arrayPtr) );
+        uint64_t words[2];
+        Native::Sql::Text::castString(str)->store(words);
+        auto * int64Ty = llvm::Type::getInt64Ty(codeGen.getLLVMContext());
+        auto * arrayTy = llvm::ArrayType::get(int64Ty, 2);
+        llvm::Constant * init = llvm::ConstantArray::get(arrayTy, {llvm::ConstantInt::get(int64Ty, words[0]), llvm::ConstantInt::get(int64Ty, words[1])});
+        auto * global = new llvm::GlobalVariable(codeGen.getCurrentModuleGen().getModule(), arrayTy, true,
+                                                 llvm::GlobalValue::PrivateLinkage, init, "text");
+        return value_op_t( new Text(type, global) );
     }
 
     value_op_t Text::castString(cg_ptr8_t str, cg_size_t length, SqlType type)
@@ -1427,6 +1432,273 @@ cg_bool_t Timestamp::equals(const Value & other) const
 
     auto & codeGen = getThreadLocalCodeGen();
     return cg_bool_t( codeGen->CreateICmpEQ(_llvmValue, other.getLLVMValue()) );
+}
+
+//-----------------------------------------------------------------------------
+// Double
+
+llvm::Value * genEntryAlloca(llvm::Type * type)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Function * function = codeGen->GetInsertBlock()->getParent();
+    llvm::BasicBlock & entry = function->getEntryBlock();
+    llvm::IRBuilder<> builder(&entry, entry.begin());
+    return builder.CreateAlloca(type);
+}
+
+static double parseDoubleBytes(const char * str, size_t length)
+{
+    return Native::Sql::parseDouble(std::string(str, length));
+}
+
+Double::Double(llvm::Value * value) :
+        Value(getDoubleTy())
+{
+    _llvmValue = value;
+}
+
+value_op_t Double::castString(const std::string & str)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    return value_op_t(new Double(llvm::ConstantFP::get(llvm::Type::getDoubleTy(codeGen.getLLVMContext()), Native::Sql::parseDouble(str))));
+}
+
+value_op_t Double::castString(cg_ptr8_t str, cg_size_t length)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getDoubleTy(codeGen.getLLVMContext()),
+            {cg_voidptr_t::getType(), cg_size_t::getType()}, false);
+    llvm::CallInst * result = codeGen.CreateCall(&parseDoubleBytes, funcTy, {cg_voidptr_t(str), length.getValue()});
+    return value_op_t(new Double(result));
+}
+
+value_op_t Double::fromRawValues(const std::vector<llvm::Value *> & values)
+{
+    assert(!values.empty());
+    return value_op_t(new Double(values.front()));
+}
+
+value_op_t Double::load(llvm::Value * ptr)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Type * doubleTy = llvm::Type::getDoubleTy(codeGen.getLLVMContext());
+    return value_op_t(new Double(codeGen->CreateLoad(doubleTy, typedPointer(ptr, doubleTy))));
+}
+
+value_op_t Double::clone() const
+{
+    return value_op_t(new Double(_llvmValue));
+}
+
+void Double::store(llvm::Value * ptr) const
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    codeGen->CreateStore(_llvmValue, typedPointer(ptr, _llvmValue->getType()));
+}
+
+cg_hash_t Double::hash() const
+{
+    // -0 hashes as 0 (x + 0.0), all NaNs as one
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Type * doubleTy = _llvmValue->getType();
+    llvm::Value * canonical = codeGen->CreateFAdd(_llvmValue, llvm::ConstantFP::get(doubleTy, 0.0));
+    llvm::Value * isNaN = codeGen->CreateFCmpUNO(_llvmValue, _llvmValue);
+    canonical = codeGen->CreateSelect(isNaN, llvm::ConstantFP::getNaN(doubleTy), canonical);
+    return genIntHash(codeGen->CreateBitCast(canonical, codeGen->getInt64Ty()));
+}
+
+void Double::accept(ValueVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+cg_bool_t Double::equals(const Value & other) const
+{
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+        return cg_bool_t(false);
+    }
+    if (isNullable(other)) {
+        return other.equals(*this);
+    }
+    return compare(other, ComparisonMode::eq);
+}
+
+cg_bool_t Double::compare(const Value & other, ComparisonMode mode) const
+{
+    // the order of PostgreSQL: NaN equals NaN and is greater than all other values
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Value * a = _llvmValue, * b = other.getLLVMValue();
+    llvm::Value * aNaN = codeGen->CreateFCmpUNO(a, a), * bNaN = codeGen->CreateFCmpUNO(b, b);
+    llvm::Value * bothNaN = codeGen->CreateAnd(aNaN, bNaN);
+    llvm::Value * eq = codeGen->CreateOr(codeGen->CreateFCmpOEQ(a, b), bothNaN);
+    // a < b: b is NaN and a is not, or both are numbers and a < b
+    llvm::Value * less = codeGen->CreateOr(codeGen->CreateAnd(bNaN, codeGen->CreateNot(aNaN)), codeGen->CreateFCmpOLT(a, b));
+    llvm::Value * greater = codeGen->CreateOr(codeGen->CreateAnd(aNaN, codeGen->CreateNot(bNaN)), codeGen->CreateFCmpOGT(a, b));
+    switch (mode) {
+        case ComparisonMode::less: return cg_bool_t(less);
+        case ComparisonMode::leq: return cg_bool_t(codeGen->CreateOr(less, eq));
+        case ComparisonMode::eq: return cg_bool_t(eq);
+        case ComparisonMode::geq: return cg_bool_t(codeGen->CreateOr(greater, eq));
+        case ComparisonMode::gtr: return cg_bool_t(greater);
+    }
+    unreachable();
+}
+
+//-----------------------------------------------------------------------------
+// Array
+
+static llvm::Type * handleType()
+{
+    return llvm::ArrayType::get(llvm::Type::getInt64Ty(getThreadLocalCodeGen().getLLVMContext()), 2);
+}
+
+Array::Array(SqlType type, llvm::Value * value) :
+        Value(type)
+{
+    assert(type.typeID == SqlType::TypeID::ArrayID && !type.nullable);
+    _llvmValue = value;
+}
+
+value_op_t Array::castString(const std::string & str, SqlType type)
+{
+    // a constant: the representation is in the string pool
+    Native::Sql::Arrays::Handle handle = Native::Sql::Arrays::parse(str, type, nullptr);
+    auto * int64Ty = llvm::Type::getInt64Ty(getThreadLocalCodeGen().getLLVMContext());
+    llvm::Constant * words[2] = {
+            llvm::ConstantInt::get(int64Ty, reinterpret_cast<uint64_t>(handle.data)),
+            llvm::ConstantInt::get(int64Ty, handle.length)};
+    return value_op_t(new Array(type, llvm::ConstantArray::get(llvm::cast<llvm::ArrayType>(handleType()), words)));
+}
+
+value_op_t Array::fromRawValues(const std::vector<llvm::Value *> & values, SqlType type)
+{
+    assert(!values.empty());
+    return value_op_t(new Array(type, values.front()));
+}
+
+value_op_t Array::load(llvm::Value * ptr, SqlType type)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    return value_op_t(new Array(type, codeGen->CreateLoad(handleType(), typedPointer(ptr, handleType()))));
+}
+
+value_op_t Array::clone() const
+{
+    return value_op_t(new Array(type, _llvmValue));
+}
+
+void Array::store(llvm::Value * ptr) const
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    codeGen->CreateStore(_llvmValue, typedPointer(ptr, handleType()));
+}
+
+llvm::Value * Array::spill() const
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Value * slot = genEntryAlloca(handleType());
+    codeGen->CreateStore(_llvmValue, slot);
+    return slot;
+}
+
+cg_hash_t Array::hash() const
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(codeGen->getInt64Ty(), {cg_voidptr_t::getType(), codeGen->getInt64Ty()}, false);
+    llvm::CallInst * result = codeGen.CreateCall(&Native::Sql::Arrays::tardisArrayHash, funcTy,
+            {spill(), codeGen->getInt64(Native::Sql::Arrays::typeBits(type))});
+    return cg_hash_t(llvm::cast<llvm::Value>(result));
+}
+
+void Array::accept(ValueVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+cg_bool_t Array::equals(const Value & other) const
+{
+    if (!Sql::equals(type, other.type, SqlTypeEqualsMode::WithoutNullable)) {
+        return cg_bool_t(false);
+    }
+    if (isNullable(other)) {
+        return other.equals(*this);
+    }
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(codeGen->getInt1Ty(), {cg_voidptr_t::getType(), cg_voidptr_t::getType(), codeGen->getInt64Ty()}, false);
+    llvm::CallInst * result = codeGen.CreateCall(&Native::Sql::Arrays::tardisArrayEquals, funcTy,
+            {spill(), static_cast<const Array &>(other).spill(), codeGen->getInt64(Native::Sql::Arrays::typeBits(type))});
+    return cg_bool_t(llvm::cast<llvm::Value>(result));
+}
+
+value_op_t genArrayCall(Native::Sql::Arrays::Function function, Native::Sql::Arrays::Arena * arena, SqlType resultType,
+                        const std::vector<const Value *> & arguments)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    auto & context = codeGen.getLLVMContext();
+    const uint32_t n = static_cast<uint32_t>(arguments.size());
+    llvm::Type * ptrTy = cg_voidptr_t::getType();
+    llvm::Type * i8Ty = codeGen->getInt8Ty();
+    llvm::Type * i64Ty = codeGen->getInt64Ty();
+    const uint32_t slots = std::max<uint32_t>(n, 1);
+    llvm::Type * pointersTy = llvm::ArrayType::get(ptrTy, slots);
+    llvm::Type * nullsTy = llvm::ArrayType::get(i8Ty, slots);
+    llvm::Type * typesTy = llvm::ArrayType::get(i64Ty, slots);
+    llvm::Value * pointers = genEntryAlloca(pointersTy);
+    llvm::Value * nulls = genEntryAlloca(nullsTy);
+    llvm::Value * types = genEntryAlloca(typesTy);
+
+    for (uint32_t i = 0; i < n; ++i) {
+        const Value & argument = *arguments[i];
+        SqlType type = toNotNullableTy(argument.type);
+        llvm::Value * isNull = codeGen->getInt1(false);
+        const Value * inner = &argument;
+        if (isUnknown(argument)) {
+            isNull = codeGen->getInt1(true);
+            inner = nullptr;
+        } else if (isNullable(argument)) {
+            auto & nullable = static_cast<const NullableValue &>(argument);
+            isNull = nullable.isNull().llvmValue;
+            inner = &nullable.getValue();
+        }
+        llvm::Value * slot = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptrTy));
+        if (inner != nullptr) {
+            slot = genEntryAlloca(toLLVMTy(type));
+            inner->store(slot);
+            slot = codeGen->CreatePointerCast(slot, ptrTy);
+        }
+        codeGen->CreateStore(slot, codeGen->CreateConstInBoundsGEP2_32(pointersTy, pointers, 0, i));
+        codeGen->CreateStore(codeGen->CreateZExt(isNull, i8Ty), codeGen->CreateConstInBoundsGEP2_32(nullsTy, nulls, 0, i));
+        codeGen->CreateStore(llvm::ConstantInt::get(i64Ty, Native::Sql::Arrays::typeBits(inner ? type : getUnknownTy())),
+                             codeGen->CreateConstInBoundsGEP2_32(typesTy, types, 0, i));
+    }
+
+    SqlType notNullResult = toNotNullableTy(resultType);
+    llvm::Value * result = genEntryAlloca(toLLVMTy(notNullResult));
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(codeGen->getInt1Ty(),
+            {codeGen->getInt32Ty(), ptrTy, i64Ty, ptrTy, codeGen->getInt32Ty(), ptrTy, ptrTy, ptrTy}, false);
+    llvm::CallInst * isNull = codeGen.CreateCall(&Native::Sql::Arrays::tardisArrayCall, funcTy, {
+            codeGen->getInt32(static_cast<uint32_t>(function)),
+            cg_voidptr_t::fromRawPointer(arena),
+            llvm::ConstantInt::get(i64Ty, Native::Sql::Arrays::typeBits(notNullResult)),
+            codeGen->CreatePointerCast(result, ptrTy),
+            codeGen->getInt32(n),
+            codeGen->CreatePointerCast(pointers, ptrTy),
+            codeGen->CreatePointerCast(nulls, ptrTy),
+            codeGen->CreatePointerCast(types, ptrTy)});
+    (void) context;
+
+    value_op_t value = Value::load(result, notNullResult);
+    if (!resultType.nullable) return value;
+    return NullableValue::create(std::move(value), cg_bool_t(llvm::cast<llvm::Value>(isNull)));
+}
+
+cg_bool_t Array::compare(const Value & other, ComparisonMode mode) const
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(codeGen->getInt32Ty(), {cg_voidptr_t::getType(), cg_voidptr_t::getType(), codeGen->getInt64Ty()}, false);
+    llvm::CallInst * result = codeGen.CreateCall(&Native::Sql::Arrays::tardisArrayCompare, funcTy,
+            {spill(), static_cast<const Array &>(getAssociatedValue(other)).spill(), codeGen->getInt64(Native::Sql::Arrays::typeBits(type))});
+    return compareResult(cg_int_t(llvm::cast<llvm::Value>(result)), mode);
 }
 
 //-----------------------------------------------------------------------------

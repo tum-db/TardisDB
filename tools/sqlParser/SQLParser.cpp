@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <functional>
 
 #include "sqlParser/SQLParser.hpp"
 #include "native/sql/SqlValues.hpp"
@@ -67,118 +68,579 @@ namespace tardisParser {
         }
     }
 
+    using sqlExpressions::Node;
+
+    static bool isWordToken(const Token & token, const char * word) {
+        if (token.type != Type::identifier && token.type != Type::keyword) return false;
+        std::string value = token.value;
+        std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+        return value == word;
+    }
+
+    /// Reads an expression by precedence (as PostgreSQL: OR, AND, NOT, comparisons with IS, BETWEEN and
+    /// IN, the other operators || @> <@ &&, + and -, * and /, unary minus, subscripts); token() is then
+    /// the first token after it
+    class ExpressionParser {
+    public:
+        ExpressionParser(Tokenizer & tokenizer, Token first) :
+                _tokenizer(tokenizer), _token(valueToken(first)), _keptCasts(tokenizer.keepCasts(true)) { }
+
+        ~ExpressionParser() { _tokenizer.keepCasts(_keptCasts); }
+
+        Node parse() { return disjunction(); }
+
+        const Token & token() const { return _token; }
+
+    private:
+        Tokenizer & _tokenizer;
+        Token _token;
+        bool _keptCasts;
+
+        void advance() { _token = valueToken(_tokenizer.next()); }
+        bool word(const char * w) const { return isWordToken(_token, w); }
+        bool symbol(const std::string & s) const { return _token.equalsControlSymbol(s); }
+        bool bare(const char * v) const { return _token.type == Type::literal && !_token.quoted && _token.value == v; }
+        void expect(const std::string & s) {
+            if (!symbol(s)) throw syntactical_error("Expected '" + s + "', found '" + _token.value + "'");
+            advance();
+        }
+
+        static Node make(Node::Kind kind, const std::string & name, std::vector<Node> children) {
+            Node n;
+            n.kind = kind;
+            n.name = name;
+            n.children = std::move(children);
+            return n;
+        }
+
+        Node disjunction() {
+            Node l = conjunction();
+            while (word("or")) {
+                advance();
+                l = make(Node::Kind::Operator, "or", {std::move(l), conjunction()});
+            }
+            return l;
+        }
+
+        Node conjunction() {
+            Node l = negation();
+            while (_token.equalsKeyword(Keyword::And)) {
+                advance();
+                l = make(Node::Kind::Operator, "and", {std::move(l), negation()});
+            }
+            return l;
+        }
+
+        Node negation() {
+            if (_token.equalsKeyword(Keyword::Not)) {
+                advance();
+                return make(Node::Kind::Operator, "not", {negation()});
+            }
+            return comparison();
+        }
+
+        static bool isComparison(const std::string & op) {
+            return op == "=" || op == "<>" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=";
+        }
+
+    public:
+        static bool isComparisonName(const std::string & op) { return isComparison(op); }
+
+    private:
+
+        Node comparison() {
+            Node l = other();
+            for (;;) {
+                if (_token.type == Type::op && isComparison(_token.value)) {
+                    std::string op = _token.value == "!=" ? "<>" : _token.value;
+                    advance();
+                    if (word("any") || word("some") || word("all")) {
+                        Node quantified = make(Node::Kind::Any, op, {});
+                        quantified.value = word("all") ? "all" : "any";
+                        advance();
+                        expect(controlSymbols::openBracket);
+                        Node array = disjunction();
+                        expect(controlSymbols::closeBracket);
+                        quantified.children = {std::move(l), std::move(array)};
+                        l = std::move(quantified);
+                        continue;
+                    }
+                    l = make(Node::Kind::Operator, op, {std::move(l), other()});
+                    continue;
+                }
+                if (word("is")) {
+                    advance();
+                    bool negated = _token.equalsKeyword(Keyword::Not);
+                    if (negated) advance();
+                    if (!_token.equalsKeyword(Keyword::Null) && !(_token.type == Type::literal && _token.value == Native::Sql::nullLiteral)) {
+                        throw syntactical_error("Expected IS [ NOT ] NULL, found '" + _token.value + "'");
+                    }
+                    advance();
+                    l = make(Node::Kind::Operator, negated ? "is not null" : "is null", {std::move(l)});
+                    continue;
+                }
+                bool negated = false;
+                if (_token.equalsKeyword(Keyword::Not)) {
+                    // after an operand: NOT IN or NOT BETWEEN
+                    advance();
+                    negated = true;
+                    if (!word("in") && !word("between")) throw syntactical_error("Expected IN or BETWEEN after NOT, found '" + _token.value + "'");
+                }
+                if (word("between")) {
+                    advance();
+                    Node low = other();
+                    if (!_token.equalsKeyword(Keyword::And)) throw syntactical_error("Expected BETWEEN value AND value");
+                    advance();
+                    l = make(Node::Kind::Between, "between", {std::move(l), std::move(low), other()});
+                } else if (word("in")) {
+                    advance();
+                    expect(controlSymbols::openBracket);
+                    std::vector<Node> items;
+                    items.push_back(std::move(l));
+                    for (;;) {
+                        items.push_back(disjunction());
+                        if (symbol(controlSymbols::separator)) { advance(); continue; }
+                        expect(controlSymbols::closeBracket);
+                        break;
+                    }
+                    l = make(Node::Kind::In, "in", std::move(items));
+                } else {
+                    break;
+                }
+                if (negated) l = make(Node::Kind::Operator, "not", {std::move(l)});
+            }
+            return l;
+        }
+
+        Node other() {
+            Node l = additive();
+            while (_token.type == Type::op && (_token.value == "||" || _token.value == "@>" || _token.value == "<@" || _token.value == "&&")) {
+                std::string op = _token.value;
+                advance();
+                l = make(Node::Kind::Operator, op, {std::move(l), additive()});
+            }
+            return l;
+        }
+
+        Node additive() {
+            Node l = multiplicative();
+            while (bare("+") || bare("-")) {
+                std::string op = _token.value;
+                advance();
+                l = make(Node::Kind::Operator, op, {std::move(l), multiplicative()});
+            }
+            return l;
+        }
+
+        Node multiplicative() {
+            Node l = unary();
+            while (symbol(controlSymbols::star) || bare("/")) {
+                std::string op = symbol(controlSymbols::star) ? "*" : "/";
+                advance();
+                l = make(Node::Kind::Operator, op, {std::move(l), unary()});
+            }
+            return l;
+        }
+
+        Node unary() {
+            if (bare("+")) {
+                advance();
+                return unary();
+            }
+            if (bare("-")) {
+                advance();
+                Node operand = unary();
+                if (operand.kind == Node::Kind::Literal && !operand.quoted && !operand.value.empty() &&
+                    (std::isdigit(static_cast<unsigned char>(operand.value[0])) || operand.value[0] == '.')) {
+                    operand.value = "-" + operand.value; // a negative number
+                    return operand;
+                }
+                return make(Node::Kind::Operator, "neg", {std::move(operand)});
+            }
+            return postfix();
+        }
+
+        /// A type of a cast: a name (double precision, character varying), (length, precision), [] or ARRAY
+        Node castTo(Node value, std::string type) {
+            Node cast = make(Node::Kind::Cast, "", {std::move(value)});
+            auto open = type.find('(');
+            if (open != std::string::npos) {
+                auto close = type.find(')', open);
+                cast.value = type.substr(open + 1, close - open - 1);
+                type = type.substr(0, open) + type.substr(close + 1);
+            }
+            cast.name = type;
+            return cast;
+        }
+
+        std::string typeName() {
+            if (_token.type != Type::identifier && _token.type != Type::keyword) throw syntactical_error("Expected a type, found '" + _token.value + "'");
+            std::string type;
+            std::transform(_token.value.begin(), _token.value.end(), std::back_inserter(type), ::tolower);
+            advance();
+            if (type == "double" && word("precision")) advance();
+            if (type == "character" && word("varying")) { type = "varchar"; advance(); }
+            if (symbol(controlSymbols::openBracket)) {
+                advance();
+                type += "(" + _token.value;
+                advance();
+                if (symbol(controlSymbols::separator)) {
+                    advance();
+                    type += "," + _token.value;
+                    advance();
+                }
+                expect(controlSymbols::closeBracket);
+                type += ")";
+            }
+            bool array = false;
+            for (;;) {
+                if (symbol(controlSymbols::openSquare)) {
+                    advance();
+                    if (_token.type == Type::literal) advance();
+                    expect(controlSymbols::closeSquare);
+                    array = true;
+                } else if (word("array")) {
+                    advance();
+                    array = true;
+                } else {
+                    break;
+                }
+            }
+            return array ? type + "[]" : type;
+        }
+
+        Node postfix() {
+            Node n = primary();
+            for (;;) {
+                if (_token.type == Type::op && _token.value == "::") {
+                    advance();
+                    n = castTo(std::move(n), typeName());
+                    continue;
+                }
+                if (!symbol(controlSymbols::openSquare)) break;
+                advance();
+                Node index;
+                Node omitted = make(Node::Kind::Omitted, "", {});
+                bool slice = false;
+                Node lower = omitted, upper = omitted;
+                if (!bare(":")) lower = disjunction();
+                if (bare(":")) {
+                    slice = true;
+                    advance();
+                    if (!symbol(controlSymbols::closeSquare)) upper = disjunction();
+                }
+                expect(controlSymbols::closeSquare);
+                index = slice ? make(Node::Kind::Slice, ":", {std::move(lower), std::move(upper)}) : std::move(lower);
+                if (n.kind != Node::Kind::Subscript) n = make(Node::Kind::Subscript, "[]", {std::move(n)});
+                n.children.push_back(std::move(index));
+            }
+            return n;
+        }
+
+        /// ARRAY[ ... ] after its [, or a [ ... ] in it
+        Node arrayConstructor() {
+            Node array = make(Node::Kind::Array, "array", {});
+            if (symbol(controlSymbols::closeSquare)) {
+                advance();
+                return array;
+            }
+            for (;;) {
+                if (symbol(controlSymbols::openSquare)) {
+                    advance();
+                    array.children.push_back(arrayConstructor());
+                } else {
+                    array.children.push_back(disjunction());
+                }
+                if (symbol(controlSymbols::separator)) { advance(); continue; }
+                expect(controlSymbols::closeSquare);
+                return array;
+            }
+        }
+
+        Node primary() {
+            if (symbol(controlSymbols::openBracket)) {
+                advance();
+                std::vector<Node> items;
+                items.push_back(disjunction());
+                while (symbol(controlSymbols::separator)) {
+                    advance();
+                    items.push_back(disjunction());
+                }
+                expect(controlSymbols::closeBracket);
+                if (items.size() == 1) return std::move(items.front());
+                return make(Node::Kind::Row, "row", std::move(items));
+            }
+            if (_token.type == Type::literal && _token.value != ":" && !(bare("+") || bare("-") || bare("/"))) {
+                Node literal = make(Node::Kind::Literal, "", {});
+                literal.value = _token.value;
+                literal.quoted = _token.quoted;
+                std::string cast = _token.cast; // skipped before the expression began
+                advance();
+                if (!cast.empty()) return castTo(std::move(literal), cast);
+                return literal;
+            }
+            if (_token.type == Type::identifier) {
+                Token name = _token;
+                advance();
+                if (isWordToken(name, "array") && symbol(controlSymbols::openSquare)) {
+                    advance();
+                    return arrayConstructor();
+                }
+                if (isWordToken(name, "cast") && symbol(controlSymbols::openBracket)) {
+                    // CAST ( value AS type )
+                    advance();
+                    Node value = disjunction();
+                    if (!word("as")) throw syntactical_error("Expected AS, found '" + _token.value + "'");
+                    advance();
+                    Node cast = castTo(std::move(value), typeName());
+                    expect(controlSymbols::closeBracket);
+                    return cast;
+                }
+                if (symbol(controlSymbols::openBracket)) {
+                    // a call
+                    advance();
+                    Node call = make(Node::Kind::Function, "", {});
+                    std::transform(name.value.begin(), name.value.end(), std::back_inserter(call.name), ::tolower);
+                    if (symbol(controlSymbols::star)) {
+                        call.value = "*";
+                        advance();
+                        expect(controlSymbols::closeBracket);
+                        return call;
+                    }
+                    if (symbol(controlSymbols::closeBracket)) {
+                        advance();
+                        return call;
+                    }
+                    for (;;) {
+                        call.children.push_back(disjunction());
+                        if (symbol(controlSymbols::separator)) { advance(); continue; }
+                        expect(controlSymbols::closeBracket);
+                        return call;
+                    }
+                }
+                Column column = columnOf(name.value);
+                Node n = make(Node::Kind::Column, column.name, {});
+                n.table = column.table;
+                return n;
+            }
+            throw syntactical_error("Expected an expression, found '" + _token.value + "'");
+        }
+    };
+
+    /// A constant without its cast ('5'::integer is 5, as TardisDB types constants by their context)
+    static const Node & uncast(const Node & n) {
+        if (n.kind == Node::Kind::Cast && n.children.front().kind == Node::Kind::Literal) return n.children.front();
+        return n;
+    }
+
+    /// The text of an ARRAY[ ... ] of constants ('{"1","2"}'), as INSERT takes constants
+    static std::string arrayLiteral(const Node & array) {
+        std::string out = "{";
+        for (size_t i = 0; i < array.children.size(); ++i) {
+            const Node & e = uncast(array.children[i]);
+            if (i > 0) out += ",";
+            if (e.kind == Node::Kind::Array) {
+                out += arrayLiteral(e);
+            } else if (e.kind == Node::Kind::Literal && e.value == Native::Sql::nullLiteral) {
+                out += "NULL";
+            } else if (e.kind == Node::Kind::Literal) {
+                out += '"';
+                for (char c : e.value) {
+                    if (c == '"' || c == '\\') out += '\\';
+                    out += c;
+                }
+                out += '"';
+            } else {
+                throw syntactical_error("ARRAY[ ... ] takes constants here");
+            }
+        }
+        return out + "}";
+    }
+
+    /// The name of a computed column, as PostgreSQL names it: the function, the column of a subscript,
+    /// "array", otherwise ?column?
+    static std::string outputName(const Node & e) {
+        switch (e.kind) {
+            case Node::Kind::Function: return e.name;
+            case Node::Kind::Subscript: return e.children.front().kind == Node::Kind::Column ? e.children.front().name : outputName(e.children.front());
+            case Node::Kind::Array: return "array";
+            case Node::Kind::Column: return e.name;
+            default: return "?column?";
+        }
+    }
+
     /// Parses the conditions of WHERE, beginning with \p first, up to the end of the statement or, if
-    /// \p groupMayFollow, to GROUP: a conjunction (AND) of comparisons with =, <>, !=, <, <=, > and >=
-    /// of a column and a value (either side), of two row values ( a , b ) >= ( 1 , 2 ), of
-    /// column BETWEEN v AND w, of column IN ( v , ... ), of column IS [ NOT ] NULL and, given \p joins,
-    /// of two columns (=). Equalities of a column and a value become selections, all other comparisons
-    /// predicates. A comparison with NULL is NULL, so it holds for no tuple.
+    /// \p groupMayFollow, to GROUP: any condition (see ExpressionParser). Of the conjuncts (AND), the
+    /// comparisons with =, <>, <, <=, > and >= of a column and a value (either side), of two row values
+    /// ( a , b ) >= ( 1 , 2 ), column BETWEEN v AND w, column IN ( v , ... ), column IS [ NOT ] NULL and,
+    /// given \p joins, the equalities of two columns are kept apart, which index probes, joins and the
+    /// queries over several branches take: equalities of a column and a value become selections, the
+    /// others predicates. All other conjuncts are predicates of op "expr". A comparison with NULL is NULL,
+    /// so it holds for no tuple.
     /// \returns Whether GROUP ended the conditions
     static bool parseWhere(Tokenizer & tokenizer, Token token, std::vector<std::pair<Column,std::string>> & selections,
                            std::vector<Predicate> & predicates, std::vector<std::pair<Column,Column>> * joins,
                            bool groupMayFollow) {
-        auto compare = [&](std::vector<Token> lhs, std::string op, std::vector<Token> rhs) {
-            if (op == "!=") op = "<>";
-            if (lhs.size() != rhs.size()) throw syntactical_error("row values of different lengths");
-            bool lhsColumns = std::all_of(lhs.begin(), lhs.end(), [](const Token & t) { return t.type == Type::identifier; });
-            bool rhsColumns = std::all_of(rhs.begin(), rhs.end(), [](const Token & t) { return t.type == Type::identifier; });
-            bool rhsValues = std::all_of(rhs.begin(), rhs.end(), [](const Token & t) { return t.type == Type::literal; });
-            bool lhsValues = std::all_of(lhs.begin(), lhs.end(), [](const Token & t) { return t.type == Type::literal; });
-            if (lhsValues && rhsColumns) {
-                std::swap(lhs, rhs);
-                op = flipped(op);
-                std::swap(lhsColumns, rhsColumns);
-                std::swap(lhsValues, rhsValues);
+        ExpressionParser parser(tokenizer, token);
+        Node condition = parser.parse();
+        const Token & end = parser.token();
+        bool group = false;
+        if (groupMayFollow && end.equalsKeyword(Keyword::Group)) {
+            group = true;
+        } else if (!end.hasType(Type::delimiter)) {
+            throw syntactical_error("Expected 'AND'" + std::string(groupMayFollow ? ", 'GROUP'" : "") + " or the end, found '" + end.value + "'");
+        }
+
+        std::vector<const Node *> conjuncts;
+        std::function<void(const Node &)> split = [&](const Node & n) {
+            if (n.kind == Node::Kind::Operator && n.name == "and") {
+                split(n.children[0]);
+                split(n.children[1]);
+            } else {
+                conjuncts.push_back(&n);
             }
-            if (lhsColumns && rhsColumns) {
-                if (joins == nullptr || op != "=" || lhs.size() != 1) throw syntactical_error("only = compares two columns");
-                joins->emplace_back(columnOf(lhs[0].value), columnOf(rhs[0].value));
-                return;
-            }
-            if (!lhsColumns || !rhsValues) throw syntactical_error("a comparison needs columns on one side and values on the other");
-            if (op == "=") {
-                for (size_t i = 0; i < lhs.size(); ++i) selections.emplace_back(columnOf(lhs[i].value), rhs[i].value);
-                return;
-            }
+        };
+        split(condition);
+
+        auto isColumn = [](const Node & n) { return n.kind == Node::Kind::Column; };
+        auto isValue = [](const Node & n) { return uncast(n).kind == Node::Kind::Literal; };
+        auto items = [](const Node & n) {
+            std::vector<const Node *> list;
+            if (n.kind == Node::Kind::Row) for (auto & c : n.children) list.push_back(&uncast(c));
+            else list.push_back(&uncast(n));
+            return list;
+        };
+        auto all = [](const std::vector<const Node *> & list, auto predicate) {
+            return std::all_of(list.begin(), list.end(), [&](const Node * n) { return predicate(*n); });
+        };
+        auto columnOfNode = [](const Node & n) {
+            Column column;
+            column.name = n.name;
+            column.table = n.table;
+            return column;
+        };
+        auto generic = [&](const Node & n) {
             Predicate predicate;
-            for (auto & t : lhs) predicate.columns.push_back(columnOf(t.value));
-            predicate.op = op;
-            for (auto & t : rhs) predicate.values.push_back(t.value);
+            predicate.op = "expr";
+            predicate.expression = std::make_shared<Node>(n);
             predicates.push_back(std::move(predicate));
         };
-
-        for (;;) {
-            // the left side
-            token = valueToken(token);
-            std::vector<Token> lhs;
-            if (token.equalsControlSymbol(controlSymbols::openBracket)) {
-                lhs = readList(tokenizer);
-            } else if (token.type == Type::identifier || token.type == Type::literal) {
-                lhs.push_back(token);
-            } else {
-                throw syntactical_error("Expected left expression, found '" + token.value + "'");
-            }
-            Token op = tokenizer.next();
-            std::string word = op.value;
-            std::transform(word.begin(), word.end(), word.begin(), ::tolower);
-            if (op.type == Type::op) {
-                Token rhsToken = valueToken(tokenizer.next());
-                std::vector<Token> rhs;
-                if (rhsToken.equalsControlSymbol(controlSymbols::openBracket)) {
-                    rhs = readList(tokenizer);
-                } else if (rhsToken.type == Type::identifier || rhsToken.type == Type::literal) {
-                    rhs.push_back(rhsToken);
-                } else {
-                    throw syntactical_error("Expected right expression, found '" + rhsToken.value + "'");
+        for (const Node * c : conjuncts) {
+            if (c->kind == Node::Kind::Operator && c->children.size() == 2 && ExpressionParser::isComparisonName(c->name)) {
+                std::string op = c->name;
+                auto lhs = items(c->children[0]), rhs = items(c->children[1]);
+                if (lhs.size() != rhs.size()) throw syntactical_error("row values of different lengths");
+                if (all(lhs, isValue) && all(rhs, isColumn)) {
+                    std::swap(lhs, rhs);
+                    op = flipped(op);
                 }
-                compare(lhs, op.value, rhs);
-            } else if (word == "is" && lhs.size() == 1 && lhs[0].type == Type::identifier) {
-                Token next = tokenizer.next();
-                bool negated = next.equalsKeyword(Keyword::Not);
-                if (negated) next = tokenizer.next();
-                if (!next.equalsKeyword(Keyword::Null)) throw syntactical_error("Expected IS [ NOT ] NULL, found '" + next.value + "'");
-                Predicate predicate;
-                predicate.columns.push_back(columnOf(lhs[0].value));
-                predicate.op = negated ? "is not null" : "is null";
-                predicates.push_back(std::move(predicate));
-            } else if (word == "between" && lhs.size() == 1) {
-                Token low = valueToken(tokenizer.next());
-                Token andToken = tokenizer.next();
-                Token high = valueToken(tokenizer.next());
-                if (low.type != Type::literal || !andToken.equalsKeyword(Keyword::And) || high.type != Type::literal) {
-                    throw syntactical_error("Expected BETWEEN value AND value");
+                if (all(lhs, isColumn) && all(rhs, isColumn) && joins != nullptr && op == "=" && lhs.size() == 1) {
+                    joins->emplace_back(columnOfNode(*lhs[0]), columnOfNode(*rhs[0]));
+                    continue;
                 }
-                compare(lhs, ">=", {low});
-                compare(lhs, "<=", {high});
-            } else if (word == "in" && lhs.size() == 1 && lhs[0].type == Type::identifier) {
-                Token open = tokenizer.next();
-                if (!open.equalsControlSymbol(controlSymbols::openBracket)) throw syntactical_error("Expected '(' after IN");
+                if (all(lhs, isColumn) && all(rhs, isValue)) {
+                    if (op == "=") {
+                        for (size_t i = 0; i < lhs.size(); ++i) selections.emplace_back(columnOfNode(*lhs[i]), rhs[i]->value);
+                        continue;
+                    }
+                    Predicate predicate;
+                    for (auto * n : lhs) predicate.columns.push_back(columnOfNode(*n));
+                    predicate.op = op;
+                    for (auto * n : rhs) predicate.values.push_back(n->value);
+                    predicates.push_back(std::move(predicate));
+                    continue;
+                }
+                if (lhs.size() > 1) throw syntactical_error("a comparison of row values needs columns on one side and values on the other");
+            } else if (c->kind == Node::Kind::Between && isColumn(c->children[0]) && isValue(c->children[1]) && isValue(c->children[2])) {
+                for (auto [op, bound] : {std::make_pair(">=", 1), std::make_pair("<=", 2)}) {
+                    Predicate predicate;
+                    predicate.columns.push_back(columnOfNode(c->children[0]));
+                    predicate.op = op;
+                    predicate.values.push_back(uncast(c->children[bound]).value);
+                    predicates.push_back(std::move(predicate));
+                }
+                continue;
+            } else if (c->kind == Node::Kind::In && isColumn(c->children[0]) &&
+                       std::all_of(c->children.begin() + 1, c->children.end(), isValue)) {
                 Predicate predicate;
-                predicate.columns.push_back(columnOf(lhs[0].value));
+                predicate.columns.push_back(columnOfNode(c->children[0]));
                 predicate.op = "in";
-                for (auto & t : readList(tokenizer)) {
-                    if (t.type != Type::literal) throw syntactical_error("IN takes values");
-                    predicate.values.push_back(t.value);
-                }
+                for (size_t i = 1; i < c->children.size(); ++i) predicate.values.push_back(uncast(c->children[i]).value);
                 predicates.push_back(std::move(predicate));
-            } else {
-                throw syntactical_error("Expected a comparison, found '" + op.value + "'");
+                continue;
+            } else if (c->kind == Node::Kind::Operator && (c->name == "is null" || c->name == "is not null") && isColumn(c->children[0])) {
+                Predicate predicate;
+                predicate.columns.push_back(columnOfNode(c->children[0]));
+                predicate.op = c->name;
+                predicates.push_back(std::move(predicate));
+                continue;
             }
-
-            token = tokenizer.next();
-            if (token.hasType(Type::delimiter)) return false;
-            if (groupMayFollow && token.equalsKeyword(Keyword::Group)) return true;
-            if (!token.equalsKeyword(Keyword::And)) {
-                throw syntactical_error("Expected 'AND'" + std::string(groupMayFollow ? ", 'GROUP'" : "") + " or the end, found '" + token.value + "'");
-            }
-            token = tokenizer.next();
+            generic(*c);
         }
+        return group;
+    }
+
+    /// The terms of SET c = t1 op t2 ... (constants and columns with + - * /, '*' and '/' binding first), if
+    /// the expression is of them without parentheses that change the order
+    static bool toTerms(const Node & e, std::vector<UpdateTerm> & terms) {
+        auto leaf = [](const Node & n) { return n.kind == Node::Kind::Column || uncast(n).kind == Node::Kind::Literal; };
+        std::function<bool(const Node &, bool)> fits = [&](const Node & n, bool sum) {
+            if (leaf(n)) return true;
+            if (n.kind != Node::Kind::Operator || n.children.size() != 2) return false;
+            if (n.name == "*" || n.name == "/") return fits(n.children[0], false) && leaf(n.children[1]);
+            if (sum && (n.name == "+" || n.name == "-")) return fits(n.children[0], true) && fits(n.children[1], false);
+            return false;
+        };
+        if (!fits(e, true)) return false;
+        std::function<void(const Node &, const std::string &)> flatten = [&](const Node & n, const std::string & op) {
+            if (leaf(n)) {
+                UpdateTerm term;
+                term.op = op;
+                if (n.kind == Node::Kind::Column) {
+                    term.column.name = n.name;
+                    term.column.table = n.table;
+                } else {
+                    term.value = uncast(n).value;
+                }
+                terms.push_back(term);
+                return;
+            }
+            flatten(n.children[0], op);
+            flatten(n.children[1], n.name);
+        };
+        flatten(e, "");
+        return true;
     }
 
     static bool isWord(const Token & token, const std::string & word) {
         std::string value = token.value;
         std::transform(value.begin(), value.end(), value.begin(), ::tolower);
         return (token.type == Type::identifier || token.type == Type::keyword) && value == word;
+    }
+
+    /// Reads what may follow the name of a type: [] (with an ignored size, as the dimensions, which
+    /// PostgreSQL does not enforce either) or ARRAY make it an array type ("[]" at the end of \p type),
+    /// PRECISION completes DOUBLE, VARYING CHARACTER
+    /// \returns Whether the token belonged to the type
+    static bool typeSuffix(Tokenizer & tokenizer, const Token & token, std::string & type) {
+        auto array = [&type]() { if (type.size() < 2 || type.compare(type.size() - 2, 2, "[]") != 0) type += "[]"; };
+        if (token.equalsControlSymbol(controlSymbols::openSquare)) {
+            Token next = tokenizer.next();
+            if (next.type == Type::literal && std::isdigit(static_cast<unsigned char>(next.value[0]))) next = tokenizer.next();
+            if (!next.equalsControlSymbol(controlSymbols::closeSquare)) throw syntactical_error("Expected ']', found '" + next.value + "'");
+            array();
+            return true;
+        }
+        if (isWord(token, "array")) {
+            array();
+            return true;
+        }
+        if (type == "double" && isWord(token, "precision")) return true;
+        if (type == "character" && isWord(token, "varying")) {
+            type = "varchar";
+            return true;
+        }
+        return false;
     }
 
     /// Reads KEY after PRIMARY of a column: the column is the key and not null
@@ -191,7 +653,7 @@ namespace tardisParser {
     }
 
     void SQLParser::parseToken(Tokenizer &tokenizer, ParsingContext &context) {
-        const Token &next = tokenizer.next();
+        const Token next = tokenizer.next(); // a copy: later calls of next() may move the tokens
         // NULL where a value is expected is a constant like the others
         const bool valueExpected = context.state == State::InsertValuesBegin || context.state == State::InsertValueSeperator ||
                 context.state == State::UpdateSetExprOp || context.state == State::UpdateSetExprArith ||
@@ -323,13 +785,16 @@ namespace tardisParser {
                 }
                 break;
             case State::AlterTableColumnType:
-                if (token.equalsControlSymbol(controlSymbols::openBracket)) {
+                if (token.equalsControlSymbol(controlSymbols::openBracket) &&
+                    context.alterTableStmt->column.type.find("[]") == std::string::npos) {
                     context.state = State::AlterTableTypeDetailBegin;
                     break;
                 }
                 // fall through: the type details are optional
             case State::AlterTableTypeDetailEnd:
-                if (token.equalsKeyword(Keyword::Not)) {
+                if (typeSuffix(tokenizer, token, context.alterTableStmt->column.type)) {
+                    break;
+                } else if (token.equalsKeyword(Keyword::Not)) {
                     context.state = State::AlterTableTypeNot;
                 } else if (token.equalsKeyword(Keyword::Null)) {
                     context.state = State::AlterTableTypeNotNull; // nullable, as without
@@ -726,8 +1191,12 @@ namespace tardisParser {
                 }
                 break;
             case State::CreateTableColumnType:
-                if (token.equalsControlSymbol(controlSymbols::openBracket)) {
+                if (token.equalsControlSymbol(controlSymbols::openBracket) &&
+                    context.createTableStmt->columns.back().type.find("[]") == std::string::npos) {
                     context.state = CreateTableTypeDetailBegin;
+                    break;
+                }
+                if (typeSuffix(tokenizer, token, context.createTableStmt->columns.back().type)) {
                     break;
                 }
                 context.createTableStmt->columns.back().length = 0;
@@ -790,6 +1259,9 @@ namespace tardisParser {
                 }
                 break;
             case State::CreateTableTypeDetailEnd:
+                if (typeSuffix(tokenizer, token, context.createTableStmt->columns.back().type)) {
+                    break;
+                }
                 if (token.equalsKeyword(Keyword::Not)) {
                     context.state = CreateTableTypeNot;
                     break;
@@ -957,7 +1429,30 @@ namespace tardisParser {
                     throw syntactical_error("Expected '=', found '" + token.value + "'");
                 }
                 break;
-            case State::UpdateSetExprOp:
+            case State::UpdateSetExprOp: {
+                // the terms of + - * / of constants and columns, or any expression
+                const std::string target = tokenizer.prev(2).value;
+                ExpressionParser parser(tokenizer, token);
+                Node e = parser.parse();
+                auto & stmt = *context.updateStmt;
+                std::vector<UpdateTerm> terms;
+                const bool simple = toTerms(e, terms);
+                stmt.updates.push_back(std::make_pair(Column(), simple && terms.size() == 1 && terms[0].column.name.empty() ? terms[0].value : ""));
+                stmt.updates.back().first.name = target;
+                stmt.expressions.push_back(simple ? terms : std::vector<UpdateTerm>());
+                stmt.trees.push_back(simple ? nullptr : std::make_shared<Node>(std::move(e)));
+                const Token & end = parser.token();
+                if (end.equalsControlSymbol(controlSymbols::separator)) {
+                    context.state = State::UpdateSetSeperator;
+                } else if (end.equalsKeyword(Keyword::Where)) {
+                    context.state = State::UpdateWhere;
+                } else if (end.hasType(Type::delimiter)) {
+                    context.state = State::Done;
+                } else {
+                    throw syntactical_error("Expected ',' or 'WHERE', found '" + end.value + "'");
+                }
+                break;
+            }
             case State::UpdateSetExprArith:
                 if (token.type == Type::literal || token.type == Type::identifier) {
                     UpdateTerm term;
@@ -1105,7 +1600,22 @@ namespace tardisParser {
                 break;
             case State::InsertValuesBegin:
             case State::InsertValueSeperator:
-                if (token.type == Type::literal) {
+                if (isWord(token, "array")) {
+                    // ARRAY[ ... ] of constants, as the text of the array
+                    ExpressionParser parser(tokenizer, token);
+                    Node array = parser.parse();
+                    if (array.kind != Node::Kind::Array) throw syntactical_error("Expected constant, found '" + token.value + "'");
+                    auto & stmt = *context.insertStmt;
+                    (stmt.rows.empty() ? stmt.values : stmt.rows.back()).push_back(arrayLiteral(array));
+                    const Token & end = parser.token();
+                    if (end.equalsControlSymbol(controlSymbols::closeBracket)) {
+                        context.state = InsertValuesEnd;
+                    } else if (end.equalsControlSymbol(controlSymbols::separator)) {
+                        context.state = InsertValueSeperator;
+                    } else {
+                        throw syntactical_error("Expected ',' , ')', found '" + end.value + "'");
+                    }
+                } else if (token.type == Type::literal) {
                     auto & stmt = *context.insertStmt;
                     (stmt.rows.empty() ? stmt.values : stmt.rows.back()).push_back(token.value);
                     context.state = InsertValue;
@@ -1144,14 +1654,42 @@ namespace tardisParser {
                     context.selectStmt->projections.push_back(Column());
                     context.selectStmt->projections.back().name = Keyword::Branch;
                     context.state = SelectProjectionAttrName;
-                } else if (token.type == Type::identifier) {
-                    BindingAttribute columnBinding = parse_binding_attribute(token.value);
-                    context.selectStmt->projections.push_back(Column());
-                    context.selectStmt->projections.back().name = columnBinding.second;
-                    context.selectStmt->projections.back().table = columnBinding.first;
-                    context.state = SelectProjectionAttrName;
                 } else {
-                    throw syntactical_error("Expected column name or star, found '" + token.value + "'");
+                    // a column, an aggregate of a column (or count(*)) or any expression, with an alias
+                    ExpressionParser parser(tokenizer, token);
+                    Node e = parser.parse();
+                    Column column;
+                    static const std::set<std::string> aggregates = {"count", "sum", "min", "max", "avg"};
+                    if (e.kind == Node::Kind::Column) {
+                        column.name = e.name;
+                        column.table = e.table;
+                    } else if (e.kind == Node::Kind::Function && aggregates.count(e.name) &&
+                               ((e.name == "count" && e.value == "*") || (e.children.size() == 1 && e.children[0].kind == Node::Kind::Column))) {
+                        column.aggregate = e.name;
+                        column.name = e.value == "*" ? "*" : e.children[0].name;
+                        column.table = e.value == "*" ? "" : e.children[0].table;
+                    } else {
+                        column.name = outputName(e);
+                        column.expression = std::make_shared<Node>(std::move(e));
+                    }
+                    Token end = parser.token();
+                    if (isWord(end, "as")) {
+                        end = tokenizer.next();
+                        if (end.type != Type::identifier) throw syntactical_error("Expected an alias, found '" + end.value + "'");
+                        column.alias = end.value;
+                        end = tokenizer.next();
+                    } else if (end.type == Type::identifier) {
+                        column.alias = end.value;
+                        end = tokenizer.next();
+                    }
+                    context.selectStmt->projections.push_back(std::move(column));
+                    if (end.equalsKeyword(Keyword::From)) {
+                        context.state = State::SelectFrom;
+                    } else if (end.equalsControlSymbol(controlSymbols::separator)) {
+                        context.state = State::SelectProjectionAttrSeparator;
+                    } else {
+                        throw syntactical_error("Expected ',' or 'FROM', found '" + end.value + "'");
+                    }
                 }
                 break;
             case SelectProjectionStar:

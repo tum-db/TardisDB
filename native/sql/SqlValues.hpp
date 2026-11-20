@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 
+#include "native/sql/Array.hpp"
 #include "sql/SqlType.hpp"
 #include "utils/hashing.hpp"
 
@@ -287,6 +288,77 @@ public:
 private:
     Text(const uint8_t * beginPtr, const uint8_t * endPtr);
     Text(uint8_t len, const uint8_t * bytes);
+};
+
+//-----------------------------------------------------------------------------
+// Double
+
+/// DOUBLE PRECISION; as in PostgreSQL, NaN equals NaN and is greater than all other values
+class Double : public Value {
+public:
+    using value_type = double;
+    value_type value = 0;
+
+    explicit Double(value_type constantValue = 0);
+
+    static value_op_t castString(const std::string & str);
+
+    static value_op_t load(const void * ptr);
+
+    value_op_t clone() const override;
+
+    void store(void * ptr) const override;
+
+    hash_t hash() const override;
+
+    bool equals(const Value & other) const override;
+
+    bool compare(const Value & other, ComparisonMode mode) const override;
+};
+
+/// The text of PostgreSQL (shortest exact digits; exponent below 1e-4 and from 1e15 on)
+std::string formatDouble(double value);
+
+/// Parses a double as PostgreSQL does (also Infinity, -Infinity and NaN); throws std::invalid_argument
+double parseDouble(const std::string & str);
+
+/// The digits of a numeric of the given scale
+std::string formatNumeric(int64_t raw, unsigned scale);
+
+//-----------------------------------------------------------------------------
+// Array
+
+/// An array (see native/sql/Array.hpp): a handle of its representation. A value loaded from a computed
+/// array (in the arena of a query) owns a copy, as it may outlive the query (a result tuple).
+class Array : public Value {
+public:
+    Arrays::Handle value;
+
+    explicit Array(SqlType type, Arrays::Handle handle);
+
+    /// The text of PostgreSQL ('{1,2}'), stored in the string pool
+    static value_op_t castString(const std::string & str, SqlType type);
+
+    static value_op_t load(const void * ptr, SqlType type);
+
+    value_op_t clone() const override;
+
+    /// Stores a handle of the string pool
+    void store(void * ptr) const override;
+
+    hash_t hash() const override;
+
+    bool equals(const Value & other) const override;
+
+    bool compare(const Value & other, ComparisonMode mode) const override;
+
+    std::string toString() const;
+
+    /// Copies a computed array, so that the value outlives the query
+    void ownTemporary();
+
+private:
+    std::shared_ptr<const std::string> _owned; // the copy of a computed array
 };
 
 //-----------------------------------------------------------------------------
