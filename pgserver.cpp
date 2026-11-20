@@ -582,6 +582,7 @@ private:
         if (auto * s = dynamic_cast<const SqlError *>(&e)) state = s->sqlState;
         else if (auto * t = dynamic_cast<const QueryCompiler::TransactionError *>(&e)) state = t->sqlState;
         else if (dynamic_cast<const tardisParser::syntactical_error *>(&e)) state = "42601";
+        else if (dynamic_cast<const semanticalAnalysis::not_null_violation *>(&e)) state = "23502";
         else if (dynamic_cast<const semanticalAnalysis::semantic_sql_error *>(&e)) state = "42000";
         else if (dynamic_cast<const NotImplementedException *>(&e)) state = "0A000";
         queue(errorMessage("ERROR", state, e.what()));
@@ -746,7 +747,7 @@ private:
             for (auto & name : table->getColumnNames(branch)) {
                 ci_p_t ci = table->findColumn(name, branch);
                 auto position = std::find(key.begin(), key.end(), name);
-                outcome.rows.push_back({name, typeName(ci->type), std::string("NO"),
+                outcome.rows.push_back({name, typeName(ci->type), std::string(ci->type.nullable ? "YES" : "NO"),
                                         position == key.end() ? std::string("0") : std::to_string(position - key.begin() + 1)});
             }
         }

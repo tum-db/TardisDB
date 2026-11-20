@@ -189,7 +189,8 @@ std::unique_ptr<Native::Sql::SqlTuple> load_tuple_data(const Table & table, cons
 llvm::Value * genVersionAttributePtr(const Table & table, llvm::Value * tupleData, size_t column);
 
 /// \returns A tuple of all columns of the table, for a write of the branch: the given values (one per
-/// column of the branch, nullptr for none) and the default of every other column. Writes keep the
+/// column of the branch, nullptr for none; a value of a nullable column may be one of the not nullable
+/// type, see Native::Sql::toColumnValue()) and the default of every other column. Writes keep the
 /// values of the columns the branch does not have, since other branches may read them.
 std::unique_ptr<Native::Sql::SqlTuple> complete_tuple(const Table & table,
         std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values);

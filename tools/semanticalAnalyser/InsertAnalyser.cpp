@@ -56,12 +56,14 @@ namespace semanticalAnalysis {
         for (auto &column : stmt->columns) cis.push_back(table->findColumn(column.name, branchId));
 
         // one tuple per row of VALUES; the columns the branch does not have, and those not given,
-        // get their defaults
+        // get their defaults: NULL if nullable, otherwise the zeroed value
         std::vector<Native::Sql::SqlTuple *> tuples;
         auto addRow = [&](const std::vector<std::string> & row) {
             std::vector<std::pair<ci_p_t, std::unique_ptr<Native::Sql::Value>>> sqlvalues;
             for (size_t i = 0; i < cis.size(); i++) {
-                sqlvalues.emplace_back(cis[i], Native::Sql::Value::castString(row[i], cis[i]->type));
+                if (row[i] == Native::Sql::nullLiteral && !cis[i]->type.nullable)
+                    throw not_null_violation("null value in column '" + cis[i]->columnName + "', which is NOT NULL");
+                sqlvalues.emplace_back(cis[i], Native::Sql::castColumnValue(row[i], cis[i]->type));
             }
             tuples.push_back(complete_tuple(*table, std::move(sqlvalues)).release());
         };

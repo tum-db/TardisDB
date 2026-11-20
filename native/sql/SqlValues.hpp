@@ -3,6 +3,8 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 
 #include "sql/SqlType.hpp"
@@ -428,9 +430,12 @@ protected:
 
 #ifndef USE_INTERNAL_NULL_INDICATOR
 
-/// NullableValue (with external null indicator)
+/// NullableValue (with external null indicator): stored as the generated code stores it, the value of
+/// the not nullable type followed by the null indicator (one byte, at the offset of the second member
+/// of the struct of toLLVMTy()); the value of a NULL is zeroed
 class NullableValue : public Value {
 public:
+    /// \returns A NULL of the type, whose value is the zeroed value of the not nullable type
     static value_op_t getNull(SqlType type);
 
     static value_op_t create(value_op_t value, bool nullIndicator);
@@ -449,8 +454,13 @@ public:
 
     Value & getValue() const;
 
+    /// The null indicator, which the generated code sets when it translates a value into this one
+    bool * getNullIndicatorPtr() { return &_nullIndicator; }
+
 //    void accept(ValueVisitor & visitor) override;
 
+    /// Not as SQL's =, but as IS NOT DISTINCT FROM, which MERGE and DIFF compare versions with: two
+    /// NULLs are equal, a NULL and a value are not
     bool equals(const Value & other) const override;
 
     bool compare(const Value & other, ComparisonMode mode) const override;
@@ -523,6 +533,18 @@ public:
 // utilities
 
 bool isNullable(const Value & value);
+
+/// \returns \p value as a value of a column of \p type: wrapped into a NullableValue that is not NULL if
+/// the type is nullable and the value is not a NullableValue already
+value_op_t toColumnValue(value_op_t value, SqlType type);
+
+/// The constant NULL among the values of a statement (INSERT, SET, WHERE, DEFAULT), which the parser
+/// passes as text like the other constants; no literal spells it, as it starts with a zero byte
+inline const std::string nullLiteral("\0NULL", 5);
+
+/// \returns The value of \p str for a column of \p type (see toColumnValue()); nullLiteral is NULL,
+/// which a column of a type that is not nullable does not take (std::invalid_argument)
+value_op_t castColumnValue(const std::string & str, SqlType type);
 
 /// Checks whether the given Value is an instance of NullableValue or UnknownValue (null constant)
 bool mayBeNull(const Value & value);

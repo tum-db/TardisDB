@@ -408,13 +408,15 @@ iu_p_t BranchAggregation::addBranchOutput()
 iu_p_t BranchAggregation::addAggregate(Function function, iu_p_t input)
 {
     // counts and sums of integers are 64-bit numerics without fractional digits (results cannot
-    // hold long integers); the other aggregates keep the type of their input
+    // hold long integers); the other aggregates keep the type of their input. They skip NULLs, and
+    // all but count are NULL for a group without values
     Sql::SqlType type = Sql::getNumericFullLengthTy(0, false);
     const auto inputType = (input != nullptr) ? input->sqlType.typeID : Sql::SqlType::TypeID::UnknownID;
     if (function != Function::Count && inputType != Sql::SqlType::TypeID::LongIntegerID &&
         !(function == Function::Sum && inputType == Sql::SqlType::TypeID::IntegerID)) {
         type = Sql::toNotNullableTy(input->sqlType);
     }
+    type.nullable = (function != Function::Count && input != nullptr && input->sqlType.nullable);
     iu_p_t produced = _iuFactory.createIU(type);
     _aggregates.push_back({function, input, produced});
     return produced;
@@ -671,6 +673,11 @@ struct ExpressionIUCollector : public Expressions::ExpressionVisitor {
     }
 
     void visit(Expressions::Not & exp) override
+    {
+        exp.getChild().accept(*this);
+    }
+
+    void visit(Expressions::IsNull & exp) override
     {
         exp.getChild().accept(*this);
     }

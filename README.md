@@ -196,7 +196,9 @@ DROP BRANCH b17 CASCADE;
 including randomised comparisons with a reference model. Statements may be issued from several threads
 at once (one agent per branch); NOTES.md, concurrent clients, describes what excludes what. In
 `pgserver`, a transaction block (`BEGIN` ... `COMMIT`) has snapshot isolation in a private branch that
-`COMMIT` merges back and `ROLLBACK` drops.
+`COMMIT` merges back and `ROLLBACK` drops. Columns declared without `NOT NULL` take `NULL` values in
+every branch: `WHERE` has SQL's three-valued logic, aggregates skip `NULL`s, and `MERGE` and `DIFF`
+treat two `NULL`s as equal (`test/null_test.cpp`).
 
 ## SQL shell
 

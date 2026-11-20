@@ -800,7 +800,7 @@ std::unique_ptr<Native::Sql::SqlTuple> complete_tuple(const Table & table,
         std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values) {
     std::vector<Native::Sql::value_op_t> all(table.getColumnCount());
     for (auto & [ci, value] : values) {
-        all[ci->index] = std::move(value);
+        all[ci->index] = value ? Native::Sql::toColumnValue(std::move(value), ci->type) : nullptr;
     }
     for (size_t column = 0; column < all.size(); ++column) {
         if (all[column] == nullptr) {

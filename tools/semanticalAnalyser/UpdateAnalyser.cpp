@@ -3,6 +3,7 @@
 //
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
+#include "native/sql/SqlValues.hpp"
 
 namespace semanticalAnalysis {
 
@@ -72,12 +73,22 @@ namespace semanticalAnalysis {
         auto &production = _context.dangling_productions[stmt->relation.alias];
         auto update = std::make_unique<Update>( std::move(production), updateIUs, *table, branchId);
 
-        // SET c = <terms>: constants take the type of the column; '*' and '/' bind before '+' and '-'
+        // SET c = <terms>: constants take the type of the column; '*' and '/' bind before '+' and '-'.
+        // A column that is NOT NULL takes no value that may be NULL: neither NULL nor a term of it nor
+        // a nullable column
         auto &ius = _context.ius[stmt->relation.alias];
         for (size_t i = 0; i < stmt->updates.size(); ++i) {
             auto &terms = stmt->expressions[i];
-            if (terms.size() == 1 && terms.front().column.name.empty()) continue; // a constant
             iu_p_t target = ius[stmt->updates[i].first.name];
+            if (!target->columnInformation->type.nullable) {
+                for (auto &term : terms) {
+                    const bool mayBeNull = term.column.name.empty() ? term.value == Native::Sql::nullLiteral :
+                                           ius[term.column.name]->columnInformation->type.nullable;
+                    if (mayBeNull) throw not_null_violation("column '" + stmt->updates[i].first.name +
+                            "' is NOT NULL, but its new value may be null");
+                }
+            }
+            if (terms.size() == 1 && terms.front().column.name.empty()) continue; // a constant
             Sql::SqlType constantType = Sql::toNotNullableTy(target->columnInformation->type);
             auto operand = [&](const UpdateTerm &term) -> Expressions::exp_op_t {
                 if (term.column.name.empty()) return std::make_unique<Expressions::Constant>(term.value, constantType);

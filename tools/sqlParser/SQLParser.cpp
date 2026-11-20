@@ -1,6 +1,7 @@
 #include <algorithm>
 
 #include "sqlParser/SQLParser.hpp"
+#include "native/sql/SqlValues.hpp"
 
 namespace tardisParser {
     static bool isArithmeticOperator(const Token &token) {
@@ -43,11 +44,17 @@ namespace tardisParser {
         return op;
     }
 
+    /// \returns The token, or the constant NULL (Native::Sql::nullLiteral) for the keyword NULL
+    static Token valueToken(const Token & token) {
+        if (token.equalsKeyword(Keyword::Null)) return Token(Type::literal, Native::Sql::nullLiteral);
+        return token;
+    }
+
     /// Reads ( a , b , ... ) after the opening bracket: identifiers or literals
     static std::vector<Token> readList(Tokenizer & tokenizer) {
         std::vector<Token> items;
         for (;;) {
-            Token item = tokenizer.next();
+            Token item = valueToken(tokenizer.next());
             if (item.type != Type::identifier && item.type != Type::literal) {
                 throw syntactical_error("Expected a column or a value, found '" + item.value + "'");
             }
@@ -63,8 +70,9 @@ namespace tardisParser {
     /// Parses the conditions of WHERE, beginning with \p first, up to the end of the statement or, if
     /// \p groupMayFollow, to GROUP: a conjunction (AND) of comparisons with =, <>, !=, <, <=, > and >=
     /// of a column and a value (either side), of two row values ( a , b ) >= ( 1 , 2 ), of
-    /// column BETWEEN v AND w, of column IN ( v , ... ) and, given \p joins, of two columns (=).
-    /// Equalities of a column and a value become selections, all other comparisons predicates.
+    /// column BETWEEN v AND w, of column IN ( v , ... ), of column IS [ NOT ] NULL and, given \p joins,
+    /// of two columns (=). Equalities of a column and a value become selections, all other comparisons
+    /// predicates. A comparison with NULL is NULL, so it holds for no tuple.
     /// \returns Whether GROUP ended the conditions
     static bool parseWhere(Tokenizer & tokenizer, Token token, std::vector<std::pair<Column,std::string>> & selections,
                            std::vector<Predicate> & predicates, std::vector<std::pair<Column,Column>> * joins,
@@ -101,6 +109,7 @@ namespace tardisParser {
 
         for (;;) {
             // the left side
+            token = valueToken(token);
             std::vector<Token> lhs;
             if (token.equalsControlSymbol(controlSymbols::openBracket)) {
                 lhs = readList(tokenizer);
@@ -113,7 +122,7 @@ namespace tardisParser {
             std::string word = op.value;
             std::transform(word.begin(), word.end(), word.begin(), ::tolower);
             if (op.type == Type::op) {
-                Token rhsToken = tokenizer.next();
+                Token rhsToken = valueToken(tokenizer.next());
                 std::vector<Token> rhs;
                 if (rhsToken.equalsControlSymbol(controlSymbols::openBracket)) {
                     rhs = readList(tokenizer);
@@ -123,10 +132,19 @@ namespace tardisParser {
                     throw syntactical_error("Expected right expression, found '" + rhsToken.value + "'");
                 }
                 compare(lhs, op.value, rhs);
+            } else if (word == "is" && lhs.size() == 1 && lhs[0].type == Type::identifier) {
+                Token next = tokenizer.next();
+                bool negated = next.equalsKeyword(Keyword::Not);
+                if (negated) next = tokenizer.next();
+                if (!next.equalsKeyword(Keyword::Null)) throw syntactical_error("Expected IS [ NOT ] NULL, found '" + next.value + "'");
+                Predicate predicate;
+                predicate.columns.push_back(columnOf(lhs[0].value));
+                predicate.op = negated ? "is not null" : "is null";
+                predicates.push_back(std::move(predicate));
             } else if (word == "between" && lhs.size() == 1) {
-                Token low = tokenizer.next();
+                Token low = valueToken(tokenizer.next());
                 Token andToken = tokenizer.next();
-                Token high = tokenizer.next();
+                Token high = valueToken(tokenizer.next());
                 if (low.type != Type::literal || !andToken.equalsKeyword(Keyword::And) || high.type != Type::literal) {
                     throw syntactical_error("Expected BETWEEN value AND value");
                 }
@@ -173,7 +191,13 @@ namespace tardisParser {
     }
 
     void SQLParser::parseToken(Tokenizer &tokenizer, ParsingContext &context) {
-        const Token &token = tokenizer.next();
+        const Token &next = tokenizer.next();
+        // NULL where a value is expected is a constant like the others
+        const bool valueExpected = context.state == State::InsertValuesBegin || context.state == State::InsertValueSeperator ||
+                context.state == State::UpdateSetExprOp || context.state == State::UpdateSetExprArith ||
+                context.state == State::AlterTableDefault;
+        const Token nullConstant = valueToken(next);
+        const Token &token = valueExpected ? nullConstant : next;
         // When the token is a delimiter check if the parser is in a valid final state
         if (token.hasType(Type::delimiter)) {
             if (!context.stateIsFinal()) {
@@ -307,10 +331,12 @@ namespace tardisParser {
             case State::AlterTableTypeDetailEnd:
                 if (token.equalsKeyword(Keyword::Not)) {
                     context.state = State::AlterTableTypeNot;
+                } else if (token.equalsKeyword(Keyword::Null)) {
+                    context.state = State::AlterTableTypeNotNull; // nullable, as without
                 } else if (token.equalsKeyword(Keyword::Default)) {
                     context.state = State::AlterTableDefault;
                 } else {
-                    throw syntactical_error("Expected 'NOT' or 'DEFAULT', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'NOT', 'NULL' or 'DEFAULT', found '" + token.value + "'");
                 }
                 break;
             case State::AlterTableTypeDetailBegin:
@@ -710,6 +736,11 @@ namespace tardisParser {
                     context.state = CreateTableTypeNot;
                     break;
                 }
+                if (token.equalsKeyword(Keyword::Null)) {
+                    context.createTableStmt->columns.back().nullable = true;
+                    context.state = State::CreateTableTypeNotNull;
+                    break;
+                }
                 if (isWord(token, "primary")) {
                     columnPrimaryKey(tokenizer, *context.createTableStmt);
                     context.state = State::CreateTableTypeNotNull;
@@ -761,6 +792,11 @@ namespace tardisParser {
             case State::CreateTableTypeDetailEnd:
                 if (token.equalsKeyword(Keyword::Not)) {
                     context.state = CreateTableTypeNot;
+                    break;
+                }
+                if (token.equalsKeyword(Keyword::Null)) {
+                    context.createTableStmt->columns.back().nullable = true;
+                    context.state = State::CreateTableTypeNotNull;
                     break;
                 }
                 if (isWord(token, "primary")) {
@@ -1073,8 +1109,6 @@ namespace tardisParser {
                     auto & stmt = *context.insertStmt;
                     (stmt.rows.empty() ? stmt.values : stmt.rows.back()).push_back(token.value);
                     context.state = InsertValue;
-                } else if (token.equalsKeyword(Keyword::Null)) {
-                    throw syntactical_error("TardisDB stores no NULL values: versions hold no null indicators");
                 } else {
                     throw syntactical_error("Expected constant, found '" + token.value + "'");
                 }

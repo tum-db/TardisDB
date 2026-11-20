@@ -48,7 +48,6 @@ namespace semanticalAnalysis {
         }
     }
 
-    // TODO: Implement nullable
     void SemanticAnalyser::construct_selects(AnalyzingContext& context, std::vector<std::pair<Column,std::string>> &selections) {
         for (auto &[column,valueString] : selections) {
             // Get iu
@@ -70,7 +69,7 @@ namespace semanticalAnalysis {
             Operator * production = context.dangling_productions[column.table].get();
             while (auto * select = dynamic_cast<Select *>(production)) production = &select->getChild();
             auto * scan = dynamic_cast<TableScan *>(production);
-            if (scan != nullptr && scan->getIndex() == nullptr) {
+            if (scan != nullptr && scan->getIndex() == nullptr && valueString != Native::Sql::nullLiteral) {
                 Table & table = scan->getTable();
                 if (const BranchIndex * index = table.getIndex(iu->columnInformation->index, scan->getBranchId())) {
                     auto key = Native::Sql::Value::castString(valueString, Sql::toNotNullableTy(iu->columnInformation->type));
@@ -136,7 +135,9 @@ namespace semanticalAnalysis {
             };
 
             Expressions::exp_op_t exp;
-            if (predicate.op == "in") {
+            if (predicate.op == "is null" || predicate.op == "is not null") {
+                exp = std::make_unique<Expressions::IsNull>(std::make_unique<Expressions::Identifier>(ius[0]), predicate.op == "is not null");
+            } else if (predicate.op == "in") {
                 for (auto & v : predicate.values) {
                     auto eq = comparison(ComparisonMode::eq, 0, v);
                     exp = exp ? std::make_unique<Expressions::Or>(std::move(exp), std::move(eq)) : std::move(eq);

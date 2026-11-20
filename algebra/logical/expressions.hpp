@@ -89,6 +89,26 @@ public:
     }
 };
 
+/// IS NULL, or IS NOT NULL if negated: true or false, never NULL
+class IsNull : public UnaryOperator {
+public:
+    bool _negated;
+
+    IsNull(exp_op_t child, bool negated) :
+            UnaryOperator(std::move(child)),
+            _negated(negated)
+    { }
+
+    ~IsNull() override { }
+
+    void accept(ExpressionVisitor & visitor) override;
+
+    Sql::SqlType getType() const override
+    {
+        return Sql::getBoolTy(false);
+    }
+};
+
 class BinaryOperator : public Expression {
 public:
     ~BinaryOperator() override { }
@@ -403,6 +423,7 @@ public:
 
     virtual void visit(Cast & exp) = 0;
     virtual void visit(Not & exp) = 0;
+    virtual void visit(IsNull & exp) = 0;
     virtual void visit(And & exp) = 0;
     virtual void visit(Or & exp) = 0;
     virtual void visit(Addition & exp) = 0;

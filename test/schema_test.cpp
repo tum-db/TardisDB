@@ -92,7 +92,7 @@ namespace {
     TEST_F(SchemaTest, AlterTableErrors) {
         createTable();
         exec("create branch b from master;");
-        EXPECT_ANY_THROW(exec("alter table t version b add column z integer;"));  // no default
+        EXPECT_ANY_THROW(exec("alter table t version b add column z integer not null;"));  // NOT NULL without a default
         EXPECT_ANY_THROW(exec("alter table t version b add column x integer default 0;"));  // exists
         EXPECT_ANY_THROW(exec("alter table t version b add column z nothing default 0;"));
         EXPECT_ANY_THROW(exec("alter table t version b add column z integer default abc;"));

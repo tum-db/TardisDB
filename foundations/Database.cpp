@@ -11,6 +11,7 @@
 #include "codegen/LLVMCompat.hpp"
 
 #include "foundations/exceptions.hpp"
+#include "native/sql/SqlValues.hpp"
 #include "foundations/version_management.hpp"
 
 //-----------------------------------------------------------------------------
@@ -465,12 +466,9 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
         throw InvalidOperationException("name already in use");
     }
 
-    // the null indicator is not part of the permanent storage layout (for both types)
-#ifndef USE_INTERNAL_NULL_INDICATOR
-    size_t valueSize = getValueSize( Sql::toNotNullableTy(type) );
-#else
+    // a nullable column holds the null indicator beside each value, as versions do (the struct of
+    // toLLVMTy() of the nullable type)
     size_t valueSize = getValueSize(type);
-#endif
 
     // set-up column
     auto column = std::make_unique<Vector>(valueSize);
@@ -480,16 +478,12 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
     ci->columnName = columnName;
     ci->type = type;
     ci->index = _columns.size();
+    // what an INSERT without the column stores: NULL, or the zeroed value of a column without nulls
     ci->defaultValue.assign(valueSize, 0);
-
     if (type.nullable) {
-#ifndef USE_INTERNAL_NULL_INDICATOR
-        ci->nullColumnIndex = _nullIndicatorTable.addColumn();
-        ci->nullIndicatorType = ColumnInformation::NullIndicatorType::Column;
-#else
-        ci->nullIndicatorType = ColumnInformation::NullIndicatorType::Embedded;
-#endif
+        Native::Sql::NullableValue::getNull(type)->store(ci->defaultValue.data());
     }
+    ci->nullIndicatorType = ColumnInformation::NullIndicatorType::Embedded;
 
 //    _columns.emplace(columnName, std::make_pair(std::move(ci), std::move(column)));
     _columnsByName.emplace(columnName, _columns.size());
@@ -506,9 +500,9 @@ size_t Table::addBranchColumn(branch_id_t branch, const std::string & columnName
     if (findColumn(columnName, branch) != nullptr) {
         throw InvalidOperationException("name already in use");
     }
-    const size_t valueSize = getValueSize(Sql::toNotNullableTy(type));
-    if (type.nullable || defaultValue.size() != valueSize) {
-        throw InvalidOperationException("a column added to a branch needs a default value and no nulls");
+    const size_t valueSize = getValueSize(type);
+    if (defaultValue.size() != valueSize) {
+        throw InvalidOperationException("the default of a column added to a branch has the size of its values");
     }
 
     auto column = std::make_unique<Vector>(valueSize);

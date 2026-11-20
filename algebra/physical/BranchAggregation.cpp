@@ -25,18 +25,24 @@ using State = BranchAggregation::State;
 //-----------------------------------------------------------------------------
 // Runtime functions called by the compiled query
 
+// what the slot holds: the function of its aggregate, or Count for the count of the tuples and the
+// counts of the values that are not NULL, which are summed like counts
+static Function slot_function(const State * state, size_t slot)
+{
+    return (slot >= 1 && slot <= state->functions.size()) ? static_cast<Function>(state->functions[slot - 1]) : Function::Count;
+}
+
 static void reset_state(State * state)
 {
     const size_t groups = state->set.branches.size() + 1;
     for (size_t worker = 0; worker < state->workers; ++worker)
     for (size_t g = 0; g < groups; ++g) {
         int64_t * slots = state->direct.data() + worker * state->groupStride + g * state->width;
-        slots[0] = 0;
-        for (size_t i = 0; i < state->functions.size(); ++i) {
-            switch (static_cast<Function>(state->functions[i])) {
-                case Function::Min: slots[1 + i] = std::numeric_limits<int64_t>::max(); break;
-                case Function::Max: slots[1 + i] = std::numeric_limits<int64_t>::min(); break;
-                default: slots[1 + i] = 0;
+        for (size_t slot = 0; slot < state->width; ++slot) {
+            switch (slot_function(state, slot)) {
+                case Function::Min: slots[slot] = std::numeric_limits<int64_t>::max(); break;
+                case Function::Max: slots[slot] = std::numeric_limits<int64_t>::min(); break;
+                default: slots[slot] = 0;
             }
         }
     }
@@ -56,10 +62,8 @@ static void finish_state(State * state)
         for (size_t g = 0; g <= k; ++g) {
             const int64_t * own = direct + worker * perWorker + g * w;
             int64_t * merged = direct + g * w;
-            merged[0] += own[0];
-            for (size_t i = 0; i < state->functions.size(); ++i) {
-                const size_t slot = 1 + i;
-                switch (static_cast<Function>(state->functions[i])) {
+            for (size_t slot = 0; slot < w; ++slot) {
+                switch (slot_function(state, slot)) {
                     case Function::Min: merged[slot] = std::min(merged[slot], own[slot]); break;
                     case Function::Max: merged[slot] = std::max(merged[slot], own[slot]); break;
                     default: merged[slot] += own[slot];
@@ -73,22 +77,30 @@ static void finish_state(State * state)
 
     const int64_t * all = direct + k * w;
     std::vector<int64_t> prefix(w, 0);
+    std::vector<int64_t> combined(w);
     std::vector<int64_t> byPosition(k * w);
     for (size_t p = 0; p < k; ++p) {
         const int64_t * own = direct + p * w;
         int64_t * out = byPosition.data() + p * w;
-        prefix[0] += diff[p * w];
-        out[0] = own[0] + all[0] + prefix[0];
+        // the slots of the reader: its own group, the group read by all, and the ranges up to it
+        for (size_t slot = 0; slot < w; ++slot) {
+            prefix[slot] += diff[p * w + slot];
+            switch (slot_function(state, slot)) {
+                case Function::Min: combined[slot] = std::min(own[slot], all[slot]); break;
+                case Function::Max: combined[slot] = std::max(own[slot], all[slot]); break;
+                default: combined[slot] = own[slot] + all[slot] + prefix[slot];
+            }
+        }
+        std::copy(combined.begin(), combined.end(), out);
         for (size_t i = 0; i < state->functions.size(); ++i) {
             const size_t slot = 1 + i;
-            prefix[slot] += diff[p * w + slot];
-            const int64_t sum = own[slot] + all[slot] + prefix[slot];
+            const int64_t values = combined[state->nonNull[i]]; // the tuples, or the values that are not NULL
             switch (static_cast<Function>(state->functions[i])) {
-                case Function::Count: out[slot] = out[0]; break;
-                case Function::Sum: out[slot] = sum; break;
-                case Function::Avg: out[slot] = (out[0] > 0) ? sum / out[0] : 0; break;
-                case Function::Min: out[slot] = std::min(own[slot], all[slot]); break;
-                case Function::Max: out[slot] = std::max(own[slot], all[slot]); break;
+                case Function::Count: out[slot] = values; break;
+                case Function::Sum: out[slot] = combined[slot]; break;
+                case Function::Avg: out[slot] = (values > 0) ? combined[slot] / values : 0; break;
+                case Function::Min:
+                case Function::Max: out[slot] = combined[slot]; break;
             }
         }
     }
@@ -211,6 +223,8 @@ void BranchAggregation::produce()
     state.width = 1 + op.getAggregates().size();
     for (auto & aggregate : op.getAggregates()) {
         state.functions.push_back(static_cast<int>(aggregate.function));
+        // an aggregate of a nullable column also counts its values
+        state.nonNull.push_back((aggregate.input != nullptr && aggregate.input->sqlType.nullable) ? state.width++ : 0);
     }
     state.tuples = _table.size();
     state.workers = std::max<size_t>(1, Parallel::threads);
@@ -503,7 +517,12 @@ void BranchAggregation::genOutput(State & state)
                 if (type.typeID == SqlType::TypeID::IntegerID) {
                     raw = _codeGen->CreateTrunc(raw, i32Ty);
                 }
-                outputs.push_back(Value::fromRawValues({raw}, type));
+                outputs.push_back(Value::fromRawValues({raw}, toNotNullableTy(type)));
+                if (type.nullable) {
+                    // NULL without values
+                    llvm::Value * count = _codeGen->CreateLoad(i64Ty, genSlotPtr(rawPointer(state.result.data(), i64Ty), group.getValue(), state.width, state.nonNull[i]));
+                    outputs.back() = NullableValue::create(*outputs.back(), cg_bool_t(_codeGen->CreateICmpEQ(count, cg_size_t(0ul).getValue())));
+                }
                 values[aggregates[i].produced] = outputs.back().get();
             }
             _parent->consume(values, *this);
@@ -616,10 +635,19 @@ llvm::Value * BranchAggregation::genPredicate(const iu_value_mapping_t & values)
     return match;
 }
 
+llvm::Value * BranchAggregation::genInputPresent(const iu_value_mapping_t & values, size_t aggregate)
+{
+    auto & op = static_cast<const Logical::BranchAggregation &>(_logicalOperator);
+    iu_p_t input = op.getAggregates()[aggregate].input;
+    if (input == nullptr || !input->sqlType.nullable) return nullptr;
+    return (!static_cast<const NullableValue &>(*values.at(input)).isNull()).llvmValue;
+}
+
 llvm::Value * BranchAggregation::genInputValue(const iu_value_mapping_t & values, size_t aggregate)
 {
     auto & op = static_cast<const Logical::BranchAggregation &>(_logicalOperator);
-    llvm::Value * raw = values.at(op.getAggregates()[aggregate].input)->getLLVMValue();
+    const Value & value = getAssociatedValue(*values.at(op.getAggregates()[aggregate].input));
+    llvm::Value * raw = value.getLLVMValue();
     if (raw->getType()->getIntegerBitWidth() < 64) {
         raw = _codeGen->CreateSExt(raw, llvm::Type::getInt64Ty(_codeGen.getLLVMContext()));
     }
@@ -642,6 +670,12 @@ void BranchAggregation::genAccumulate(State & state, llvm::Value * group, const 
     _codeGen->CreateStore(_codeGen->CreateAdd(_codeGen->CreateLoad(i64Ty, countPtr), cg_size_t(1ul).getValue()), countPtr);
     const auto & aggregates = op.getAggregates();
     for (size_t i = 0; i < aggregates.size(); ++i) {
+        // NULLs are skipped: they count as no value, add 0 and change no extreme
+        llvm::Value * present = genInputPresent(values, i);
+        if (present != nullptr) {
+            llvm::Value * nonNullPtr = genSlotPtr(_direct, group, state.width, state.nonNull[i]);
+            _codeGen->CreateStore(_codeGen->CreateAdd(_codeGen->CreateLoad(i64Ty, nonNullPtr), _codeGen->CreateZExt(present, i64Ty)), nonNullPtr);
+        }
         if (aggregates[i].function == Function::Count) continue;
         llvm::Value * slotPtr = genSlotPtr(_direct, group, state.width, 1 + i);
         llvm::Value * current = _codeGen->CreateLoad(i64Ty, slotPtr);
@@ -652,6 +686,7 @@ void BranchAggregation::genAccumulate(State & state, llvm::Value * group, const 
             case Function::Max: updated = _codeGen->CreateSelect(_codeGen->CreateICmpSGT(value, current), value, current); break;
             default: updated = _codeGen->CreateAdd(current, value);
         }
+        if (present != nullptr) updated = _codeGen->CreateSelect(present, updated, current);
         _codeGen->CreateStore(updated, slotPtr);
     }
 }
@@ -674,9 +709,19 @@ void BranchAggregation::genAccumulateRange(State & state, llvm::Value * lo, llvm
     addRange(0, cg_size_t(1ul).getValue());
     bool extremes = false;
     for (size_t i = 0; i < aggregates.size(); ++i) {
+        // NULLs are skipped: they count as no value and add 0
+        llvm::Value * present = genInputPresent(values, i);
+        if (present != nullptr) {
+            addRange(state.nonNull[i], _codeGen->CreateZExt(present, i64Ty));
+        }
         switch (aggregates[i].function) {
             case Function::Sum:
-            case Function::Avg: addRange(1 + i, genInputValue(values, i)); break;
+            case Function::Avg: {
+                llvm::Value * value = genInputValue(values, i);
+                if (present != nullptr) value = _codeGen->CreateSelect(present, value, cg_size_t(0ul).getValue());
+                addRange(1 + i, value);
+                break;
+            }
             case Function::Min:
             case Function::Max: extremes = true; break;
             default: break;
@@ -695,6 +740,7 @@ void BranchAggregation::genAccumulateRange(State & state, llvm::Value * lo, llvm
             llvm::Value * current = _codeGen->CreateLoad(i64Ty, slotPtr);
             llvm::Value * value = genInputValue(values, i);
             llvm::Value * better = (aggregates[i].function == Function::Min) ? _codeGen->CreateICmpSLT(value, current) : _codeGen->CreateICmpSGT(value, current);
+            if (llvm::Value * present = genInputPresent(values, i)) better = _codeGen->CreateAnd(better, present);
             _codeGen->CreateStore(_codeGen->CreateSelect(better, value, current), slotPtr);
         }
     }

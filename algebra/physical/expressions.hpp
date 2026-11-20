@@ -89,6 +89,27 @@ public:
     }
 };
 
+/// IS NULL, or IS NOT NULL if negated
+class IsNull : public UnaryOperator {
+public:
+    IsNull(exp_op_t child, bool negated) :
+            UnaryOperator(Sql::getBoolTy(false), std::move(child)),
+            _negated(negated)
+    { }
+
+    ~IsNull() override { }
+
+    Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
+    {
+        auto value = _child->evaluate(values);
+        cg_bool_t isNull = Sql::Utils::isNull(*value);
+        return Sql::Bool::fromRawValues({ (_negated ? !isNull : isNull).llvmValue });
+    }
+
+private:
+    bool _negated;
+};
+
 class BinaryOperator : public Expression {
 public:
     exp_op_t _left;
@@ -279,6 +300,21 @@ public:
     Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
     {
         return _value->clone();
+    }
+};
+
+/// The constant NULL of a type, generated where it is evaluated (as a load, not an LLVM constant)
+class TypedNull : public Expression {
+public:
+    TypedNull(Sql::SqlType type) :
+            Expression(Sql::toNullableTy(type))
+    { }
+
+    ~TypedNull() override { }
+
+    Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
+    {
+        return Sql::NullableValue::getNull(getType());
     }
 };
 

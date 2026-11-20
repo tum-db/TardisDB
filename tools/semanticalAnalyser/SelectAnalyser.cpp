@@ -137,6 +137,11 @@ namespace semanticalAnalysis {
         _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
     }
 
+    /// \returns Whether the condition is column IS [ NOT ] NULL
+    static bool isNullTest(const Predicate &predicate) {
+        return predicate.op == "is null" || predicate.op == "is not null";
+    }
+
     bool SelectAnalyser::isBranchQuery(SelectStatement *stmt) {
         for (auto &column : stmt->projections) {
             if (!column.aggregate.empty() || (column.table.empty() && column.name == "branch")) return true;
@@ -203,7 +208,6 @@ namespace semanticalAnalysis {
             if (ci == nullptr)
                 throw semantic_sql_error("column '" + column.name + "' is not specified" +
                                          (branchCount > 1 ? " in every branch read" : ""));
-            if (ci->type.nullable) throw semantic_sql_error("column '" + column.name + "' is nullable, which queries over several branches do not support yet");
             return ci;
         };
 
@@ -234,7 +238,10 @@ namespace semanticalAnalysis {
         if (projectsBranch && !groupByBranch) throw semantic_sql_error("column 'branch' must appear in GROUP BY");
         if (!aggregates && !groupByBranch) throw semantic_sql_error("queries over several branches need aggregates or GROUP BY branch");
         if (branchCount > 1 && !groupByBranch) throw semantic_sql_error("aggregates over several branches need GROUP BY branch");
-        if (!stmt->predicates.empty()) throw semantic_sql_error("queries over several branches take only equalities in WHERE");
+        for (auto &predicate : stmt->predicates) {
+            if (!isNullTest(predicate)) throw semantic_sql_error("queries over several branches take only equalities and IS [ NOT ] NULL in WHERE");
+            checkColumn(predicate.columns.front());
+        }
         for (auto &selection : stmt->selections) checkColumn(selection.first);
     }
 
@@ -259,8 +266,10 @@ namespace semanticalAnalysis {
             else if (column.aggregate == "min") function = BranchAggregation::Function::Min;
             else if (column.aggregate == "max") function = BranchAggregation::Function::Max;
             else if (column.aggregate == "avg") function = BranchAggregation::Function::Avg;
-            // count(x) of a column without nulls counts the tuples
-            iu_p_t input = (function == BranchAggregation::Function::Count) ? nullptr : aggregation->getColumnIU(column.name);
+            // count(x) of a column without nulls counts the tuples, of a nullable column its values
+            const bool countsTuples = function == BranchAggregation::Function::Count &&
+                    (column.name == "*" || !table->findColumn(column.name, branches)->type.nullable);
+            iu_p_t input = countsTuples ? nullptr : aggregation->getColumnIU(column.name);
             projectedIUs.push_back(aggregation->addAggregate(function, input));
         }
 
@@ -271,6 +280,11 @@ namespace semanticalAnalysis {
                     std::make_unique<Expressions::Identifier>(iu),
                     std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type)
             ));
+        }
+        for (auto &predicate : stmt->predicates) {
+            aggregation->addPredicate(std::make_unique<Expressions::IsNull>(
+                    std::make_unique<Expressions::Identifier>(aggregation->getColumnIU(predicate.columns.front().name)),
+                    predicate.op == "is not null"));
         }
 
         _context.joinedTree = std::make_unique<Result>(std::move(aggregation), projectedIUs);
@@ -313,8 +327,6 @@ namespace semanticalAnalysis {
                 throw semantic_sql_error("binding '" + column.table + "' is not specified");
             if (std::find(columnNames.begin(), columnNames.end(), column.name) == columnNames.end())
                 throw semantic_sql_error("column '" + column.name + "' is not specified in both branches");
-            if (table->findColumn(column.name, db._branchMapping.at(relation.versionSet[0]))->type.nullable)
-                throw semantic_sql_error("column '" + column.name + "' is nullable, which DIFF does not support yet");
         };
         for (auto &column : stmt->projections) {
             if (!column.aggregate.empty()) throw semantic_sql_error("DIFF does not support aggregates yet");
@@ -328,7 +340,10 @@ namespace semanticalAnalysis {
                 checkColumn(column);
             }
         }
-        if (!stmt->predicates.empty()) throw semantic_sql_error("DIFF takes only equalities in WHERE");
+        for (auto &predicate : stmt->predicates) {
+            if (!isNullTest(predicate)) throw semantic_sql_error("DIFF takes only equalities and IS [ NOT ] NULL in WHERE");
+            checkColumn(predicate.columns.front());
+        }
         for (auto &selection : stmt->selections) checkColumn(selection.first);
     }
 
@@ -359,6 +374,11 @@ namespace semanticalAnalysis {
                     std::make_unique<Expressions::Identifier>(iu),
                     std::make_unique<Expressions::Constant>(valueString, iu->columnInformation->type)
             ));
+        }
+        for (auto &predicate : stmt->predicates) {
+            diff->addPredicate(std::make_unique<Expressions::IsNull>(
+                    std::make_unique<Expressions::Identifier>(diff->getColumnIU(predicate.columns.front().name)),
+                    predicate.op == "is not null"));
         }
 
         _context.joinedTree = std::make_unique<Result>(std::move(diff), projectedIUs);

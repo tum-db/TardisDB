@@ -5,6 +5,7 @@
 #ifndef PROTODB_PARSINGCONTEXT_HPP
 #define PROTODB_PARSINGCONTEXT_HPP
 
+#include <deque>
 #include <vector>
 #include <string>
 
@@ -250,6 +251,8 @@ namespace tardisParser {
         std::string filePath;
         std::string format;
         bool directionFrom;
+        /// the fields read by COPY FROM (as semanticalAnalysis::CopyStatement, which this struct is cast to)
+        std::deque<std::vector<std::string>> rows;
     };
 
     struct CreateIndexStatement {

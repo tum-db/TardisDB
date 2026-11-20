@@ -39,10 +39,8 @@ namespace semanticalAnalysis {
         auto & createdTable = _context.db.createTable(stmt->tableName);
 
         for (auto &columnSpec : stmt->columns) {
-            // versions hold no null indicators: a column declared nullable takes no NULL values
-            ColumnSpec spec = columnSpec;
-            spec.nullable = false;
-            createdTable.addColumn(spec.name, toColumnType(spec));
+            // a column without NOT NULL (or PRIMARY KEY) takes NULL values
+            createdTable.addColumn(columnSpec.name, toColumnType(columnSpec));
         }
         createdTable.setPrimaryKey(stmt->primaryKey);
 

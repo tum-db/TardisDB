@@ -102,6 +102,22 @@ print("merge notices:", [n.strip() for n in c.notices], "rowcount", cur.rowcount
 assert any("1 conflict kept the source" in n for n in c.notices)
 cur.execute("select name from k where id = 3")
 assert cur.fetchone()[0] == "left"
+# NULL values: None as a parameter of both drivers, NULL in results, and NOT NULL
+cur.execute("create table nn ( id integer not null, v integer, s varchar(10) )")
+cur.execute("insert into nn (id, v, s) values (%s, %s, %s), (%s, %s, %s)", (1, None, "a", 2, 20, None))
+cur.execute("select id, v, s from nn where v is null")
+assert cur.fetchall() == [(1, None, "a")]
+cur.execute("select count(*), count(v), sum(v) from nn")
+assert cur.fetchone() == (2, 1, 20)
+with psycopg.connect(dsn, autocommit=True) as c3:
+    c3.execute("update nn set s = %s where id = %s", (None, 1))
+    assert c3.execute("select id, s from nn where s is null").fetchall() == [(1, None), (2, None)]
+try:
+    cur.execute("insert into nn (id, v) values (%s, %s)", (None, 1))
+    raise AssertionError("NULL in a NOT NULL column")
+except psycopg2.Error as e:
+    assert e.pgcode == "23502", e.pgcode
+    print("psycopg2 NULL in a NOT NULL column:", e.pgcode)
 c.close()
 c2.close()
 with admin.cursor() as cur:

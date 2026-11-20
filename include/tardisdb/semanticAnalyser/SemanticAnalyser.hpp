@@ -17,6 +17,11 @@ namespace semanticalAnalysis {
         using std::runtime_error::runtime_error;
     };
 
+    /// A NULL, or a value that may be NULL, for a column declared NOT NULL (SQLSTATE 23502)
+    struct not_null_violation : semantic_sql_error {
+        using semantic_sql_error::semantic_sql_error;
+    };
+
     class SemanticAnalyser {
     public:
         SemanticAnalyser(AnalyzingContext &context) : _context(context) {}

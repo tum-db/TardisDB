@@ -551,68 +551,53 @@ value_op_t sqlCast(const Value & outerValue, SqlType newType)
 //-----------------------------------------------------------------------------
 // logical and
 
+/// The truth value and the null indicator of a boolean, which may be NULL
+static std::pair<cg_bool_t, cg_bool_t> truthAndNull(const Value & value)
+{
+    if (isUnknown(value)) return {cg_bool_t(false), cg_bool_t(true)}; // the constant NULL
+    if (isNullable(value)) {
+        auto & nullable = static_cast<const NullableValue &>(value);
+        return {cg_bool_t(nullable.getValue().getLLVMValue()), nullable.isNull()};
+    }
+    return {cg_bool_t(value.getLLVMValue()), cg_bool_t(false)};
+}
+
 value_op_t sqlAnd(const Value & lhs, const Value & rhs)
 {
-    assert(lhs.type.typeID == SqlType::TypeID::BoolID);
-    assert(rhs.type.typeID == SqlType::TypeID::BoolID);
+    assert(lhs.type.typeID == SqlType::TypeID::BoolID || isUnknown(lhs));
+    assert(rhs.type.typeID == SqlType::TypeID::BoolID || isUnknown(rhs));
 
-    if (!isNullable(lhs) && !isNullable(rhs)) {
+    if (!mayBeNull(lhs) && !mayBeNull(rhs)) {
         cg_bool_t lhsRaw(lhs.getLLVMValue());
         cg_bool_t rhsRaw(rhs.getLLVMValue());
         cg_bool_t result = lhsRaw && rhsRaw;
         return Sql::Bool::fromRawValues({result.llvmValue});
-    } else {
-        Sql::Bool trueValue(true);
-        auto nullableTrueValue = Sql::NullableValue::create(trueValue, cg_bool_t(false));
-        PhiNode<Sql::Value> resultNode(*nullableTrueValue, "resultNode");
-
-        IfGen cases(Utils::isFalse(lhs) || Utils::isFalse(rhs)); // any false -> false
-        {
-            Sql::Bool falseValue(false);
-            auto nullableFalseValue = Sql::NullableValue::create(falseValue, cg_bool_t(false));
-            resultNode.addIncoming(*nullableFalseValue);
-        }
-        cases.ElseIf(Utils::isNull(lhs) || Utils::isNull(rhs)); // any null -> null
-        {
-            auto nullValue = Sql::NullableValue::getNull(getBoolTy(true));
-            resultNode.addIncoming(*nullValue);
-        }
-        cases.EndIf();
-
-        return resultNode.get();
     }
+    // three-valued, without branches: any false -> false, otherwise any null -> null, otherwise true
+    auto [l, lNull] = truthAndNull(lhs);
+    auto [r, rNull] = truthAndNull(rhs);
+    cg_bool_t isFalse = (!l && !lNull) || (!r && !rNull);
+    cg_bool_t isNull = !isFalse && (lNull || rNull);
+    return Sql::NullableValue::create(Sql::Bool::fromRawValues({(!isFalse && !isNull).llvmValue}), isNull);
 }
 
 value_op_t sqlOr(const Value & lhs, const Value & rhs)
 {
-    assert(lhs.type.typeID == SqlType::TypeID::BoolID);
-    assert(rhs.type.typeID == SqlType::TypeID::BoolID);
+    assert(lhs.type.typeID == SqlType::TypeID::BoolID || isUnknown(lhs));
+    assert(rhs.type.typeID == SqlType::TypeID::BoolID || isUnknown(rhs));
 
-    if (!isNullable(lhs) && !isNullable(rhs)) {
+    if (!mayBeNull(lhs) && !mayBeNull(rhs)) {
         cg_bool_t lhsRaw(lhs.getLLVMValue());
         cg_bool_t rhsRaw(rhs.getLLVMValue());
         cg_bool_t result = lhsRaw || rhsRaw;
         return Sql::Bool::fromRawValues({result.llvmValue});
-    } else {
-        Sql::Bool falseValue(false);
-        auto nullableFalseValue = Sql::NullableValue::create(falseValue, cg_bool_t(false));
-        PhiNode<Sql::Value> resultNode(*nullableFalseValue, "resultNode");
-
-        IfGen cases(Utils::isTrue(lhs) || Utils::isTrue(rhs)); // any true -> true
-        {
-            Sql::Bool trueValue(true);
-            auto nullableTrueValue = Sql::NullableValue::create(trueValue, cg_bool_t(false));
-            resultNode.addIncoming(*nullableTrueValue);
-        }
-        cases.ElseIf(Utils::isNull(lhs) || Utils::isNull(rhs)); // any null -> null
-        {
-            auto nullValue = Sql::NullableValue::getNull(getBoolTy(true));
-            resultNode.addIncoming(*nullValue);
-        }
-        cases.EndIf();
-
-        return resultNode.get();
     }
+    // three-valued, without branches: any true -> true, otherwise any null -> null, otherwise false
+    auto [l, lNull] = truthAndNull(lhs);
+    auto [r, rNull] = truthAndNull(rhs);
+    cg_bool_t isTrue = (l && !lNull) || (r && !rNull);
+    cg_bool_t isNull = !isTrue && (lNull || rNull);
+    return Sql::NullableValue::create(Sql::Bool::fromRawValues({isTrue.llvmValue}), isNull);
 }
 
 value_op_t sqlNot(const Value & value)

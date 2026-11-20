@@ -68,13 +68,8 @@ TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, 
             continue;
         }
 
-        SqlType storedSqlType;
-        if (ci->type.nullable) {
-            // the null indicator will be stored in the NullIndicatorTable
-            storedSqlType = toNotNullableTy( ci->type );
-        } else {
-            storedSqlType = ci->type;
-        }
+        // a nullable column holds the null indicator beside each value
+        SqlType storedSqlType = ci->type;
 
         size_t tableSize = table.size();
         llvm::Type * elemTy = toLLVMTy(storedSqlType);
@@ -137,8 +132,6 @@ void TableScan::produce()
 void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
     iu_value_mapping_t values;
 
-    // get null indicator column data
-    auto & nullIndicatorTable = table.getNullIndicatorTable();
     iu_set_t required = getRequired();
 
     cg_voidptr_t resultPtr;
@@ -180,17 +173,8 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
 
             // calculate the SQL value pointer
 
-            if (ci->type.nullable) {
-                assert(ci->nullIndicatorType == ColumnInformation::NullIndicatorType::Column);
-                // load null indicator
-                cg_bool_t isNull = genNullIndicatorLoad(nullIndicatorTable, tid, cg_unsigned_t(ci->nullColumnIndex));
-                SqlType notNullableType = toNotNullableTy(ci->type);
-                auto loadedValue = Value::load(elemPtr, notNullableType);
-                std::get<4>(column) = NullableValue::create(std::move(loadedValue), isNull);
-            } else {
-                // load the SQL value
-                std::get<4>(column) = Value::load(elemPtr, ci->type);
-            }
+            // load the SQL value, of a nullable column with its null indicator
+            std::get<4>(column) = Value::load(elemPtr, ci->type);
 
             // map the value to the according iu
             values[iu] = std::get<4>(column).get();
@@ -208,8 +192,6 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
 void TableScan::produce(cg_tid_t tid) {
     iu_value_mapping_t values;
 
-    // get null indicator column data
-    auto & nullIndicatorTable = table.getNullIndicatorTable();
     iu_set_t required = getRequired();
 
 
@@ -232,17 +214,8 @@ void TableScan::produce(cg_tid_t tid) {
 
             // calculate the SQL value pointer
 
-            if (ci->type.nullable) {
-                assert(ci->nullIndicatorType == ColumnInformation::NullIndicatorType::Column);
-                // load null indicator
-                cg_bool_t isNull = genNullIndicatorLoad(nullIndicatorTable, tid, cg_unsigned_t(ci->nullColumnIndex));
-                SqlType notNullableType = toNotNullableTy(ci->type);
-                auto loadedValue = Value::load(elemPtr, notNullableType);
-                std::get<4>(column) = NullableValue::create(std::move(loadedValue), isNull);
-            } else {
-                // load the SQL value
-                std::get<4>(column) = Value::load(elemPtr, ci->type);
-            }
+            // load the SQL value, of a nullable column with its null indicator
+            std::get<4>(column) = Value::load(elemPtr, ci->type);
 
             // map the value to the according iu
             values[iu] = std::get<4>(column).get();

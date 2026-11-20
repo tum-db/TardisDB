@@ -5,6 +5,7 @@
 
 #include "algebra/physical/expressions.hpp"
 #include "algebra/physical/operators.hpp"
+#include "native/sql/SqlValues.hpp"
 #include "sql/SqlValues.hpp"
 
 using namespace Algebra;
@@ -60,6 +61,16 @@ public:
         auto child = std::move( _translated.top() );
         _translated.pop();
         _translated.push( std::make_unique<Physical::Expressions::Not>( exp.getType(), std::move(child) ) );
+    }
+
+    void visit(Logical::Expressions::IsNull & exp)
+    {
+        // translate child
+        traverse(exp);
+
+        auto child = std::move( _translated.top() );
+        _translated.pop();
+        _translated.push( std::make_unique<Physical::Expressions::IsNull>( std::move(child), exp._negated ) );
     }
 
     void visit(Logical::Expressions::And & exp)
@@ -186,7 +197,12 @@ public:
 
     void visit(Logical::Expressions::Constant & exp)
     {
-        Sql::value_op_t sqlValue = Sql::Value::castString(exp._value, exp.getType());
+        // a constant takes the type of the column it is compared with or stored in; NULL is a NULL of it
+        if (exp._value == Native::Sql::nullLiteral) {
+            _translated.push( std::make_unique<Physical::Expressions::TypedNull>(exp.getType()) );
+            return;
+        }
+        Sql::value_op_t sqlValue = Sql::Value::castString(exp._value, Sql::toNotNullableTy(exp.getType()));
         _translated.push( std::make_unique<Physical::Expressions::Constant>( std::move(sqlValue) ) );
     }
 

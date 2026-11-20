@@ -260,8 +260,8 @@ k = 256 (`--maxk_baseline`).
   VERSION <set> [WHERE c = v] GROUP BY branch`, where `<set>` is `( b1 , b2 , ... )`, `ALL`,
   `ALL DESCENDANTS OF x` or `ALL LEAVES OF x` (parser: `tools/sqlParser/SQLParser.cpp`; analyser:
   `SelectAnalyser::verifyBranchQuery/constructBranchQuery`). Aggregates without `GROUP BY` on a single
-  branch work as well. Limits: one table, no nullable columns, only `GROUP BY branch`, equality
-  predicates (as the existing parser). Counts and integer sums are returned as `NUMERIC(18,0)`, since
+  branch work as well. Limits: one table, only `GROUP BY branch`, equality predicates (as the existing
+  parser; since then also `IS [NOT] NULL`, see NULL values). Counts and integer sums are returned as `NUMERIC(18,0)`, since
   results cannot carry 64-bit integers.
 * **Operator** `BranchAggregation` (logical and physical, `algebra/physical/BranchAggregation.cpp`),
   two strategies (`Logical::BranchAggregation::_strategy`):
@@ -325,7 +325,7 @@ TardisDB commit `2f649fa`: the former Listing 1 of the paper runs verbatim in th
   the scan for comparisons). `DROP BRANCH` frees the lists of the dropped identifiers.
 * On the way: `SELECT *` returns columns in table order (was hash-map order); the `sql` shell links `pthread`.
 
-Limits: `DIFF` rejects nullable columns; `drop`, `cascade`, `merge`, `index` and `on` are now keywords.
+Limits: `drop`, `cascade`, `merge`, `index` and `on` are now keywords.
 
 Checks: `test/branch_statements_test.cpp`, including a randomised comparison with a reference model that
 keeps the full state of every branch (6 seeds x 250 steps of inserts, updates with expressions,
@@ -348,7 +348,7 @@ About 1.5 ms of a `DIFF` is the compilation of the query.
 
 # Branch-local schema changes (`ALTER TABLE ... VERSION b`)
 
-`ALTER TABLE t [VERSION b] ADD [COLUMN] c type [NOT NULL] DEFAULT v` and `ALTER TABLE t [VERSION b] DROP
+`ALTER TABLE t [VERSION b] ADD [COLUMN] c type [[NOT] NULL] [DEFAULT v]` and `ALTER TABLE t [VERSION b] DROP
 [COLUMN] c` change the schema of branch `b` only (default `main`); branches forked from `b` later
 inherit it, branches forked before do not see the change.
 
@@ -381,8 +381,8 @@ inherit it, branches forked before do not see the change.
 * `ALTER TABLE` holds the catalog exclusive, like `CREATE`. Statements are compiled for the schema of
   their branch when they start; there is no plan cache to invalidate.
 
-Limits: `DEFAULT` is required, since versions hold no null indicators (`CREATE TABLE` rejects nullable
-columns as well); `longinteger` and `char` columns cannot be added (no casts from strings), and bool
+Limits: a `NOT NULL` column needs a `DEFAULT`, which the existing tuples take (a nullable column without
+one is `NULL` in them, see NULL values); `longinteger` and `char` columns cannot be added (no casts from strings), and bool
 columns cannot be printed or given as literals (in TardisDB as is). Adding a column writes its default
 into every row in place, O(n) under the exclusive catalog latch. The storage of dropped columns and of
 columns of dropped branches is not reclaimed. No `RENAME` or change of type. `alter`, `add`, `column`
@@ -739,7 +739,7 @@ The SQL that clients send needed these changes of the parser and the engine (`te
 * `CREATE TABLE`: `PRIMARY KEY (...)` and `PRIMARY KEY` of a column (recorded in `Table::getPrimaryKey()`,
   for catalogs, not enforced); the type names of PostgreSQL (`smallint`, `int2/4/8`, `bigint`,
   `decimal`, `boolean`, `bpchar`; `float`, `real`, `double` become `numeric(18, 6)`); columns declared
-  nullable are stored not null (versions hold no null indicators), and `NULL` values are an error.
+  without `NOT NULL` are nullable (see NULL values).
 * Multi-row `INSERT ... VALUES (...), (...)`. `Insert` loops over its tuples instead of generating one
   call per tuple: `COPY` of 100,000 rows takes 0.19 s instead of 33 s (the generated function grew with
   the number of tuples, and its compile time quadratically).
@@ -754,6 +754,47 @@ The SQL that clients send needed these changes of the parser and the engine (`te
   and `longinteger`.
 * With `TARDISDB_VERIFY_IR=1`, the generated code of all tests except the code generator's own unit
   tests (Codegen, Expression, If, Loop, Phi, Types) passes the LLVM verifier.
+
+# NULL values
+
+A column declared without `NOT NULL` (or `PRIMARY KEY`) is nullable, in `CREATE TABLE` and in `ALTER
+TABLE ... ADD COLUMN`; before, such columns were stored not null and `NULL` was an error.
+
+* **Storage**: a nullable column holds the null indicator beside each value, in place and in every
+  version: the layout of the generated code for a nullable type, `{ value, i1 }`
+  (`ColumnInformation::NullIndicatorType::Embedded`; the separate `BitmapTable` of null indicators,
+  which versions did not have, is no longer used). Versions are tuples of these types, so the chain, the
+  version maps, `genVersionAttributePtr` and the merge bases carry the indicator without change. The
+  native `NullableValue` loads and stores the same layout, a `NULL` with its value zeroed; columns
+  without nulls keep their layout and their code.
+* **Statements**: `NULL` among the values of `INSERT`, `SET`, `WHERE` and `DEFAULT` (the parser passes
+  it as `Native::Sql::nullLiteral`); a column an `INSERT` leaves out is `NULL` (a column without nulls
+  keeps its default, the zeroed value, as before). `WHERE` is three-valued: a comparison with `NULL` is
+  `NULL` and holds for no tuple; `c IS [NOT] NULL` (also in queries over several branches and in `DIFF`)
+  is never `NULL`. `NULL` or a value that may be `NULL` for a `NOT NULL` column (`SET k = x` with a
+  nullable `x`) is refused before execution (`not_null_violation`, SQLSTATE 23502 in pgserver).
+* **Aggregates** skip `NULL`s: `count(c)` counts the values, `sum`, `min`, `max` and `avg` of no
+  values are `NULL`. `BranchAggregation` gives each aggregate of a nullable column a slot that counts
+  its values, which the difference arrays of the shared scan sum like the count of the tuples.
+* **MERGE and DIFF** compare versions with `IS NOT DISTINCT FROM` (native `NullableValue::equals`):
+  two `NULL`s are equal, a `NULL` and a value are not. Setting an attribute to `NULL` in both branches
+  is no conflict.
+* `COPY`: an empty field is `NULL` in a nullable column, and `COPY ... TO` writes `NULL` as an empty
+  field. `SHOW COLUMNS` reports whether a column is nullable.
+* Fixed on the way: `AND` and `OR` of booleans that may be `NULL` generated invalid IR (the condition
+  of the `ElseIf` was evaluated in the then-branch); they are selects now. The generated code could not
+  load a `bool`; the native `NullableValue` could neither load nor store, `getNull` of the generated
+  code had no `date`, `timestamp` and `text` and built a `NULL` boolean of an integer. `COPY ... TO`
+  wrote the columns in hash-map order, and the varchars `COPY ... FROM` read pointed into lines freed
+  before the insert ran.
+* The benchmark drivers add beam's column as `INTEGER NOT NULL DEFAULT 0` (`branchBench.cpp`,
+  `compare/compare.py`, which also replays the earlier traces without `NOT NULL`), so that the paper's
+  loops keep a column without nulls.
+
+Checks: `test/null_test.cpp` (9 tests: inserts, the conditions, updates, aggregates in one branch and
+across branches with both strategies, `MERGE` and `DIFF`, added columns, `COPY`, parallel scans), with
+`TARDISDB_VERIFY_IR=1`; `test/dialect_test.cpp` and `test/schema_test.cpp` expect `NULL`s where they
+expected errors.
 
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 

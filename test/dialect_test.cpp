@@ -143,14 +143,15 @@ namespace {
         EXPECT_EQ(typeOf("e").typeID, T::NumericID); // float has no counterpart: numeric(18, 6)
         EXPECT_EQ(typeOf("e").numericLayout.precision, 6u);
         EXPECT_EQ(typeOf("f").typeID, T::BoolID);
-        // declared nullable, stored not null: versions hold no null indicators
-        EXPECT_FALSE(typeOf("a").nullable);
+        // declared without NOT NULL: nullable
+        EXPECT_TRUE(typeOf("a").nullable);
         exec("INSERT INTO s VALUES (1, 2, 9000000000, -3.25, 1000.5, true, 'a long text', 'q', 'abc', '2025-01-02T03:04:05.5', '2025-01-02');");
         EXPECT_EQ(query("SELECT a, c, d, e, g, h, i, j, k FROM s;"),
                   (std::vector<std::string>{"(1, 9000000000, -3.25, 1000.500000, a long text, q, abc, 2025-01-02 03:04:05.500, 2025-01-02)"}));
         EXPECT_EQ(query("SELECT a FROM s WHERE h = 'q' AND c > 8000000000;"), (std::vector<std::string>{"(1)"}));
         EXPECT_THROW(exec("INSERT INTO s VALUES (1, 2, 3, 1, 1, true, 'x', 'toolong', 'abc', '2025-01-01', '2025-01-01');"), std::exception);
-        EXPECT_THROW(exec("INSERT INTO s VALUES (NULL, 2, 3, 1, 1, true, 'x', 'q', 'abc', '2025-01-01', '2025-01-01');"), std::exception);
+        exec("INSERT INTO s VALUES (NULL, 2, 3, 1, 1, true, 'x', 'q', 'abc', '2025-01-01', NULL);");
+        EXPECT_EQ(query("SELECT a, c, k FROM s WHERE a IS NULL;"), (std::vector<std::string>{"(NULL, 3, NULL)"}));
     }
 
     TEST_F(DialectTest, LiteralsOfClients) {

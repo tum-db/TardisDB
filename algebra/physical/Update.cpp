@@ -30,17 +30,16 @@ namespace Algebra {
                     continue;
                 }
 
-                SqlType storedSqlType;
-                if (ci->type.nullable) {
-                    // the null indicator will be stored in the NullIndicatorTable
-                    storedSqlType = toNotNullableTy( ci->type );
-                } else {
-                    storedSqlType = ci->type;
-                }
+                // a nullable column holds the null indicator beside each value
+                SqlType storedSqlType = ci->type;
 
+                // SET c = constant, of the type of the column
                 std::unique_ptr<Sql::Value> sqlValue = nullptr;
-                if (iuPairs.second.compare("") != 0) {
-                    sqlValue = Sql::Value::castString(iuPairs.second,storedSqlType);
+                if (iuPairs.second == Native::Sql::nullLiteral) {
+                    _setNull.push_back(ci);
+                } else if (iuPairs.second.compare("") != 0) {
+                    sqlValue = Sql::Value::castString(iuPairs.second, toNotNullableTy(storedSqlType));
+                    if (ci->type.nullable) sqlValue = Sql::NullableValue::create(*sqlValue, cg_bool_t(false));
                 }
 
                 size_t tableSize = table.size();
@@ -89,13 +88,24 @@ namespace Algebra {
             // SET c = <expression>: computed from the values of the old tuple, in the type of the column
             std::unordered_map<ci_p_t, Sql::Value *> computed;
             for (auto & [iu, expression] : _expressions) {
-                SqlType columnType = toNotNullableTy(iu->columnInformation->type);
+                SqlType columnType = iu->columnInformation->type;
                 value_op_t value = expression->evaluate(values);
                 if (!Sql::equals(value->type, columnType, SqlTypeEqualsMode::WithoutNullable)) {
-                    value = Sql::Operators::sqlCast(*value, columnType);
+                    SqlType castType = columnType;
+                    castType.nullable = value->type.nullable;
+                    value = Sql::Operators::sqlCast(*value, castType);
+                }
+                // the analyser refuses values that may be NULL for columns without nulls
+                if (columnType.nullable && !value->type.nullable) {
+                    value = Sql::NullableValue::create(*value, cg_bool_t(false));
                 }
                 _computed.push_back(std::move(value));
                 computed[iu->columnInformation] = _computed.back().get();
+            }
+            for (ci_p_t ci : _setNull) {
+                if (computed.count(ci) > 0) continue; // SET c = NULL + ...
+                _computed.push_back(Sql::NullableValue::getNull(ci->type));
+                computed[ci] = _computed.back().get();
             }
 
             // Collect all values needed for the row tuple in correct order: every column of the table,

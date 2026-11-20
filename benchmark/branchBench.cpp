@@ -227,7 +227,7 @@ public:
     }
     /// a column of the branch (and of the branches forked from it later): score, default 0
     void addColumn(const std::string & name) {
-        sql("ALTER TABLE t VERSION " + name + " ADD COLUMN score INTEGER DEFAULT 0;", ph.alter);
+        sql("ALTER TABLE t VERSION " + name + " ADD COLUMN score INTEGER NOT NULL DEFAULT 0;", ph.alter);
         _scores[name] = std::vector<int32_t>(_groups, 0);
     }
     /// b of one group, and score where the branch has the column
@@ -564,9 +564,18 @@ static std::map<int32_t, int32_t> scanned;
 // the projection does not preserve the order of the attributes, so b is told apart by its range
 static constexpr int32_t bOffset = 10000000;
 
+// the integer of a value; the columns added by ALTER TABLE are nullable (but never NULL here)
+static int32_t integerOf(Native::Sql::Value & value) {
+    if (auto * nullable = dynamic_cast<Native::Sql::NullableValue *>(&value)) {
+        if (nullable->isNull()) throw std::runtime_error("unexpected NULL");
+        return static_cast<Native::Sql::Integer &>(nullable->getValue()).value;
+    }
+    return static_cast<Native::Sql::Integer &>(value).value;
+}
+
 static void collect(Native::Sql::SqlTuple * tuple) {
-    auto a = static_cast<Native::Sql::Integer &>(*tuple->values[0]).value;
-    auto b = static_cast<Native::Sql::Integer &>(*tuple->values[1]).value;
+    auto a = integerOf(*tuple->values[0]);
+    auto b = integerOf(*tuple->values[1]);
     if (a >= bOffset) std::swap(a, b);
     if (!scanned.emplace(a, b).second) throw std::runtime_error("tuple " + std::to_string(a) + " returned twice");
 }

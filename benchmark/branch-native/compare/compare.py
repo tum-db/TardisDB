@@ -115,7 +115,7 @@ class TardisDB(Backend):
         self.timed("fork", self.sql, f"CREATE BRANCH {name} FROM {self._b(parent)}")
 
     def add_column(self, branch):
-        self.timed("alter", self.sql, f"ALTER TABLE t VERSION {self._b(branch)} ADD COLUMN score INTEGER DEFAULT 0")
+        self.timed("alter", self.sql, f"ALTER TABLE t VERSION {self._b(branch)} ADD COLUMN score INTEGER NOT NULL DEFAULT 0")
 
     def update(self, branch, group, value, score=None):
         extra = "" if score is None else f", score = {score}"
@@ -278,7 +278,7 @@ def fanout(backend, args):
 
 
 _CREATE = re.compile(r"CREATE BRANCH (\w+) FROM (\w+);")
-_ALTER = re.compile(r"ALTER TABLE t VERSION (\w+) ADD COLUMN score INTEGER DEFAULT 0;")
+_ALTER = re.compile(r"ALTER TABLE t VERSION (\w+) ADD COLUMN score INTEGER(?: NOT NULL)? DEFAULT 0;")
 _UPDATE = re.compile(r"UPDATE t VERSION (\w+) SET b = (\d+)(?:, score = (\d+))? WHERE g = (\d+);")
 _SUM = re.compile(r"SELECT sum\((b|score)\) FROM t VERSION (\w+);")
 _SUMS = re.compile(r"SELECT branch, sum\(b\) FROM t VERSION \(([\w, ]+)\) GROUP BY branch;")

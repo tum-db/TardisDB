@@ -12,22 +12,29 @@
 namespace semanticalAnalysis {
 
     static std::string path;
+
+    /// A field of COPY: NULL is an empty field, as in PostgreSQL's CSV format
+    static std::string field(const Native::Sql::Value & value) {
+        if (Native::Sql::isNullable(value) && static_cast<const Native::Sql::NullableValue &>(value).isNull()) return "";
+        return Native::Sql::toString(value);
+    }
+
     void CopyTableAnalyser::dumpCallbackCSV(Native::Sql::SqlTuple *tuple) {
         std::ofstream output(path,std::fstream::ios_base::app);
         for (int i = 0; i<tuple->values.size()-1; i++) {
-            output << Native::Sql::toString(*tuple->values[i]);
+            output << field(*tuple->values[i]);
             output << ";";
         }
-        output << Native::Sql::toString(*tuple->values[tuple->values.size()-1]) << "\n";
+        output << field(*tuple->values[tuple->values.size()-1]) << "\n";
         output.close();
     }
     void CopyTableAnalyser::dumpCallbackTBL(Native::Sql::SqlTuple *tuple) {
         std::ofstream output(path,std::fstream::ios_base::app);
         for (int i = 0; i<tuple->values.size()-1; i++) {
-            output << Native::Sql::toString(*tuple->values[i]);
+            output << field(*tuple->values[i]);
             output << "|";
         }
-        output << Native::Sql::toString(*tuple->values[tuple->values.size()-1]) << "\n";
+        output << field(*tuple->values[tuple->values.size()-1]) << "\n";
         output.close();
     }
 
@@ -66,12 +73,16 @@ namespace semanticalAnalysis {
             std::vector<Native::Sql::SqlTuple *> tuples;
             std::string rowStr;
             while (std::getline(fs, rowStr)) {
-                std::vector<std::string> items = split(rowStr, delimiter);
+                // varchars point into the fields
+                const std::vector<std::string> & items = stmt->rows.emplace_back(split(rowStr, delimiter));
                 size_t i = 0;
                 std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values;
                 for (size_t column : table->getSchema(branchId)) {
                     ci_p_t ci = table->getCI(column);
-                    auto value = Native::Sql::Value::castString(items[i], ci->type);
+                    // an empty field of a nullable column is NULL
+                    const bool isNull = ci->type.nullable && (i >= items.size() || items[i].empty());
+                    auto value = isNull ? Native::Sql::NullableValue::getNull(ci->type) :
+                                 Native::Sql::castColumnValue(items[i], ci->type);
                     values.emplace_back(ci, std::move(value));
                     i += 1;
                 }
@@ -87,11 +98,12 @@ namespace semanticalAnalysis {
             construct_scans(_context, stmt->relation);
             auto &production = _context.dangling_productions[stmt->relation.name];
 
+            // the columns of the branch in their order, as COPY FROM reads them
             std::vector<iu_p_t> projectedIUs;
             std::string &productionName = stmt->relation.alias.empty() ? stmt->relation.name : stmt->relation.alias;
-            for (auto &iu : _context.ius[productionName]) {
-                if (iu.second->columnInformation->columnName == "tid") continue;
-                projectedIUs.push_back(iu.second);
+            Table *table = _context.db.getTable(stmt->relation.name);
+            for (auto &name : table->getColumnNames(_context.db._branchMapping.at(stmt->relation.version))) {
+                projectedIUs.push_back(_context.ius[productionName].at(name));
             }
 
             _context.joinedTree = std::make_unique<Result>( std::move(production), projectedIUs );

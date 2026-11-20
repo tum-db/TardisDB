@@ -45,6 +45,11 @@ void Division::accept(ExpressionVisitor & visitor)
     visitor.visit(*this);
 }
 
+void IsNull::accept(ExpressionVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
 void Comparison::accept(ExpressionVisitor & visitor)
 {
     visitor.visit(*this);

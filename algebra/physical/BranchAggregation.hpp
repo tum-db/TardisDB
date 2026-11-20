@@ -37,8 +37,9 @@ public:
     /// Runtime state; owned by the execution context since the compiled query outlives this operator
     struct State : public ExecutionResource {
         BranchSet set;
-        size_t width;                       // slots per group: count, then one per aggregate
+        size_t width;                       // slots per group: count, one per aggregate, one per aggregate of a nullable column
         std::vector<int> functions;         // Logical::BranchAggregation::Function per aggregate
+        std::vector<size_t> nonNull;        // per aggregate, the slot that counts its values that are not NULL; 0 (the count) if it has no NULLs
         size_t workers;
         size_t tuples;
         bool perBranch;
@@ -85,6 +86,8 @@ private:
     llvm::Value * genPredicate(const iu_value_mapping_t & values);
 
     llvm::Value * genInputValue(const iu_value_mapping_t & values, size_t aggregate);
+    /// \returns Whether the input of the aggregate is not NULL (i1), or nullptr if it has no NULLs
+    llvm::Value * genInputPresent(const iu_value_mapping_t & values, size_t aggregate);
 
     void genAccumulate(State & state, llvm::Value * group, const iu_value_mapping_t & values);
     void genAccumulateRange(State & state, llvm::Value * lo, llvm::Value * hi, const iu_value_mapping_t & values);

@@ -25,6 +25,7 @@ namespace Algebra {
             std::vector<std::pair<iu_p_t,std::string>> _updateIUs;
             update_expressions_t _expressions;
             std::vector<Sql::value_op_t> _computed;
+            std::vector<ci_p_t> _setNull; // SET c = NULL, generated in consume() like the expressions
             Table & table;
             branch_id_t branchId;
             llvm::Value * tupleCountPtr;

@@ -29,6 +29,19 @@ std::unique_ptr<Native::Sql::Value> ValueTranslator::sqlValueToNativeSqlValue(Sq
     llvm::Function * func;
     llvm::CallInst * result;
 
+    // a nullable value: its value, and the null indicator, which the generated code sets
+    if (Sql::isNullable(*original)) {
+        auto & nullable = static_cast<Sql::NullableValue &>(*original);
+        std::unique_ptr<Native::Sql::Value> inner = sqlValueToNativeSqlValue(&nullable.getValue());
+        if (inner == nullptr) return nullptr;
+        returnValue = Native::Sql::NullableValue::create(std::move(inner), false);
+        bool * indicator = static_cast<Native::Sql::NullableValue *>(returnValue.get())->getNullIndicatorPtr();
+        llvm::Type * i8Ty = llvm::Type::getInt8Ty(context);
+        codeGen->CreateStore(codeGen->CreateZExt(nullable.isNull().llvmValue, i8Ty),
+                             codeGen->CreateIntToPtr(cg_size_t(reinterpret_cast<uintptr_t>(indicator)).getValue(), llvm::PointerType::getUnqual(i8Ty)));
+        return returnValue;
+    }
+
     switch (original->type.typeID) {
         case Sql::SqlType::TypeID::UnknownID:
             return nullptr;

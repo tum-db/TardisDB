@@ -134,7 +134,7 @@ namespace semanticalAnalysis {
     }
 
     //
-    // ALTER TABLE t [ VERSION b ] ADD [ COLUMN ] c type [ NOT NULL ] DEFAULT v, DROP [ COLUMN ] c
+    // ALTER TABLE t [ VERSION b ] ADD [ COLUMN ] c type [ [ NOT ] NULL ] [ DEFAULT v ], DROP [ COLUMN ] c
     //
 
     void AlterTableAnalyser::verify() {
@@ -153,15 +153,16 @@ namespace semanticalAnalysis {
             // values of these types cannot be cast from strings yet
             if (column.type == "longinteger" || column.type == "char")
                 throw semantic_sql_error("columns of type " + column.type + " cannot be added yet");
-            // versions hold no null indicators, so the column has a value in every version
-            if (!stmt->hasDefault)
-                throw semantic_sql_error("column '" + column.name + "' needs a DEFAULT, which the existing tuples take");
-            try {
-                ColumnSpec spec = column;
-                spec.nullable = false;
-                Native::Sql::Value::castString(stmt->defaultValue, toColumnType(spec));
-            } catch (const std::exception &) {
-                throw semantic_sql_error("'" + stmt->defaultValue + "' is no value of type " + column.type);
+            // the existing tuples take the default, NULL without one
+            const bool nullDefault = !stmt->hasDefault || stmt->defaultValue == Native::Sql::nullLiteral;
+            if (nullDefault && !column.nullable)
+                throw not_null_violation("column '" + column.name + "' is NOT NULL, so it needs a DEFAULT other than NULL, which the existing tuples take");
+            if (!nullDefault) {
+                try {
+                    Native::Sql::castColumnValue(stmt->defaultValue, toColumnType(column));
+                } catch (const std::exception &) {
+                    throw semantic_sql_error("'" + stmt->defaultValue + "' is no value of type " + column.type);
+                }
             }
         } else {
             if (table->findColumn(column.name, branch) == nullptr)
@@ -178,10 +179,10 @@ namespace semanticalAnalysis {
         const std::string &branchName = db._branches.at(branch)->name;
 
         if (stmt->add) {
-            ColumnSpec spec = stmt->column;
-            spec.nullable = false;
+            const ColumnSpec &spec = stmt->column;
             const Sql::SqlType type = toColumnType(spec);
-            auto defaultValue = Native::Sql::Value::castString(stmt->defaultValue, type);
+            auto defaultValue = stmt->hasDefault ? Native::Sql::castColumnValue(stmt->defaultValue, type) :
+                                Native::Sql::NullableValue::getNull(type);
             add_branch_column(*table, branch, spec.name, type, *defaultValue);
             std::cout << "Added column " << spec.name << " to " << stmt->relation.name << " in branch " << branchName << "\n";
         } else {

@@ -1,7 +1,11 @@
 #include "native/sql/SqlValues.hpp"
 #include "codegen/LLVMCompat.hpp"
+#include "codegen/CodeGen.hpp"
 
+#include <cstring>
 #include <functional>
+#include <map>
+#include <mutex>
 #include <limits>
 
 #include "foundations/exceptions.hpp"
@@ -66,8 +70,7 @@ value_op_t Value::castString(const std::string & str, SqlType type)
 value_op_t Value::load(const void * ptr, SqlType type)
 {
     if (type.nullable) {
-//        return NullableValue::load(ptr, type);
-        throw NotImplementedException();
+        return NullableValue::load(ptr, type);
     }
 
     switch (type.typeID) {
@@ -1170,39 +1173,31 @@ NullableValue::NullableValue(value_op_t sqlValue, bool nullIndicator) :
     assert(dynamic_cast<NullableValue *>(_sqlValue.get()) == nullptr); // do not nest NullableValues
 }
 
+/// \returns The offset of the null indicator in a value of the nullable type
+static size_t nullIndicatorOffset(SqlType type)
+{
+    auto & dataLayout = getThreadLocalCodeGen().getDefaultDataLayout();
+    auto * structTy = llvm::cast<llvm::StructType>(toLLVMTy(toNullableTy(type)));
+    return dataLayout.getStructLayout(structTy)->getElementOffset(1);
+}
+
+/// \returns Zeroed bytes of at least the given size, which live as long as the process: values such
+/// as Varchar point into the bytes they were loaded from
+static const uint8_t * zeroedBytes(size_t size)
+{
+    static std::mutex latch;
+    static std::map<size_t, std::unique_ptr<uint8_t[]>> buffers;
+    std::lock_guard<std::mutex> lock(latch);
+    auto & buffer = buffers[size];
+    if (!buffer) buffer = std::make_unique<uint8_t[]>(size); // value-initialized: zeroed
+    return buffer.get();
+}
+
 value_op_t NullableValue::getNull(SqlType type)
 {
     SqlType notNullableType = toNotNullableTy(type);
-
-    switch (type.typeID) {
-        case SqlType::TypeID::BoolID: {
-            value_op_t nullBool = Integer::castString("false");
-            return create(std::move(nullBool), cg_bool_t(true));
-        }
-        case SqlType::TypeID::IntegerID: {
-            value_op_t nullInteger = Integer::castString("0");
-            return create(std::move(nullInteger), cg_bool_t(true));
-        }
-        case SqlType::TypeID::NumericID: {
-            value_op_t nullNumeric = Numeric::castString("0", notNullableType);
-            return create(std::move(nullNumeric), cg_bool_t(true));
-        }
-        /*
-        case SqlType::TypeID::VarcharID: {
-            value_op_t nullVarchar = Varchar::castString(std::string(type.length, ' '), notNullableType);
-            return create(std::move(nullVarchar), cg_bool_t(true));
-        }
-        case SqlType::TypeID::CharID: {
-            value_op_t nullChar = Char::castString(std::string(type.length, ' '), notNullableType);
-            return create(std::move(nullChar), cg_bool_t(true));
-        }
-        */
-        case SqlType::TypeID::DateID: // TODO
-        case SqlType::TypeID::TimestampID: // TODO
-            throw NotImplementedException();
-        default:
-            unreachable();
-    }
+    const size_t size = getThreadLocalCodeGen().getDefaultDataLayout().getTypeAllocSize(toLLVMTy(notNullableType));
+    return create(Value::load(zeroedBytes(size), notNullableType), true);
 }
 
 value_op_t NullableValue::create(value_op_t value, bool nullIndicator)
@@ -1218,7 +1213,9 @@ value_op_t NullableValue::create(const Value & value, bool nullIndicator)
 
 value_op_t NullableValue::load(const void * ptr, SqlType type)
 {
-    throw NotImplementedException();
+    assert(type.nullable);
+    const bool isNull = static_cast<const uint8_t *>(ptr)[nullIndicatorOffset(type)] != 0;
+    return create(Value::load(ptr, toNotNullableTy(type)), isNull);
     /*
     assert(type.nullable);
 
@@ -1244,7 +1241,14 @@ value_op_t NullableValue::clone() const
 
 void NullableValue::store(void * ptr) const
 {
-    throw NotImplementedException();
+    const size_t offset = nullIndicatorOffset(type);
+    if (_nullIndicator) {
+        // a NULL stores the zeroed value, so that the bytes of two NULLs are equal
+        std::memset(ptr, 0, offset);
+    } else {
+        _sqlValue->store(ptr);
+    }
+    static_cast<uint8_t *>(ptr)[offset] = _nullIndicator ? 1 : 0;
     /*
     assert(type.nullable);
 
@@ -1291,11 +1295,12 @@ bool NullableValue::equals(const Value & other) const
         return false;
     }
 
-    if (isNull()) {
-        return false;
-    } else {
-        return _sqlValue->equals(other);
+    // IS NOT DISTINCT FROM
+    const bool otherIsNull = isNullable(other) && static_cast<const NullableValue &>(other).isNull();
+    if (isNull() || otherIsNull) {
+        return isNull() && otherIsNull;
     }
+    return _sqlValue->equals(getAssociatedValue(other));
 }
 
 bool NullableValue::compare(const Value & other, ComparisonMode mode) const
@@ -1379,10 +1384,26 @@ llvm::Value * getNullIndicator(SqlType type)
 }
 #endif // USE_INTERNAL_NULL_INDICATOR
 
+value_op_t toColumnValue(value_op_t value, SqlType type)
+{
+    if (!type.nullable || isNullable(*value)) return value;
+    return NullableValue::create(std::move(value), false);
+}
+
+value_op_t castColumnValue(const std::string & str, SqlType type)
+{
+    if (str == nullLiteral) {
+        if (!type.nullable) throw std::invalid_argument("null value in a column declared NOT NULL");
+        return NullableValue::getNull(type);
+    }
+    return toColumnValue(Value::castString(str, toNotNullableTy(type)), type);
+}
+
 std::string toString(const Value & sqlValue)
 {
     if (isNullable(sqlValue)) {
-        throw NotImplementedException();
+        auto & nullable = static_cast<const NullableValue &>(sqlValue);
+        return nullable.isNull() ? "NULL" : toString(nullable.getValue());
     }
 
     switch (sqlValue.type.typeID) {

@@ -5,6 +5,7 @@
 #ifndef PROTODB_PARSERRESULT_HPP
 #define PROTODB_PARSERRESULT_HPP
 
+#include <deque>
 #include <vector>
 #include <string>
 
@@ -89,6 +90,8 @@ namespace semanticalAnalysis {
         std::string filePath;
         std::string format;
         bool directionFrom;
+        /// the fields read by COPY FROM, which varchars point into, as into the text of an INSERT
+        std::deque<std::vector<std::string>> rows;
     };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute
