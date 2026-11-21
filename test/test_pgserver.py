@@ -147,6 +147,9 @@ with psycopg.connect(dsn, autocommit=True) as c3:
     # parameters in binary: arrays (with NULLs and two dimensions) and doubles
     c3.execute("insert into ar (id, v, s, d, m) values (%b, %b, %b, %b, %b)", (3, [7, None, 9], ["q", None], 2.5, [[1.0, 2.0], [3.0, 4.5]]))
     assert c3.execute("select v, s, d, m from ar where id = 3").fetchone() == ([7, None, 9], ["q", None], 2.5, [[1.0, 2.0], [3.0, 4.5]])
+# a join with expressions over arrays
+cur.execute("select k.name, ar.v[1] + nn.v from k, ar, nn where k.id = ar.id and ar.id = nn.id and ar.id = 2")
+assert cur.fetchall() == [("n'2", 24)]
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types

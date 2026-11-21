@@ -1,7 +1,7 @@
 // Arrays of PostgreSQL (any number of dimensions, lower bounds, NULL elements) and DOUBLE PRECISION:
 // literals and their text, subscripts and slices, the functions and operators of arrays, ANY and ALL,
 // expressions in the select list, WHERE and SET, branches with MERGE and DIFF, ALTER TABLE, COPY,
-// computed arrays in parallel scans, and the arithmetic, casts and aggregates of doubles
+// computed arrays in parallel scans, the arithmetic, casts and aggregates of doubles, and both in joins
 
 #include "codegen/LLVMCompat.hpp"
 #include <algorithm>
@@ -264,6 +264,21 @@ namespace {
         EXPECT_EQ(query("select branch , sum(d) , count(*) from f version all group by branch;"),
                   (rows_t{"(fb, 1e+20, 5)", "(master, -0.65, 4)"}));
         EXPECT_THROW(exec("insert into f ( k , d ) values ( 9 , 'abc' );"), std::exception);
+    }
+
+    TEST_F(ArrayTest, JoinsCarryArraysAndDoubles) {
+        exec("create table j ( k integer not null , w double precision , b integer[] );");
+        exec("insert into j values ( 1 , 0.5 , '{10,20}' ) , ( 2 , 2.5 , null ) , ( 2 , -1 , '{30}' ) , ( 9 , 1 , '{}' );");
+        // arrays and doubles of both sides, in the hash table and in expressions after the join
+        EXPECT_EQ(query("select t.k , t.a , j.b , j.w from t , j where t.k = j.k;"),
+                  (rows_t{"(1, {1,2,3}, {10,20}, 0.5)", "(2, [0:1]={7,NULL}, NULL, 2.5)", "(2, [0:1]={7,NULL}, {30}, -1)"}));
+        EXPECT_EQ(query("select j.k , t.a || j.b , j.w * 2 from j , t where j.k = t.k and cardinality(j.b) > 0;"),
+                  (rows_t{"(1, {1,2,3,10,20}, 1)", "(2, [0:2]={7,NULL,30}, -2)"}));
+        // arrays and doubles as join keys
+        exec("create table ja ( b integer[] , w double precision , x integer not null );");
+        exec("insert into ja values ( '{10,20}' , 2.5 , 1 ) , ( '{30}' , 0.5 , 2 ) , ( null , null , 3 );");
+        EXPECT_EQ(query("select j.k , ja.x from j , ja where j.b = ja.b;"), (rows_t{"(1, 1)", "(2, 2)"}));
+        EXPECT_EQ(query("select j.k , ja.x from j , ja where j.w = ja.w;"), (rows_t{"(1, 2)", "(2, 1)"}));
     }
 
 }

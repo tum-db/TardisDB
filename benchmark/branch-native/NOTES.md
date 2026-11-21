@@ -872,9 +872,10 @@ bounds and `NULL` elements, in `native/sql/Array.hpp`.
   booleans of `t`, `yes`, `on`, `1` and their negations are accepted, as in PostgreSQL.
 * Not changed: `COPY` does not quote fields (also text with `;`).
 
-Checks: `test/array_test.cpp` (10 tests: literals and their text, malformed arrays, subscripts and
+Checks: `test/array_test.cpp` (11 tests: literals and their text, malformed arrays, subscripts and
 slices, the functions and operators, expressions, updates with branches, `MERGE` and `DIFF`, `ALTER
-TABLE` and `COPY`, computed arrays in parallel scans, double precision with both strategies), with
+TABLE` and `COPY`, computed arrays in parallel scans, double precision with both strategies, arrays
+and doubles in joins and as join keys), with
 `TARDISDB_VERIFY_IR=1`; `test/test_pgserver.py` (lists of both drivers, arrays and floats in results).
 
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)

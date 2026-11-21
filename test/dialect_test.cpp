@@ -214,6 +214,8 @@ namespace {
         EXPECT_EQ(query("SELECT ja.name, jc.z FROM ja, jc WHERE ja.id = 1;"), (std::vector<std::string>{"(one, 1000)", "(one, 2200)"}));
         EXPECT_EQ(query("SELECT ja.id, jb.y, jc.z FROM ja, jb, jc WHERE ja.id = jb.id AND ja.k = 2 AND jb.y > 220;"),
                   (std::vector<std::string>{"(2, 221, 1000)", "(2, 221, 2200)"}));
+        EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id < jb.id AND jb.y = 400;"),
+                  (std::vector<std::string>{"(one, 400)", "(three, 400)", "(two, 400)", "(twotwo, 400)"}));
         // an empty side, which the selections leave
         EXPECT_TRUE(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id = jb.id AND ja.k = 9;").empty());
         EXPECT_TRUE(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id = jb.id AND jb.k = 9;").empty());
