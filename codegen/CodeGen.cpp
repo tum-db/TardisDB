@@ -532,9 +532,11 @@ void LoopGen::loopDone(llvm::Value * condV, const loop_val_vec_t & currentValues
 {
     auto & codeGen = getCodeGen();
 
-    // add the new basic blocks
+    // add the new basic blocks (loopBodyEnd() may already have added loopContBB)
     Function * fun = functionGen.getFunction();
-    loopContBB->insertInto(fun);
+    if (loopContBB->getParent() == nullptr) {
+        loopContBB->insertInto(fun);
+    }
     afterBB->insertInto(fun);
 
     codeGen->SetInsertPoint(loopContBB);
@@ -571,6 +573,9 @@ void LoopGen::loopBodyEnd()
 {
     auto & codeGen = getCodeGen();
     codeGen.leaveBlock(loopContBB);
+    // a block needs its function before instructions go into it: the IRBuilder
+    // takes the alignment of loads and stores from the module's data layout
+    loopContBB->insertInto(functionGen.getFunction());
     codeGen->SetInsertPoint(loopContBB);
 }
 

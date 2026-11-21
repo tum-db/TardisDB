@@ -37,6 +37,11 @@ public:
     std::string getFirstVertexName() {
         return vertices.begin()->first;
     }
+    std::vector<std::string> getVertexNames() {
+        std::vector<std::string> names;
+        for (auto & vertex : vertices) names.push_back(vertex.first);
+        return names;
+    }
     Edge* getEdge(std::string &vAlias, std::string &uAlias) {
         for (auto& edge : edges) {
             if ((edge.vID.compare(vAlias) == 0 && edge.uID.compare(uAlias) == 0) || (edge.vID.compare(uAlias) == 0 && edge.uID.compare(vAlias) == 0)) {

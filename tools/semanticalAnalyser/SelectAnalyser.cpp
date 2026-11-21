@@ -19,72 +19,44 @@ namespace semanticalAnalysis {
             return;
         }
 
-        std::set<std::string> unbindedColumns;
-        std::set<std::string> relations;
+        // a relation is bound by its alias or, without one, by its name; an unqualified column must
+        // belong to exactly one relation
+        std::unordered_map<std::string,size_t> unbindedColumns;
         std::unordered_map<std::string,std::vector<std::string>> bindedColumns;
         for (auto &relation : stmt->relations) {
             if (!db.hasTable(relation.name)) throw semantic_sql_error("table '" + relation.name + "' does not exist");
             if (db._branchMapping.find(relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + relation.version + "' does not exist");
-            if (relation.alias.compare("") == 0) {
-                if (relations.find(relation.name) != relations.end()) throw semantic_sql_error("relation '" + relation.name + "' is already specified - use bindings!");
+            const std::string &binding = relation.alias.empty() ? relation.name : relation.alias;
+            if (bindedColumns.find(binding) != bindedColumns.end()) {
+                if (relation.alias.empty()) throw semantic_sql_error("relation '" + relation.name + "' is already specified - use bindings!");
+                throw semantic_sql_error("binding '" + relation.alias + "' is already specified - use bindings!");
             }
-            relations.insert(relation.name);
             Table *table = db.getTable(relation.name);
             std::vector<std::string> columnNames = table->getColumnNames(db._branchMapping.at(relation.version));
-            std::vector<std::string> sortedNames = columnNames;
-            std::sort(sortedNames.begin(), sortedNames.end());
-            std::vector<std::string> intersectResult;
-            std::set_intersection(unbindedColumns.begin(),unbindedColumns.end(),sortedNames.begin(),sortedNames.end(),std::back_inserter(intersectResult));
-            if (!intersectResult.empty()) throw semantic_sql_error("columns are ambiguous - use bindings!");
-            if (relation.alias.compare("") == 0) {
-                unbindedColumns.insert(columnNames.begin(),columnNames.end());
-            } else {
-                if (bindedColumns.find(relation.alias) != bindedColumns.end()) throw semantic_sql_error("binding '" + relation.alias + "' is already specified - use bindings!");
-                bindedColumns[relation.alias] = columnNames;
-            }
+            for (auto &name : columnNames) ++unbindedColumns[name];
+            bindedColumns[binding] = std::move(columnNames);
         }
 
-        for (auto &column : stmt->selections) {
-            if (column.first.table.compare("") == 0) {
-                if (unbindedColumns.find(column.first.name) == unbindedColumns.end())
-                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
-            } else {
-                if (bindedColumns.find(column.first.table) == bindedColumns.end())
-                    throw semantic_sql_error("binding '" + column.first.table + "' is not specified");
-                if (std::find(bindedColumns[column.first.table].begin(),bindedColumns[column.first.table].end(),column.first.name) == bindedColumns[column.first.table].end())
-                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
-            }
-        }
-        for (auto &column : stmt->projections) {
-            if (column.table.compare("") == 0) {
-                if (unbindedColumns.find(column.name) == unbindedColumns.end())
+        auto checkColumn = [&](const Column &column) {
+            if (column.table.empty()) {
+                auto it = unbindedColumns.find(column.name);
+                if (it == unbindedColumns.end())
                     throw semantic_sql_error("column '" + column.name + "' is not specified");
+                if (it->second > 1)
+                    throw semantic_sql_error("column '" + column.name + "' is ambiguous - use bindings!");
             } else {
-                if (bindedColumns.find(column.table) == bindedColumns.end())
+                auto it = bindedColumns.find(column.table);
+                if (it == bindedColumns.end())
                     throw semantic_sql_error("binding '" + column.table + "' is not specified");
-                if (std::find(bindedColumns[column.table].begin(),bindedColumns[column.table].end(),column.name) == bindedColumns[column.table].end())
+                if (std::find(it->second.begin(), it->second.end(), column.name) == it->second.end())
                     throw semantic_sql_error("column '" + column.name + "' is not specified");
             }
-        }
+        };
+        for (auto &column : stmt->selections) checkColumn(column.first);
+        for (auto &column : stmt->projections) checkColumn(column);
         for (auto &column : stmt->joinConditions) {
-            if (column.first.table.compare("") == 0) {
-                if (unbindedColumns.find(column.first.name) == unbindedColumns.end())
-                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
-            } else {
-                if (bindedColumns.find(column.first.table) == bindedColumns.end())
-                    throw semantic_sql_error("binding '" + column.first.table + "' is not specified");
-                if (std::find(bindedColumns[column.first.table].begin(),bindedColumns[column.first.table].end(),column.first.name) == bindedColumns[column.first.table].end())
-                    throw semantic_sql_error("column '" + column.first.name + "' is not specified");
-            }
-            if (column.second.table.compare("") == 0) {
-                if (unbindedColumns.find(column.second.name) == unbindedColumns.end())
-                    throw semantic_sql_error("column '" + column.second.name + "' is not specified");
-            } else {
-                if (bindedColumns.find(column.second.table) == bindedColumns.end())
-                    throw semantic_sql_error("binding '" + column.second.table + "' is not specified");
-                if (std::find(bindedColumns[column.second.table].begin(),bindedColumns[column.second.table].end(),column.second.name) == bindedColumns[column.second.table].end())
-                    throw semantic_sql_error("column '" + column.second.name + "' is not specified");
-            }
+            checkColumn(column.first);
+            checkColumn(column.second);
         }
         // For each relation
         // // Relation with name exists?
@@ -500,6 +472,16 @@ namespace semanticalAnalysis {
 
         //Construct join the first vertex
         construct_join(context, firstVertexName);
+
+        // the tables that no condition joins with the others: cross products (a join without a condition,
+        // whose conditions over several tables apply above the joins)
+        for (auto & name : context.graph.getVertexNames()) {
+            if (context.graph.getVertex(name)->visited) continue;
+            auto joined = std::move(context.joinedTree);
+            construct_join(context, name);
+            context.joinedTree = std::make_unique<Join>(std::move(joined), std::move(context.joinedTree),
+                                                        std::vector<Expressions::exp_op_t>(), Join::Method::Hash);
+        }
 
         if (context.joinedTree == nullptr)
             throw semantic_sql_error("no or more than one root found: Table joining has failed");

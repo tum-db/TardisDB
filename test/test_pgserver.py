@@ -118,6 +118,15 @@ try:
 except psycopg2.Error as e:
     assert e.pgcode == "23502", e.pgcode
     print("psycopg2 NULL in a NOT NULL column:", e.pgcode)
+# joins: table names as bindings, parameters of both drivers
+cur.execute("insert into nn (id, v, s) values (3, 30, 'c'), (3, 31, 'cc')")
+cur.execute("select k.name, nn.s from k, nn where k.id = nn.id and nn.v > %s", (25,))
+rows = sorted(cur.fetchall())
+print("psycopg2 join:", rows)
+assert rows == [("left", "c"), ("left", "cc")], rows
+with psycopg.connect(dsn, autocommit=True) as c3:
+    rows = c3.execute("select k.id, v from k, nn where k.id = nn.id and k.id = %s", (2,)).fetchall()
+    assert rows == [(2, 20)], rows
 c.close()
 c2.close()
 with admin.cursor() as cur:

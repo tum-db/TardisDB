@@ -4,6 +4,7 @@
 
 #include "foundations/StaticHashtable.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cmath>
 
@@ -19,7 +20,8 @@ StaticHashtable::StaticHashtable(StaticHashtable::Node * first, size_t len)
     loadFactor = 0.75f; // usually a good default
 
 //    printf("StaticHashtable ctor\n");
-    double sizeHint = static_cast<double>(len) / loadFactor;
+    // at least one bucket: the build side of a join may be empty (log2(0) is -infinity)
+    double sizeHint = std::max(1.0, static_cast<double>(len) / loadFactor);
     double p = std::ceil( std::log2(sizeHint) ); // find p such that: 2^p >= sizeHint
     size_t n = static_cast<size_t>(p);
     tableSize = 1ul << n;

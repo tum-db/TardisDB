@@ -796,6 +796,29 @@ across branches with both strategies, `MERGE` and `DIFF`, added columns, `COPY`,
 `TARDISDB_VERIFY_IR=1`; `test/dialect_test.cpp` and `test/schema_test.cpp` expect `NULL`s where they
 expected errors.
 
+# Joins
+
+Joins (`FROM a, b WHERE a.id = b.id`, also of three tables, on several columns and of two versions of
+one table) crashed while their code was generated under LLVM 18. `LoopGen::loopBodyEnd` set the insert
+point into the block that continues a loop before the block belonged to the function, and the bucket loop
+of the hash join (`genStaticHashtableIter`) loads the next node there: the IRBuilder takes the alignment
+of a load from the module's data layout, which it reaches through the block's function. The block now
+joins the function when the body ends (`codegen/CodeGen.cpp`); the loops of `Hashtable.cpp` (`GroupBy`)
+took the same path. A join whose build side its selections left empty sized its hash table 2^⌈log2 0⌉ and
+threw `std::bad_array_new_length`; the table has at least one bucket now (`StaticHashtable.cpp`).
+
+* A table without an alias is bound by its name (`a.id`), and an unqualified column is ambiguous only if
+  a query uses it and it belongs to several tables, as in PostgreSQL. Before, tables without aliases could
+  not share a column name, and their names were no bindings.
+* Tables that no equality joins with the others are joined as cross products, and conditions over
+  several tables apply above the joins. Before, the joins grew from one table along the equalities and
+  left the other tables out, which gave wrong results (`FROM a, b` without a condition, one row).
+* `NULL` matches no key, not even `NULL`. Joins keep the serial code; aggregates over joins remain
+  unsupported (aggregates are queries over the branches of one table).
+
+Checks: `DialectTest.JoinsOfTables` (with the parallel scans of the test and `TARDISDB_VERIFY_IR=1`),
+joins of both drivers in `test/test_pgserver.py`.
+
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 
 `compare/run.sh <dir>` builds pgserver with LLVM 7 in the container and runs it there (host network,

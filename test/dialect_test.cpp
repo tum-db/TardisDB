@@ -186,4 +186,47 @@ namespace {
         EXPECT_EQ(query("SELECT count(*) FROM d;", "main"), (std::vector<std::string>{"(2)"}));
     }
 
+    TEST_F(DialectTest, JoinsOfTables) {
+        exec("CREATE TABLE ja ( id integer not null, k integer not null, name varchar(10) not null );");
+        exec("CREATE TABLE jb ( id integer not null, k integer not null, y integer not null );");
+        exec("CREATE TABLE jc ( name varchar(10) not null, z integer not null );");
+        exec("CREATE TABLE jn ( id integer, v integer );");
+        exec("INSERT INTO ja VALUES (1, 1, 'one'), (2, 1, 'two'), (2, 2, 'twotwo'), (3, 1, 'three');");
+        exec("INSERT INTO jb VALUES (1, 1, 100), (2, 1, 200), (2, 2, 220), (2, 2, 221), (4, 1, 400);");
+        exec("INSERT INTO jc VALUES ('one', 1000), ('twotwo', 2200);");
+        exec("INSERT INTO jn VALUES (1, 5), (NULL, 6), (2, NULL);");
+        // several matches per key, keys of two columns, three tables, text keys
+        EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id = jb.id AND ja.k = jb.k;"),
+                  (std::vector<std::string>{"(one, 100)", "(two, 200)", "(twotwo, 220)", "(twotwo, 221)"}));
+        EXPECT_EQ(query("SELECT ja.name, jb.y, jc.z FROM ja, jb, jc WHERE ja.id = jb.id AND ja.k = jb.k AND ja.name = jc.name;"),
+                  (std::vector<std::string>{"(one, 100, 1000)", "(twotwo, 220, 2200)", "(twotwo, 221, 2200)"}));
+        EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id = jb.id AND jb.y > 210 AND ja.k = 1;"),
+                  (std::vector<std::string>{"(two, 220)", "(two, 221)"}));
+        // tables are bound by their names or aliases; unqualified columns must belong to one table
+        EXPECT_EQ(query("SELECT y, z FROM ja a, jb, jc WHERE a.id = jb.id AND a.k = jb.k AND a.name = jc.name AND y > 220;"),
+                  (std::vector<std::string>{"(221, 2200)"}));
+        EXPECT_THROW(exec("SELECT name FROM ja, jc WHERE ja.name = jc.name;"), std::exception);
+        EXPECT_THROW(exec("SELECT ja.y FROM ja, jb WHERE ja.id = jb.id;"), std::exception);
+        // tables that no condition joins: cross products
+        EXPECT_EQ(query("SELECT ja.name, jc.z FROM ja, jc WHERE ja.id = 1;"), (std::vector<std::string>{"(one, 1000)", "(one, 2200)"}));
+        EXPECT_EQ(query("SELECT ja.id, jb.y, jc.z FROM ja, jb, jc WHERE ja.id = jb.id AND ja.k = 2 AND jb.y > 220;"),
+                  (std::vector<std::string>{"(2, 221, 1000)", "(2, 221, 2200)"}));
+        // an empty side, which the selections leave
+        EXPECT_TRUE(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id = jb.id AND ja.k = 9;").empty());
+        EXPECT_TRUE(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id = jb.id AND jb.k = 9;").empty());
+        // NULL matches no key, not even NULL
+        EXPECT_EQ(query("SELECT ja.name, jn.v FROM ja, jn WHERE ja.id = jn.id;"),
+                  (std::vector<std::string>{"(one, 5)", "(two, NULL)", "(twotwo, NULL)"}));
+        EXPECT_EQ(query("SELECT x.v, y.v FROM jn x, jn y WHERE x.id = y.id;"),
+                  (std::vector<std::string>{"(5, 5)", "(NULL, NULL)"}));
+        // the tables of a join in a branch, and two versions of one table
+        exec("CREATE BRANCH jdev FROM master;");
+        exec("UPDATE ja VERSION jdev SET name = 'uno' WHERE id = 1;");
+        exec("INSERT INTO jc VERSION jdev VALUES ('uno', 1001);");
+        EXPECT_EQ(query("SELECT ja.name, jc.z FROM ja VERSION jdev ja, jc VERSION jdev jc WHERE ja.name = jc.name;"),
+                  (std::vector<std::string>{"(twotwo, 2200)", "(uno, 1001)"}));
+        EXPECT_EQ(query("SELECT o.name, n.name FROM ja VERSION master o, ja VERSION jdev n WHERE o.id = n.id AND o.k = n.k AND o.id = 1;"),
+                  (std::vector<std::string>{"(one, uno)"}));
+    }
+
 }
