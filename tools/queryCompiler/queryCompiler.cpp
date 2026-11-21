@@ -9,6 +9,7 @@
 #include <optional>
 #include <set>
 #include <shared_mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 #include <llvm/Support/raw_ostream.h>
@@ -329,7 +330,8 @@ namespace QueryCompiler {
             size_t first = lower.find_first_not_of(" \t\r\n");
             if (first != std::string::npos && (lower.compare(first, 4, "with") == 0 || lower.compare(first, 6, "values") == 0 ||
                 lower.compare(first, 1, "(") == 0 || (lower.compare(first, 6, "select") == 0 &&
-                (lower.find("union") != std::string::npos || lower.find(" from ") == std::string::npos)))) {
+                (lower.find("union") != std::string::npos || lower.find("intersect") != std::string::npos ||
+                 lower.find("except") != std::string::npos || lower.find(" from ") == std::string::npos)))) {
                 auto print = (callbackFunction != nullptr) ? reinterpret_cast<void (*)(Native::Sql::SqlTuple *)>(callbackFunction) : &printFunction;
                 execute(query, db, "master", [print](Native::Sql::SqlTuple * tuple) { print(tuple); });
                 return;
@@ -436,23 +438,28 @@ namespace QueryCompiler {
 
     namespace with {
 
-    /// Queries combined by UNION [ ALL ], from left to right
+    /// SELECTs combined by UNION, INTERSECT and EXCEPT [ ALL ]: a SELECT, or an operation on two queries
     struct SetQuery {
-        std::vector<std::string> terms; // the text of each SELECT
-        std::vector<bool> all;          // UNION ALL before the term (not UNION); the first term's is false
+        std::string term;                 // the text of a SELECT, if there is no operation
+        std::string op;                   // "union", "intersect" or "except"
+        bool all = false;                 // ALL: duplicates count, as in a multiset
+        std::unique_ptr<SetQuery> left, right;
+        std::set<std::string> relations;  // the relations the SELECT names
+        bool isTerm() const { return op.empty(); }
     };
+    using set_query_p = std::unique_ptr<SetQuery>;
 
     struct CommonTableExpression {
         std::string name;
         std::vector<std::string> columns; // empty: the names of the first query's columns
-        SetQuery body;
+        set_query_p body;
     };
 
     /// [ WITH [ RECURSIVE ] name [ ( columns ) ] AS ( query ) [ , ... ] ] query
     struct WithStatement {
         bool recursive = false;
         std::vector<CommonTableExpression> ctes;
-        SetQuery query;
+        set_query_p query;
     };
 
     struct Lexeme {
@@ -548,42 +555,32 @@ namespace QueryCompiler {
         return items;
     }
 
-    /// The queries of [from, to), combined by UNION [ ALL | DISTINCT ]; VALUES ( ... ) [ , ... ] is a
-    /// SELECT per row, with the columns column1, column2, ... as in PostgreSQL
-    static SetQuery splitSetQuery(const std::string & sql, const std::vector<Lexeme> & lexemes, size_t from, size_t to) {
-        SetQuery query;
-        bool all = false;
-        auto addTerm = [&](size_t a, size_t b) {
-            // ( SELECT ... ) without its parentheses
-            while (b > a + 1 && lexemes[a].kind == Lexeme::Open && matching(lexemes, a, b) == b - 1) { ++a; --b; }
-            if (a >= b) throw syntaxError("a query of UNION is missing");
-            if (!isWord(lexemes, a, "values")) {
-                query.terms.push_back(sql.substr(lexemes[a].begin, lexemes[b - 1].end - lexemes[a].begin));
-                query.all.push_back(all);
-                return;
-            }
-            // the rows after the first are UNION ALL, unless a later UNION removes duplicates anyway
-            const bool rowsAll = query.terms.empty() ? true : all;
-            bool first = true;
-            for (size_t i = a + 1; i < b; ) {
-                if (lexemes[i].kind != Lexeme::Open) throw syntaxError("Expected '(' of a row of VALUES");
-                size_t close = matching(lexemes, i, b);
-                auto values = splitItems(sql, lexemes, i + 1, close);
-                std::string term = "SELECT ";
-                for (size_t v = 0; v < values.size(); ++v) {
-                    term += (v > 0 ? ", " : "") + values[v] + " AS column" + std::to_string(v + 1);
-                }
-                query.terms.push_back(term);
-                query.all.push_back(first ? all : rowsAll);
-                first = false;
-                i = close + 1;
-                if (i < b) {
-                    if (lexemes[i].kind != Lexeme::Comma) throw syntaxError("Expected ',' between the rows of VALUES");
-                    ++i;
-                }
-            }
-            if (first) throw syntaxError("VALUES without rows");
-        };
+    static bool isSetOperator(const Lexeme & lexeme) {
+        return lexeme.kind == Lexeme::Word && (lexeme.word == "union" || lexeme.word == "intersect" || lexeme.word == "except");
+    }
+
+    static set_query_p makeTerm(std::string text) {
+        auto query = std::make_unique<SetQuery>();
+        query->term = std::move(text);
+        return query;
+    }
+
+    static set_query_p combine(const std::string & op, bool all, set_query_p left, set_query_p right) {
+        auto query = std::make_unique<SetQuery>();
+        query->op = op;
+        query->all = all;
+        query->left = std::move(left);
+        query->right = std::move(right);
+        return query;
+    }
+
+    /// The query of [from, to): INTERSECT binds closer than UNION and EXCEPT, which combine from left to
+    /// right, as in PostgreSQL; a query in parentheses is an operand; VALUES ( ... ) [ , ... ] is a SELECT
+    /// per row (with the columns column1, column2, ...) combined by UNION ALL
+    static set_query_p parseSetQuery(const std::string & sql, const std::vector<Lexeme> & lexemes, size_t from, size_t to) {
+        struct Operator { std::string op; bool all; };
+        std::vector<std::pair<size_t, size_t>> operands;
+        std::vector<Operator> operators;
         size_t depth = 0, start = from;
         for (size_t i = from; i < to; ++i) {
             const Lexeme & lexeme = lexemes[i];
@@ -592,17 +589,56 @@ namespace QueryCompiler {
             } else if (lexeme.kind == Lexeme::Close) {
                 if (depth == 0) throw syntaxError("unbalanced parentheses");
                 --depth;
-            } else if (depth == 0 && lexeme.kind == Lexeme::Word && (lexeme.word == "intersect" || lexeme.word == "except")) {
-                throw semanticalAnalysis::semantic_sql_error(lexeme.word + " is not supported (only UNION and UNION ALL)");
-            } else if (depth == 0 && lexeme.kind == Lexeme::Word && lexeme.word == "union") {
-                addTerm(start, i);
+            } else if (depth == 0 && isSetOperator(lexeme)) {
+                operands.emplace_back(start, i);
                 start = i + 1;
-                all = isWord(lexemes, start, "all");
+                const bool all = isWord(lexemes, start, "all");
                 if (all || isWord(lexemes, start, "distinct")) ++start;
+                operators.push_back({lexeme.word, all});
+                i = start - 1;
             }
         }
         if (depth != 0) throw syntaxError("unbalanced parentheses");
-        addTerm(start, to);
+        operands.emplace_back(start, to);
+
+        auto operand = [&](size_t a, size_t b) -> set_query_p {
+            if (a >= b) throw syntaxError("a query of a set operation is missing");
+            if (lexemes[a].kind == Lexeme::Open && matching(lexemes, a, b) == b - 1) return parseSetQuery(sql, lexemes, a + 1, b - 1);
+            if (!isWord(lexemes, a, "values")) return makeTerm(sql.substr(lexemes[a].begin, lexemes[b - 1].end - lexemes[a].begin));
+            set_query_p rows;
+            for (size_t i = a + 1; i < b; ) {
+                if (lexemes[i].kind != Lexeme::Open) throw syntaxError("Expected '(' of a row of VALUES");
+                size_t close = matching(lexemes, i, b);
+                auto values = splitItems(sql, lexemes, i + 1, close);
+                std::string term = "SELECT ";
+                for (size_t v = 0; v < values.size(); ++v) {
+                    term += (v > 0 ? ", " : "") + values[v] + " AS column" + std::to_string(v + 1);
+                }
+                rows = rows ? combine("union", true, std::move(rows), makeTerm(term)) : makeTerm(term);
+                i = close + 1;
+                if (i < b) {
+                    if (lexemes[i].kind != Lexeme::Comma) throw syntaxError("Expected ',' between the rows of VALUES");
+                    ++i;
+                }
+            }
+            if (!rows) throw syntaxError("VALUES without rows");
+            return rows;
+        };
+        // INTERSECT first, then UNION and EXCEPT from left to right
+        std::vector<set_query_p> queries;
+        std::vector<Operator> rest;
+        queries.push_back(operand(operands[0].first, operands[0].second));
+        for (size_t k = 0; k < operators.size(); ++k) {
+            auto next = operand(operands[k + 1].first, operands[k + 1].second);
+            if (operators[k].op == "intersect") {
+                queries.back() = combine("intersect", operators[k].all, std::move(queries.back()), std::move(next));
+            } else {
+                rest.push_back(operators[k]);
+                queries.push_back(std::move(next));
+            }
+        }
+        set_query_p query = std::move(queries[0]);
+        for (size_t k = 0; k < rest.size(); ++k) query = combine(rest[k].op, rest[k].all, std::move(query), std::move(queries[k + 1]));
         return query;
     }
 
@@ -615,7 +651,8 @@ namespace QueryCompiler {
         return sql.substr(lexemes[i].begin, lexemes[i].end - lexemes[i].begin); // as written, like the names of tables
     }
 
-    /// \returns Whether execute() runs the statement here: WITH, queries combined by UNION, or VALUES
+    /// \returns Whether execute() runs the statement here: WITH, queries combined by UNION, INTERSECT or
+    /// EXCEPT, or VALUES
     static bool parseSetStatement(const std::string & sql, WithStatement & statement) {
         // most statements need no lexing: those that start with neither SELECT, WITH, VALUES nor '('
         size_t first = sql.find_first_not_of(" \t\r\n");
@@ -629,7 +666,8 @@ namespace QueryCompiler {
         if (select) {
             std::string lower;
             std::transform(sql.begin(), sql.end(), std::back_inserter(lower), ::tolower);
-            if (lower.find("union") == std::string::npos) return false;
+            if (lower.find("union") == std::string::npos && lower.find("intersect") == std::string::npos &&
+                lower.find("except") == std::string::npos) return false;
         }
 
         auto lexemes = lex(sql);
@@ -642,10 +680,10 @@ namespace QueryCompiler {
             for (auto & lexeme : lexemes) {
                 if (lexeme.kind == Lexeme::Open) ++depth;
                 else if (lexeme.kind == Lexeme::Close && depth > 0) --depth;
-                else if (depth == 0 && lexeme.kind == Lexeme::Word && lexeme.word == "union") setQuery = true;
+                else if (depth == 0 && isSetOperator(lexeme)) setQuery = true;
             }
             if (!setQuery) return false;
-            statement.query = splitSetQuery(sql, lexemes, 0, n);
+            statement.query = parseSetQuery(sql, lexemes, 0, n);
             return true;
         }
 
@@ -672,7 +710,7 @@ namespace QueryCompiler {
             else if (isWord(lexemes, i, "materialized")) ++i;
             if (i >= n || lexemes[i].kind != Lexeme::Open) throw syntaxError("Expected '(' with the query of '" + cte.name + "'");
             size_t close = matching(lexemes, i, n);
-            cte.body = splitSetQuery(sql, lexemes, i + 1, close);
+            cte.body = parseSetQuery(sql, lexemes, i + 1, close);
             i = close + 1;
             statement.ctes.push_back(std::move(cte));
             if (i < n && lexemes[i].kind == Lexeme::Comma) {
@@ -682,24 +720,41 @@ namespace QueryCompiler {
             break;
         }
         if (i >= n) throw syntaxError("Expected a query after WITH");
-        statement.query = splitSetQuery(sql, lexemes, i, n);
+        statement.query = parseSetQuery(sql, lexemes, i, n);
         return true;
     }
 
-    /// \returns Per query, whether its rows are free of duplicates: up to the last UNION without ALL, since
-    /// UNION combines from left to right
-    static std::vector<bool> distinctTerms(const SetQuery & query) {
-        std::vector<bool> distinct(query.terms.size(), false);
-        for (size_t t = query.terms.size(); t-- > 1; ) {
-            if (!query.all[t]) {
-                std::fill(distinct.begin(), distinct.begin() + t + 1, true);
-                break;
-            }
+    /// A row of a set query, in the types of its columns, and the text that tells duplicates apart
+    struct Row {
+        std::string key;
+        std::vector<Native::Sql::value_op_t> values;
+    };
+
+    /// \returns The rows of \p left op \p right: without ALL, each row once; with ALL, UNION adds the
+    /// counts of a row, INTERSECT takes the lesser and EXCEPT subtracts them, as in PostgreSQL
+    static std::vector<Row> combineRows(const std::string & op, bool all, std::vector<Row> left, std::vector<Row> right) {
+        std::vector<Row> rows;
+        std::unordered_set<std::string> emitted;
+        auto emit = [&](Row & row) {
+            if (all || emitted.insert(row.key).second) rows.push_back(std::move(row));
+        };
+        if (op == "union") {
+            for (auto & row : left) emit(row);
+            for (auto & row : right) emit(row);
+            return rows;
         }
-        return distinct;
+        std::unordered_map<std::string, size_t> counts; // of the right rows that no left row took yet
+        for (auto & row : right) ++counts[row.key];
+        for (auto & row : left) {
+            auto it = counts.find(row.key);
+            const bool inRight = it != counts.end() && it->second > 0;
+            if (inRight && all) --it->second;
+            if (inRight == (op == "intersect")) emit(row);
+        }
+        return rows;
     }
 
-    /// The type of a column of a common table expression or of UNION: nullable, and text for all strings,
+    /// The type of a column of a common table expression or of a set operation: nullable, and text for all strings,
     /// since the queries may compute longer strings than the first one
     static Sql::SqlType columnType(Sql::SqlType type) {
         using ID = Sql::SqlType::TypeID;
@@ -738,7 +793,7 @@ namespace QueryCompiler {
     static std::vector<Native::Sql::value_op_t> convertRow(const Native::Sql::SqlTuple & tuple, const std::vector<Sql::SqlType> & types,
                                                            std::string & key) {
         if (tuple.values.size() != types.size()) {
-            throw semanticalAnalysis::semantic_sql_error("each query of UNION has the same number of columns");
+            throw semanticalAnalysis::semantic_sql_error("each query of a set operation has the same number of columns");
         }
         std::vector<Native::Sql::value_op_t> values;
         key.clear();
@@ -825,45 +880,62 @@ namespace QueryCompiler {
         return result;
     }
 
-    /// WITH [ RECURSIVE ], UNION [ ALL ] and VALUES. Each common table expression is computed into a
-    /// temporary table before the queries that follow read it. A recursive one (a query of its UNION reads
-    /// it) first computes its queries that do not read it; then its other queries read the rows the last
-    /// step added (the working table), until a step adds none. UNION without ALL adds no row twice.
-    static StatementResult executeSetStatement(const with::WithStatement & statement, Database & db, const std::string & branch,
+    /// WITH [ RECURSIVE ], UNION, INTERSECT and EXCEPT [ ALL ], and VALUES. Each common table expression
+    /// is computed into a temporary table before the queries that follow read it. A recursive one (as in
+    /// PostgreSQL: non-recursive query UNION [ ALL ] a SELECT that reads it) first computes the
+    /// non-recursive query; then the SELECT reads the rows the last step added (the working table), until
+    /// a step adds none. UNION without ALL adds no row twice.
+    static StatementResult executeSetStatement(with::WithStatement & statement, Database & db, const std::string & branch,
                                                const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                                const std::function<void(const StatementResult &)> & described,
                                                const Transaction * transaction) {
         using semanticalAnalysis::semantic_sql_error;
+        using with::SetQuery;
+        using with::Row;
         const std::string defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
+        std::function<void(SetQuery &, std::vector<SetQuery *> &)> terms = [&](SetQuery & query, std::vector<SetQuery *> & out) {
+            if (query.isTerm()) {
+                out.push_back(&query);
+            } else {
+                terms(*query.left, out);
+                terms(*query.right, out);
+            }
+        };
+        auto termsOf = [&](SetQuery & query) {
+            std::vector<SetQuery *> out;
+            terms(query, out);
+            return out;
+        };
+        auto reads = [&](SetQuery & query, const std::string & name) {
+            for (SetQuery * term : termsOf(query)) if (term->relations.count(name) > 0) return true;
+            return false;
+        };
 
         // the relations of all queries, latched for the whole statement
-        semanticalAnalysis::SQLParserResult reads;
-        reads.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
-        reads.selectStmt = new semanticalAnalysis::SelectStatement();
-        std::vector<std::set<std::string>> termRelations;
-        auto collect = [&](const with::SetQuery & query) {
-            for (auto & text : query.terms) {
+        semanticalAnalysis::SQLParserResult relations;
+        relations.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
+        relations.selectStmt = new semanticalAnalysis::SelectStatement();
+        auto collect = [&](SetQuery & query) {
+            for (SetQuery * term : termsOf(query)) {
                 QueryContext context(db);
                 context.parsingContext.defaultBranch = defaultBranch;
-                tardisParser::SQLParser::parseStatement(context.parsingContext, text + ";");
+                tardisParser::SQLParser::parseStatement(context.parsingContext, term->term + ";");
                 QueryContext::convertToParserResult(context.analyzingContext.parserResult, context.parsingContext);
                 auto & parsed = context.analyzingContext.parserResult;
                 if (parsed.opType != semanticalAnalysis::SQLParserResult::OpType::Select) {
-                    throw semantic_sql_error("WITH, UNION and VALUES combine queries");
+                    throw semantic_sql_error("WITH, UNION, INTERSECT, EXCEPT and VALUES combine queries");
                 }
-                std::set<std::string> names;
                 for (auto & relation : parsed.selectStmt->relations) {
-                    names.insert(relation.name);
-                    if (relation.name != sqlExpressions::oneRowTable) reads.selectStmt->relations.push_back(relation);
+                    term->relations.insert(relation.name);
+                    if (relation.name != sqlExpressions::oneRowTable) relations.selectStmt->relations.push_back(relation);
                 }
-                termRelations.push_back(std::move(names));
             }
         };
-        for (auto & cte : statement.ctes) collect(cte.body);
-        collect(statement.query);
-        StatementLatches latches(db, reads, transaction);
+        for (auto & cte : statement.ctes) collect(*cte.body);
+        collect(*statement.query);
+        StatementLatches latches(db, relations, transaction);
         std::set<branch_id_t> branches;
-        for (auto & relation : reads.selectStmt->relations) {
+        for (auto & relation : relations.selectStmt->relations) {
             auto add = [&](const std::string & version) {
                 auto it = db._branchMapping.find(version);
                 if (it != db._branchMapping.end()) branches.insert(it->second);
@@ -879,43 +951,58 @@ namespace QueryCompiler {
         TemporaryTables temporaries(db);
         QueryContext insertContext(db);
         insertContext.executionContext.branchId = master_branch_id;
-        // the names and types of the columns of queries combined by UNION, before any of them runs
-        auto describeAll = [&](const std::vector<std::string> & terms, size_t count, std::vector<std::string> & names) {
+        // the names (of the first SELECT) and the types (of all) of the columns, before any query runs
+        auto describe = [&](SetQuery & query, std::vector<std::string> & names) {
             std::vector<Sql::SqlType> types;
-            for (size_t t = 0; t < count; ++t) {
-                auto d = runQuery(terms[t], db, branch, transaction, temporaries, nullptr, nullptr, std::string(), true);
-                if (t == 0) {
+            bool first = true;
+            for (SetQuery * term : termsOf(query)) {
+                auto d = runQuery(term->term, db, branch, transaction, temporaries, nullptr, nullptr, std::string(), true);
+                if (first) {
                     names = d.columnNames;
                     for (auto & type : d.columnTypes) types.push_back(with::columnType(type));
+                    first = false;
                 } else if (d.columnTypes.size() != types.size()) {
-                    throw semantic_sql_error("each query of UNION has the same number of columns");
+                    throw semantic_sql_error("each query of a set operation has the same number of columns");
                 } else {
                     for (size_t c = 0; c < types.size(); ++c) types[c] = with::unifyTypes(types[c], d.columnTypes[c], c);
                 }
             }
             return types;
         };
+        // the rows of a query in the types
+        std::function<std::vector<Row>(SetQuery &, const std::vector<Sql::SqlType> &)> evaluate =
+                [&](SetQuery & query, const std::vector<Sql::SqlType> & types) {
+            if (!query.isTerm()) {
+                auto left = evaluate(*query.left, types);
+                auto right = evaluate(*query.right, types);
+                return with::combineRows(query.op, query.all, std::move(left), std::move(right));
+            }
+            std::vector<Row> rows;
+            runQuery(query.term, db, branch, transaction, temporaries, [&](Native::Sql::SqlTuple * tuple) {
+                Row row;
+                row.values = with::convertRow(*tuple, types, row.key);
+                rows.push_back(std::move(row));
+            }, nullptr);
+            return rows;
+        };
 
         std::set<std::string> defined;
-        size_t termIndex = 0;
         for (auto & cte : statement.ctes) {
             if (!defined.insert(cte.name).second) throw semantic_sql_error("WITH query name \"" + cte.name + "\" specified more than once");
-            const auto & terms = cte.body.terms;
-            const auto distinct = with::distinctTerms(cte.body);
-            std::vector<bool> recursive(terms.size());
-            for (size_t t = 0; t < terms.size(); ++t) {
-                recursive[t] = statement.recursive && termRelations[termIndex + t].count(cte.name) > 0;
-            }
-            termIndex += terms.size();
-            size_t anchors = 0;
-            while (anchors < terms.size() && !recursive[anchors]) ++anchors;
-            if (anchors == 0 || std::find(recursive.begin() + anchors, recursive.end(), false) != recursive.end()) {
-                throw semantic_sql_error("recursive query \"" + cte.name + "\" does not have the form non-recursive-term UNION [ALL] recursive-term");
+            SetQuery & body = *cte.body;
+            SetQuery * nonRecursive = &body;
+            SetQuery * recursive = nullptr;
+            if (statement.recursive && reads(body, cte.name)) {
+                if (body.op != "union" || !body.right->isTerm() || !reads(*body.right, cte.name) || reads(*body.left, cte.name)) {
+                    throw semantic_sql_error("recursive query \"" + cte.name + "\" does not have the form non-recursive-term UNION [ALL] recursive-term");
+                }
+                nonRecursive = body.left.get();
+                recursive = body.right.get();
             }
 
-            // the columns, of the queries that do not read the expression
+            // the columns, of the non-recursive query
             std::vector<std::string> names;
-            const std::vector<Sql::SqlType> types = describeAll(terms, anchors, names);
+            const std::vector<Sql::SqlType> types = describe(*nonRecursive, names);
             if (!cte.columns.empty()) {
                 if (cte.columns.size() != types.size()) {
                     throw semantic_sql_error("WITH query \"" + cte.name + "\" has " + std::to_string(types.size()) +
@@ -932,9 +1019,9 @@ namespace QueryCompiler {
                 }
                 columns.emplace_back(names[c], types[c]);
             }
-            // the recursive queries give the same types, as in PostgreSQL
+            // the recursive query gives the same types, as in PostgreSQL
             auto describeRecursive = [&](const StatementResult & d) {
-                if (d.columnTypes.size() != types.size()) throw semantic_sql_error("each query of UNION has the same number of columns");
+                if (d.columnTypes.size() != types.size()) throw semantic_sql_error("each query of a set operation has the same number of columns");
                 for (size_t c = 0; c < types.size(); ++c) {
                     if (!Sql::equals(with::unifyTypes(types[c], d.columnTypes[c], c), types[c], Sql::SqlTypeEqualsMode::Full)) {
                         throw semantic_sql_error("recursive query \"" + cte.name + "\" column " + std::to_string(c + 1) + " has type " +
@@ -949,24 +1036,21 @@ namespace QueryCompiler {
             {
                 ModuleGen moduleGen("TemporaryTable"); // the sizes of the columns take the data layout
                 result = &temporaries.create(columns);
-                if (anchors < terms.size()) next = &temporaries.create(columns);
+                if (recursive != nullptr) next = &temporaries.create(columns);
             }
+            // UNION without ALL: no row twice, neither in a step nor among the steps
+            const bool removeDuplicates = recursive != nullptr && !body.all;
             std::unordered_set<std::string> seen;
             uint64_t added = 0;
-            auto insert = [&](Native::Sql::SqlTuple * tuple, bool removeDuplicates) {
-                std::string key;
-                auto values = with::convertRow(*tuple, types, key);
-                if (removeDuplicates && !seen.insert(key).second) return;
-                Native::Sql::SqlTuple row(std::move(values));
-                insert_tuple(row, *result, insertContext);
-                if (next != nullptr) insert_tuple(row, *next, insertContext);
+            auto insert = [&](Row & row) {
+                if (removeDuplicates && !seen.insert(row.key).second) return;
+                Native::Sql::SqlTuple tuple(std::move(row.values));
+                insert_tuple(tuple, *result, insertContext);
+                if (next != nullptr) insert_tuple(tuple, *next, insertContext);
                 ++added;
             };
-            for (size_t t = 0; t < anchors; ++t) {
-                runQuery(terms[t], db, branch, transaction, temporaries,
-                         [&](Native::Sql::SqlTuple * tuple) { insert(tuple, distinct[t]); }, nullptr);
-            }
-            if (anchors < terms.size()) {
+            for (auto & row : evaluate(*nonRecursive, types)) insert(row);
+            if (recursive != nullptr) {
                 do {
                     Table * working = next;
                     {
@@ -975,10 +1059,11 @@ namespace QueryCompiler {
                     }
                     temporaries.bind(cte.name, working);
                     added = 0;
-                    for (size_t t = anchors; t < terms.size(); ++t) {
-                        runQuery(terms[t], db, branch, transaction, temporaries,
-                                 [&](Native::Sql::SqlTuple * tuple) { insert(tuple, distinct[t]); }, describeRecursive, cte.name);
-                    }
+                    runQuery(recursive->term, db, branch, transaction, temporaries, [&](Native::Sql::SqlTuple * tuple) {
+                        Row row;
+                        row.values = with::convertRow(*tuple, types, row.key);
+                        insert(row);
+                    }, describeRecursive, cte.name);
                     temporaries.bind(cte.name, nullptr);
                     temporaries.release(working);
                 } while (added > 0);
@@ -988,27 +1073,20 @@ namespace QueryCompiler {
             temporaries.bind(cte.name, result);
         }
 
-        const auto & terms = statement.query.terms;
-        if (terms.size() == 1) {
-            return runQuery(terms[0], db, branch, transaction, temporaries, sink, described);
+        SetQuery & query = *statement.query;
+        if (query.isTerm()) {
+            return runQuery(query.term, db, branch, transaction, temporaries, sink, described);
         }
-        // the rows of UNION, in the types of all its queries
-        const auto distinct = with::distinctTerms(statement.query);
+        // the rows of a set operation, in the types of all its queries
         StatementResult result;
         result.tag = "SELECT";
         result.returnsRows = true;
-        result.columnTypes = describeAll(terms, terms.size(), result.columnNames);
+        result.columnTypes = describe(query, result.columnNames);
         if (described) described(result);
-        std::unordered_set<std::string> seen;
-        for (size_t t = 0; t < terms.size(); ++t) {
-            runQuery(terms[t], db, branch, transaction, temporaries, [&](Native::Sql::SqlTuple * tuple) {
-                std::string key;
-                auto values = with::convertRow(*tuple, result.columnTypes, key);
-                if (distinct[t] && !seen.insert(key).second) return;
-                Native::Sql::SqlTuple row(std::move(values));
-                ++result.rows;
-                sink(&row);
-            }, nullptr);
+        for (auto & row : evaluate(query, result.columnTypes)) {
+            Native::Sql::SqlTuple tuple(std::move(row.values));
+            ++result.rows;
+            sink(&tuple);
         }
         return result;
     }

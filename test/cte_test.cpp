@@ -1,6 +1,7 @@
-// WITH [ RECURSIVE ], UNION [ ALL ], VALUES and SELECT without FROM: common table expressions computed
-// into temporary tables, recursion over hierarchies and graphs (with and without duplicates), the columns
-// of the result, branches and transactions, NULLs and arrays, and the errors of PostgreSQL
+// WITH [ RECURSIVE ], UNION, INTERSECT and EXCEPT [ ALL ], VALUES and SELECT without FROM: common table
+// expressions computed into temporary tables, recursion over hierarchies and graphs (with and without
+// duplicates), set operations on multisets, the columns of the result, branches and transactions, NULLs
+// and arrays, and the errors of PostgreSQL
 
 #include "codegen/LLVMCompat.hpp"
 
@@ -146,7 +147,6 @@ namespace {
         // NULLs are no duplicates of values, but of each other
         EXPECT_EQ(query("SELECT boss FROM emp UNION SELECT boss FROM emp WHERE id = 6;"), (rows_t{"(1)", "(2)", "(4)", "(NULL)"}));
         EXPECT_THROW(exec("SELECT 1 UNION SELECT 1, 2;"), std::exception);
-        EXPECT_THROW(exec("SELECT 1 INTERSECT SELECT 1;"), std::exception);
         // the columns take the types of all queries, as in PostgreSQL
         auto numbers = exec("SELECT 1 UNION SELECT 2.5;");
         EXPECT_EQ(numbers.columnTypes[0].typeID, Sql::SqlType::TypeID::NumericID);
@@ -155,6 +155,40 @@ namespace {
         EXPECT_THROW(exec("SELECT 1 UNION SELECT 'a';"), std::exception);
         // a recursive query keeps the types of the others
         EXPECT_THROW(exec("WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 0.5 FROM t WHERE n < 3) SELECT n FROM t;"), std::exception);
+    }
+
+    TEST_F(CteTest, IntersectAndExcept) {
+        exec("CREATE TABLE a ( x integer );");
+        exec("CREATE TABLE b ( x integer );");
+        exec("INSERT INTO a VALUES (1), (1), (1), (2), (3), (NULL), (NULL);");
+        exec("INSERT INTO b VALUES (1), (1), (3), (4), (NULL);");
+        // without ALL each row once; with ALL the lesser count, or the difference of the counts
+        EXPECT_EQ(query("SELECT x FROM a INTERSECT SELECT x FROM b;"), (rows_t{"(1)", "(3)", "(NULL)"}));
+        EXPECT_EQ(query("SELECT x FROM a INTERSECT ALL SELECT x FROM b;"), (rows_t{"(1)", "(1)", "(3)", "(NULL)"}));
+        EXPECT_EQ(query("SELECT x FROM a INTERSECT DISTINCT SELECT x FROM b;"), (rows_t{"(1)", "(3)", "(NULL)"}));
+        EXPECT_EQ(query("SELECT x FROM a EXCEPT SELECT x FROM b;"), (rows_t{"(2)"}));
+        EXPECT_EQ(query("SELECT x FROM a EXCEPT ALL SELECT x FROM b;"), (rows_t{"(1)", "(2)", "(NULL)"}));
+        EXPECT_EQ(query("SELECT x FROM b EXCEPT ALL SELECT x FROM a;"), (rows_t{"(4)"}));
+        // INTERSECT binds closer than UNION and EXCEPT, which combine from left to right
+        EXPECT_EQ(query("SELECT x FROM a UNION SELECT x FROM b INTERSECT SELECT x FROM a;"), (rows_t{"(1)", "(2)", "(3)", "(NULL)"}));
+        EXPECT_EQ(query("SELECT x FROM b EXCEPT SELECT x FROM a UNION ALL SELECT x FROM a WHERE x = 1;"),
+                  (rows_t{"(1)", "(1)", "(1)", "(4)"}));
+        EXPECT_EQ(query("SELECT x FROM a EXCEPT (SELECT x FROM b EXCEPT SELECT 1);"), (rows_t{"(1)", "(2)"}));
+        EXPECT_EQ(query("(SELECT x FROM a UNION SELECT x FROM b) INTERSECT VALUES (4), (2);"), (rows_t{"(2)", "(4)"}));
+        // in the common type of all queries; in a common table expression and its recursion
+        auto numbers = exec("SELECT 1.5 EXCEPT SELECT 1;");
+        EXPECT_EQ(numbers.columnTypes[0].typeID, Sql::SqlType::TypeID::NumericID);
+        EXPECT_EQ(numbers.rows, 1u);
+        EXPECT_EQ(query("WITH c AS (SELECT x FROM a INTERSECT ALL SELECT x FROM b) SELECT count(*), count(x) FROM c;"), (rows_t{"(4, 3)"}));
+        EXPECT_EQ(query("WITH RECURSIVE t(n) AS (SELECT x FROM a EXCEPT SELECT x FROM b UNION ALL SELECT n + 1 FROM t WHERE n < 4) "
+                        "SELECT n FROM t;"), (rows_t{"(2)", "(3)", "(4)"}));
+        // the recursive query is the right side of the outermost UNION, as in PostgreSQL
+        EXPECT_THROW(exec("WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 3 EXCEPT SELECT 2) SELECT n FROM t;"),
+                     std::exception);
+        EXPECT_THROW(exec("WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL (SELECT n + 1 FROM t INTERSECT SELECT 2)) SELECT n FROM t;"),
+                     std::exception);
+        EXPECT_THROW(exec("SELECT x FROM a INTERSECT SELECT x, x FROM b;"), std::exception);
+        EXPECT_THROW(exec("SELECT x FROM a EXCEPT;"), std::exception);
     }
 
     TEST_F(CteTest, BranchesAndTransactions) {

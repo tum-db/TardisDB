@@ -150,7 +150,7 @@ with psycopg.connect(dsn, autocommit=True) as c3:
 # a join with expressions over arrays
 cur.execute("select k.name, ar.v[1] + nn.v from k, ar, nn where k.id = ar.id and ar.id = nn.id and ar.id = 2")
 assert cur.fetchall() == [("n'2", 24)]
-# WITH RECURSIVE, UNION and SELECT without FROM, with parameters of both drivers
+# WITH RECURSIVE, UNION, INTERSECT, EXCEPT and SELECT without FROM, with parameters of both drivers
 cur.execute("with recursive t(n) as (select 1 union all select n + 1 from t where n < %s) select n, n * n as sq from t", (4,))
 assert [d.name for d in cur.description] == ["n", "sq"], cur.description
 assert sorted(cur.fetchall()) == [(1, 1), (2, 4), (3, 9), (4, 16)]
@@ -159,6 +159,10 @@ cur.execute("select 1 union select 2.5")
 assert sorted(r[0] for r in cur.fetchall()) == [decimal.Decimal("1.0"), decimal.Decimal("2.5")]
 cur.execute("select 1")
 assert cur.fetchall() == [(1,)]
+cur.execute("select id from k where id < %s intersect all select id from k where id > %s", (4, 1))
+assert sorted(r[0] for r in cur.fetchall()) == [2, 3]
+cur.execute("select id from k except select id from k where id <> 2")
+assert cur.fetchall() == [(2,)]
 with psycopg.connect(dsn, autocommit=True) as c3:
     rows = c3.execute("with recursive up(id, level) as (select id, 0 from k where id = %s "
                       "union all select k.id, up.level + 1 from k, up where k.id = up.id - 1) select id, level from up", (3,)).fetchall()
