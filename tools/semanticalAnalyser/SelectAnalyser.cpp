@@ -14,6 +14,7 @@ namespace semanticalAnalysis {
             verifyDiffQuery();
             return;
         }
+        if (needsGeneralAggregation(stmt)) throw general_aggregation_required();
         if (isBranchQuery(stmt)) {
             verifyBranchQuery();
             return;
@@ -133,6 +134,53 @@ namespace semanticalAnalysis {
         }
 
         _context.joinedTree = std::make_unique<Result>( std::move(_context.joinedTree), projectedIUs );
+    }
+
+    bool containsAggregate(const sqlExpressions::Node & n) {
+        using Kind = sqlExpressions::Node::Kind;
+        if (n.kind == Kind::Function && (n.name == "count" || n.name == "sum" || n.name == "avg" || n.name == "min" || n.name == "max")) {
+            return true;
+        }
+        for (auto & child : n.children) if (containsAggregate(child)) return true;
+        return false;
+    }
+
+    bool SelectAnalyser::needsGeneralAggregation(SelectStatement *stmt) {
+        // queries over several branches (VERSION ALL, ...) and those of the branch column stay with BranchAggregation
+        for (auto &relation : stmt->relations) {
+            if (!relation.versionScope.empty()) return false;
+        }
+        bool aggregates = false, expressions = false, branchColumn = false;
+        for (auto &column : stmt->projections) {
+            if (!column.aggregate.empty()) aggregates = true;
+            if (column.expression) {
+                expressions = true;
+                if (containsAggregate(*column.expression)) aggregates = true;
+            }
+            if (column.table.empty() && column.name == "branch" && column.aggregate.empty() && !column.expression) branchColumn = true;
+        }
+        bool groupByColumns = false;
+        for (auto &column : stmt->groupBy) {
+            if (column.name == "branch" && column.table.empty()) branchColumn = true;
+            else groupByColumns = true;
+        }
+        if (!aggregates && stmt->groupBy.empty()) return false;
+        if (branchColumn) return false;
+        if (groupByColumns || expressions || stmt->relations.size() != 1 || !stmt->joinConditions.empty()) return true;
+        // aggregates of a column: BranchAggregation computes numbers (and counts)
+        Relation &relation = stmt->relations.front();
+        Table *table = _context.db.getTable(relation.name);
+        auto branch = _context.db._branchMapping.find(relation.version);
+        if (table == nullptr || branch == _context.db._branchMapping.end()) return false; // the errors of the branch query
+        for (auto &column : stmt->projections) {
+            if (column.aggregate.empty() || column.aggregate == "count") continue;
+            ci_p_t ci = table->findColumn(column.name, branch->second);
+            if (ci == nullptr) return false;
+            const auto id = ci->type.typeID;
+            if (id != Sql::SqlType::TypeID::IntegerID && id != Sql::SqlType::TypeID::LongIntegerID &&
+                id != Sql::SqlType::TypeID::NumericID && id != Sql::SqlType::TypeID::DoubleID) return true;
+        }
+        return false;
     }
 
     bool SelectAnalyser::isBranchQuery(SelectStatement *stmt) {

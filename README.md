@@ -205,7 +205,9 @@ Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION`, `I
 `EXCEPT` (each also with `ALL`); `VALUES` and
 `SELECT` without `FROM` are queries too (`test/cte_test.cpp`).
 Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
-`kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`).
+`kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`);
+`sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,
+read joins and common table expressions, and group by columns (`test/aggregate_test.cpp`).
 
 ## SQL shell
 

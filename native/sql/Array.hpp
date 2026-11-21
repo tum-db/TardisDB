@@ -185,6 +185,16 @@ enum class Function : uint32_t {
     HighestPosition,// highestposition(a): the offset (from 0) of the first greatest element
 };
 
+/// The numbers of an array (of integer, bigint, numeric or double precision elements) as doubles, with its shape
+struct NumberArray {
+    std::vector<int32_t> widths, lowers; // none: the empty array
+    std::vector<double> values;
+    std::vector<bool> nulls;
+};
+NumberArray toNumbers(Handle handle, SqlType elementType);
+/// \returns The array of double precision of the numbers, in the arena or, without one, in the string pool
+Handle fromNumbers(const NumberArray & numbers, Arena * arena);
+
 enum class ElementwiseOp : int32_t { Add, Sub, Mul, Div, Pow };
 enum class MapOp : int32_t { Abs, Sig, Relu, ReluP, Tanh };
 

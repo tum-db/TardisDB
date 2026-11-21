@@ -20,6 +20,16 @@ namespace semanticalAnalysis {
         using std::runtime_error::runtime_error;
     };
 
+    /// An aggregate query that the aggregation over branches does not compute (aggregates of expressions,
+    /// in expressions, over several tables, of arrays or text, GROUP BY columns): QueryCompiler computes it
+    /// from the rows of a query (see SelectAnalyser::needsGeneralAggregation)
+    struct general_aggregation_required : semantic_sql_error {
+        general_aggregation_required() : semantic_sql_error("the query needs the general aggregation") { }
+    };
+
+    /// \returns Whether an expression of the select list contains an aggregate (count, sum, avg, min, max)
+    bool containsAggregate(const sqlExpressions::Node & n);
+
     /// A NULL, or a value that may be NULL, for a column declared NOT NULL (SQLSTATE 23502)
     struct not_null_violation : semantic_sql_error {
         using semantic_sql_error::semantic_sql_error;
@@ -65,6 +75,8 @@ namespace semanticalAnalysis {
         void verify() override;
         void constructTree() override;
     private:
+        /// Aggregates over the rows of one branch that the aggregation over branches does not compute
+        bool needsGeneralAggregation(SelectStatement *stmt);
         // branch-aware queries: aggregates per branch over a set of branches
         static bool isBranchQuery(SelectStatement *stmt);
         static std::vector<branch_id_t> resolveBranches(Database &db, Relation &relation);

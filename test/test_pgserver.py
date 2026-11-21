@@ -174,6 +174,13 @@ assert cur.fetchone() == ([[19.0, 22.0], [43.0, 50.0]], 0.5)
 with psycopg.connect(dsn, autocommit=True) as c3:
     row = c3.execute("select transpose(%b::double precision[]) ** %b::double precision[]", ([[1.0, 2.0]], [[3.0, 4.0]])).fetchone()
     assert row == ([[3.0, 4.0], [6.0, 8.0]],), row
+# sum and avg of arrays, element by element, per group
+cur.execute("create table ag ( g integer not null, a double precision[] )")
+cur.execute("insert into ag (g, a) values (%s, %s), (%s, %s), (%s, %s)", (1, [1.0, 2.0], 1, [3.0, 4.0], 2, [5.0, 6.0]))
+cur.execute("select g, sum(a), avg(a) from ag group by g")
+assert sorted(cur.fetchall()) == [(1, [4.0, 6.0], [2.0, 3.0]), (2, [5.0, 6.0], [5.0, 6.0])]
+with psycopg.connect(dsn, autocommit=True) as c3:
+    assert c3.execute("select avg(a * %b::double precision[]) from ag", ([2.0, 0.5],)).fetchone() == ([6.0, 2.0],)
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types

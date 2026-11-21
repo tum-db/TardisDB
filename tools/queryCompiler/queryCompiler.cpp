@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <mutex>
+#include <exception>
 #include <optional>
 #include <set>
 #include <shared_mutex>
@@ -322,7 +323,18 @@ namespace QueryCompiler {
         std::cout << Native::Sql::toString(*tuple) << "\n";
     }
 
+    static void compileAndExecuteStatement(const std::string &query, Database &db, void *callbackFunction);
+
     void compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {
+        try {
+            compileAndExecuteStatement(query, db, callbackFunction);
+        } catch (const semanticalAnalysis::general_aggregation_required &) {
+            auto print = (callbackFunction != nullptr) ? reinterpret_cast<void (*)(Native::Sql::SqlTuple *)>(callbackFunction) : &printFunction;
+            execute(query, db, "master", [print](Native::Sql::SqlTuple * tuple) { print(tuple); });
+        }
+    }
+
+    static void compileAndExecuteStatement(const std::string &query, Database &db, void *callbackFunction) {
         {
             // WITH, UNION, VALUES and SELECT without FROM run as the statements of a session
             std::string lower;
@@ -823,6 +835,430 @@ namespace QueryCompiler {
 
     } // end namespace with
 
+    static StatementResult runSelect(QueryContext & queryContext, const std::string & text, Database & db, const std::string & branch,
+                                     const Transaction * transaction, TemporaryTables & temporaries,
+                                     const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                     const std::function<void(const StatementResult &)> & described, bool describeOnly);
+
+    namespace aggregation {
+
+    using sqlExpressions::Node;
+    using semanticalAnalysis::Column;
+    using semanticalAnalysis::semantic_sql_error;
+
+    bool isAggregateName(const std::string & name) {
+        return name == "count" || name == "sum" || name == "avg" || name == "min" || name == "max";
+    }
+
+    struct Aggregate {
+        std::string function;
+        bool star = false; // count(*)
+        Node argument;
+    };
+
+    /// An aggregate query as two queries: the first computes the GROUP BY columns and the arguments of the
+    /// aggregates (_g0, ..., _a0, ...) of the rows; the groups and their aggregates go to a temporary table,
+    /// over which the select list (outputs) runs
+    struct Plan {
+        std::vector<Column> groups;
+        std::vector<Aggregate> aggregates;
+        std::vector<Column> outputs;
+
+        static Node columnNode(const std::string & name, const std::string & table = std::string()) {
+            Node n;
+            n.kind = Node::Kind::Column;
+            n.name = name;
+            n.table = table;
+            return n;
+        }
+
+        size_t group(const std::string & table, const std::string & name) const {
+            for (size_t j = 0; j < groups.size(); ++j) {
+                if (groups[j].name == name && (groups[j].table == table || groups[j].table.empty() || table.empty())) return j;
+            }
+            throw semantic_sql_error("column \"" + (table.empty() ? name : table + "." + name) +
+                                     "\" must appear in the GROUP BY clause or be used in an aggregate function");
+        }
+
+        size_t add(const std::string & function, bool star, Node argument) {
+            if (!star && semanticalAnalysis::containsAggregate(argument)) throw semantic_sql_error("aggregate function calls cannot be nested");
+            aggregates.push_back({function, star, std::move(argument)});
+            return aggregates.size() - 1;
+        }
+
+        /// \returns The expression over the table of the groups
+        Node rewrite(const Node & n) {
+            if (n.kind == Node::Kind::Function && isAggregateName(n.name)) {
+                const bool star = n.name == "count" && n.value == "*" && n.children.empty();
+                if (!star && n.children.size() != 1) throw semantic_sql_error("the aggregate " + n.name + " takes one argument");
+                return columnNode("_a" + std::to_string(add(n.name, star, star ? Node() : n.children[0])));
+            }
+            if (n.kind == Node::Kind::Column) return columnNode("_g" + std::to_string(group(n.table, n.name)));
+            Node copy = n;
+            for (auto & child : copy.children) child = rewrite(child);
+            return copy;
+        }
+
+        explicit Plan(const semanticalAnalysis::SelectStatement & select) : groups(select.groupBy) {
+            if (select.projections.empty()) throw semantic_sql_error("SELECT * cannot be used with aggregates or GROUP BY");
+            for (auto & projection : select.projections) {
+                Column out;
+                out.alias = !projection.alias.empty() ? projection.alias : !projection.aggregate.empty() ? projection.aggregate : projection.name;
+                if (!projection.aggregate.empty()) {
+                    const bool star = projection.name == "*";
+                    out.name = "_a" + std::to_string(add(projection.aggregate, star, star ? Node() : columnNode(projection.name, projection.table)));
+                } else if (projection.expression) {
+                    out.name = projection.name;
+                    out.expression = std::make_shared<Node>(rewrite(*projection.expression));
+                } else if (projection.name == "*") {
+                    throw semantic_sql_error("SELECT * cannot be used with aggregates or GROUP BY");
+                } else {
+                    out.name = "_g" + std::to_string(group(projection.table, projection.name));
+                }
+                outputs.push_back(std::move(out));
+            }
+        }
+    };
+
+    using TypeID = Sql::SqlType::TypeID;
+
+    bool isNumber(Sql::SqlType t) {
+        return t.typeID == TypeID::IntegerID || t.typeID == TypeID::LongIntegerID || t.typeID == TypeID::NumericID || t.typeID == TypeID::DoubleID;
+    }
+
+    /// The type of an aggregate of an input type, as BranchAggregation types those of numbers: counts and sums
+    /// of integers, and all aggregates of bigints, are numerics of 18 digits without a fraction; the others
+    /// keep the type of their input. sum and avg of arrays of numbers are arrays of double precision.
+    Sql::SqlType resultType(const Aggregate & aggregate, Sql::SqlType input) {
+        if (aggregate.function == "count") return Sql::getNumericFullLengthTy(0, false);
+        const bool arithmetic = aggregate.function == "sum" || aggregate.function == "avg";
+        // a varchar of castColumnValue points into its text, which is gone when the table of the groups is read
+        if (input.typeID == TypeID::CharID || input.typeID == TypeID::VarcharID) {
+            if (arithmetic) throw semantic_sql_error(aggregate.function + " takes numbers or arrays of numbers, not " + Sql::getName(Sql::toNotNullableTy(input)));
+            return Sql::getTextTy(true);
+        }
+        if (input.typeID == TypeID::ArrayID) {
+            if (!arithmetic) return Sql::toNullableTy(input);
+            if (!isNumber(Sql::getElementTy(input))) {
+                throw semantic_sql_error(aggregate.function + " takes numbers or arrays of numbers, not " + Sql::getName(Sql::toNotNullableTy(input)));
+            }
+            return Sql::getArrayTy(Sql::getDoubleTy(), true);
+        }
+        if (arithmetic && !isNumber(input)) {
+            throw semantic_sql_error(aggregate.function + " takes numbers or arrays of numbers, not " + Sql::getName(Sql::toNotNullableTy(input)));
+        }
+        if (input.typeID == TypeID::LongIntegerID || (aggregate.function == "sum" && input.typeID == TypeID::IntegerID)) {
+            return Sql::getNumericFullLengthTy(0, true);
+        }
+        if (input.typeID == TypeID::UnknownID) return Sql::getIntegerTy(true);
+        return Sql::toNullableTy(input);
+    }
+
+    /// The state of an aggregate of a group
+    struct Accumulator {
+        uint64_t count = 0;            // of the values that are not NULL
+        __int128 integers = 0;         // the sum of integers, bigints and numerics (scaled)
+        double doubles = 0;            // the sum of doubles
+        Native::Sql::Arrays::NumberArray array; // the sums of arrays, element by element
+        bool hasBest = false;          // of min and max: the text of the least or greatest value (a varchar of
+        std::string best;              // castColumnValue points into its text, so the text is kept, not the value)
+    };
+
+    template<typename T>
+    int order(T a, T b) { return a < b ? -1 : (b < a ? 1 : 0); }
+
+    /// \returns The order of two values of a type, as PostgreSQL's btree orders them (min, max)
+    int compareValues(const Native::Sql::Value & a, const Native::Sql::Value & b, Sql::SqlType type) {
+        using namespace Native::Sql;
+        switch (type.typeID) {
+            case TypeID::IntegerID: return order(static_cast<const Integer &>(a).value, static_cast<const Integer &>(b).value);
+            case TypeID::LongIntegerID:
+            case TypeID::NumericID: return order(static_cast<const Numeric &>(a).value, static_cast<const Numeric &>(b).value);
+            case TypeID::DoubleID: {
+                const double x = static_cast<const Double &>(a).value, y = static_cast<const Double &>(b).value;
+                if (std::isnan(x) || std::isnan(y)) return order(std::isnan(x), std::isnan(y)); // NaN is the greatest
+                return order(x, y);
+            }
+            case TypeID::BoolID: return order(static_cast<const Bool &>(a).value, static_cast<const Bool &>(b).value);
+            case TypeID::DateID: return order(static_cast<const Date &>(a).value, static_cast<const Date &>(b).value);
+            case TypeID::TimestampID: return order(static_cast<const Timestamp &>(a).value, static_cast<const Timestamp &>(b).value);
+            case TypeID::TextID: return order(static_cast<const Text &>(a).getView(), static_cast<const Text &>(b).getView());
+            case TypeID::CharID:
+            case TypeID::VarcharID: {
+                auto view = [](const Value & v) {
+                    if (auto * text = dynamic_cast<const Text *>(&v)) return text->getView();
+                    auto & varchar = static_cast<const Varchar &>(v);
+                    return std::string_view(reinterpret_cast<const char *>(varchar.begin()), varchar.length());
+                };
+                return order(view(a), view(b));
+            }
+            case TypeID::ArrayID:
+                return Arrays::compare(static_cast<const Array &>(a).value, static_cast<const Array &>(b).value, Sql::toNotNullableTy(type));
+            default:
+                throw semantic_sql_error("min and max do not take " + Sql::getName(Sql::toNotNullableTy(type)));
+        }
+    }
+
+    void accumulate(const Aggregate & aggregate, Sql::SqlType input, Accumulator & acc, const Native::Sql::Value * value) {
+        using namespace Native::Sql;
+        if (aggregate.star) { ++acc.count; return; }
+        if (value == nullptr) return; // NULL
+        ++acc.count;
+        if (aggregate.function == "count") return;
+        const Value & v = getAssociatedValue(*value);
+        if (aggregate.function == "min" || aggregate.function == "max") {
+            int c = 0;
+            if (acc.hasBest) {
+                const value_op_t best = castColumnValue(acc.best, Sql::toNotNullableTy(input));
+                c = compareValues(v, *best, input);
+            }
+            if (!acc.hasBest || (aggregate.function == "min" ? c < 0 : c > 0)) {
+                acc.best = toString(v);
+                acc.hasBest = true;
+            }
+            return;
+        }
+        switch (input.typeID) {
+            case TypeID::IntegerID: acc.integers += static_cast<const Integer &>(v).value; return;
+            case TypeID::LongIntegerID:
+            case TypeID::NumericID: acc.integers += static_cast<const Numeric &>(v).value; return;
+            case TypeID::DoubleID: acc.doubles += static_cast<const Double &>(v).value; return;
+            case TypeID::ArrayID: {
+                auto numbers = Arrays::toNumbers(static_cast<const Array &>(v).value, Sql::getElementTy(input));
+                if (acc.count == 1) { acc.array = std::move(numbers); return; }
+                if (numbers.widths != acc.array.widths) throw semantic_sql_error(aggregate.function + " of arrays of different shapes");
+                for (size_t i = 0; i < numbers.values.size(); ++i) {
+                    acc.array.values[i] += numbers.values[i];
+                    if (numbers.nulls[i]) acc.array.nulls[i] = true;
+                }
+                return;
+            }
+            default: return;
+        }
+    }
+
+    std::string integerText(__int128 value) {
+        if (value > INT64_MAX || value < INT64_MIN) throw semantic_sql_error("numeric field overflow in an aggregate");
+        return std::to_string(static_cast<int64_t>(value));
+    }
+
+    /// \returns The text of the aggregate (for castColumnValue), or nullLiteral
+    std::string finish(const Aggregate & aggregate, Sql::SqlType input, Sql::SqlType result, const Accumulator & acc) {
+        using namespace Native::Sql;
+        if (aggregate.function == "count") return std::to_string(acc.count);
+        if (acc.count == 0) return nullLiteral;
+        if (aggregate.function == "min" || aggregate.function == "max") return acc.best;
+        const bool avg = aggregate.function == "avg";
+        switch (input.typeID) {
+            case TypeID::IntegerID:
+            case TypeID::LongIntegerID:
+                return integerText(avg ? acc.integers / static_cast<__int128>(acc.count) : acc.integers);
+            case TypeID::NumericID: {
+                const __int128 raw = avg ? acc.integers / static_cast<__int128>(acc.count) : acc.integers;
+                integerText(raw);
+                return formatNumeric(static_cast<int64_t>(raw), result.numericLayout.precision);
+            }
+            case TypeID::DoubleID: return formatDouble(avg ? acc.doubles / static_cast<double>(acc.count) : acc.doubles);
+            case TypeID::ArrayID: {
+                Arrays::NumberArray numbers = acc.array;
+                if (avg) for (double & x : numbers.values) x /= static_cast<double>(acc.count);
+                return Arrays::format(Arrays::fromNumbers(numbers, nullptr), Sql::toNotNullableTy(result));
+            }
+            default: return nullLiteral;
+        }
+    }
+
+    } // end namespace aggregation
+
+    /// An aggregate query that BranchAggregation does not compute (aggregates of expressions, in
+    /// expressions, over several tables or temporary tables, of arrays or text, GROUP BY columns): the GROUP
+    /// BY columns and the arguments of the aggregates of its rows (a query), their groups aggregated here
+    /// into a temporary table, and the select list over it (another query)
+    static StatementResult runAggregation(const semanticalAnalysis::SelectStatement & select, Database & db, const std::string & branch,
+                                          const Transaction * transaction, TemporaryTables & temporaries,
+                                          const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                          const std::function<void(const StatementResult &)> & described, bool describeOnly) {
+        using namespace aggregation;
+        using Native::Sql::nullLiteral;
+        Plan plan(select);
+
+        // the rows: GROUP BY columns and arguments
+        auto rows = std::make_unique<semanticalAnalysis::SelectStatement>();
+        rows->relations = select.relations;
+        rows->joinConditions = select.joinConditions;
+        rows->selections = select.selections;
+        rows->predicates = select.predicates;
+        for (size_t j = 0; j < plan.groups.size(); ++j) {
+            Column c = plan.groups[j];
+            c.alias = "_g" + std::to_string(j);
+            rows->projections.push_back(std::move(c));
+        }
+        std::vector<int> argumentColumn(plan.aggregates.size(), -1);
+        for (size_t k = 0; k < plan.aggregates.size(); ++k) {
+            const Aggregate & aggregate = plan.aggregates[k];
+            if (aggregate.star) continue;
+            Column c;
+            if (aggregate.argument.kind == Node::Kind::Column) {
+                c.name = aggregate.argument.name;
+                c.table = aggregate.argument.table;
+            } else {
+                c.name = "?column?";
+                c.expression = std::make_shared<Node>(aggregate.argument);
+            }
+            c.alias = "_a" + std::to_string(k);
+            argumentColumn[k] = static_cast<int>(rows->projections.size());
+            rows->projections.push_back(std::move(c));
+        }
+        if (rows->projections.empty()) {
+            // count(*) alone: a constant per row
+            Column c;
+            c.name = "?column?";
+            c.alias = "_one";
+            Node one;
+            one.kind = Node::Kind::Literal;
+            one.value = "1";
+            c.expression = std::make_shared<Node>(one);
+            rows->projections.push_back(std::move(c));
+        }
+
+        std::vector<Sql::SqlType> rowTypes;
+        struct Group {
+            std::vector<std::string> values; // of the GROUP BY columns (text, or nullLiteral)
+            std::vector<Accumulator> accumulators;
+        };
+        std::unordered_map<std::string, size_t> index;
+        std::vector<Group> groups;
+        {
+            QueryContext context(db);
+            context.analyzingContext.parserResult.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
+            context.analyzingContext.parserResult.selectStmt = rows.release();
+            runSelect(context, "aggregate rows", db, branch, transaction, temporaries, [&](Native::Sql::SqlTuple * tuple) {
+                std::string key;
+                std::vector<std::string> values;
+                for (size_t j = 0; j < plan.groups.size(); ++j) {
+                    const Native::Sql::Value & v = *tuple->values[j];
+                    const bool null = Native::Sql::isNullable(v) && static_cast<const Native::Sql::NullableValue &>(v).isNull();
+                    values.push_back(null ? nullLiteral : Native::Sql::toString(Native::Sql::getAssociatedValue(v)));
+                    key += null ? std::string("N") : "V" + std::to_string(values.back().size()) + ":" + values.back();
+                }
+                auto it = index.find(key);
+                if (it == index.end()) {
+                    it = index.emplace(key, groups.size()).first;
+                    groups.push_back({std::move(values), std::vector<Accumulator>(plan.aggregates.size())});
+                }
+                Group & group = groups[it->second];
+                for (size_t k = 0; k < plan.aggregates.size(); ++k) {
+                    const Native::Sql::Value * value = nullptr;
+                    if (argumentColumn[k] >= 0) {
+                        const Native::Sql::Value & v = *tuple->values[argumentColumn[k]];
+                        if (!(Native::Sql::isNullable(v) && static_cast<const Native::Sql::NullableValue &>(v).isNull())) value = &v;
+                    }
+                    accumulate(plan.aggregates[k], argumentColumn[k] >= 0 ? rowTypes[argumentColumn[k]] : Sql::getUnknownTy(), group.accumulators[k], value);
+                }
+            }, [&](const StatementResult & d) { rowTypes = d.columnTypes; }, describeOnly);
+        }
+        // without GROUP BY, one group, also of no rows
+        if (plan.groups.empty() && groups.empty()) groups.push_back({{}, std::vector<Accumulator>(plan.aggregates.size())});
+
+        // the groups and their aggregates
+        std::vector<std::pair<std::string, Sql::SqlType>> columns;
+        std::vector<Sql::SqlType> inputTypes;
+        // strings as text, which owns its characters (see with::columnType)
+        for (size_t j = 0; j < plan.groups.size(); ++j) columns.emplace_back("_g" + std::to_string(j), with::columnType(rowTypes[j]));
+        for (size_t k = 0; k < plan.aggregates.size(); ++k) {
+            inputTypes.push_back(argumentColumn[k] >= 0 ? rowTypes[argumentColumn[k]] : Sql::getUnknownTy());
+            columns.emplace_back("_a" + std::to_string(k), resultType(plan.aggregates[k], inputTypes.back()));
+        }
+        static std::atomic<uint64_t> tables(0);
+        const std::string name = "\x01" "aggregate" + std::to_string(++tables);
+        Table * table;
+        {
+            ModuleGen moduleGen("TemporaryTable"); // the sizes of the columns take the data layout
+            table = &temporaries.create(columns);
+        }
+        if (!describeOnly) {
+            QueryContext insertContext(db);
+            insertContext.executionContext.branchId = master_branch_id;
+            for (auto & group : groups) {
+                std::vector<Native::Sql::value_op_t> values;
+                for (size_t j = 0; j < plan.groups.size(); ++j) values.push_back(Native::Sql::castColumnValue(group.values[j], columns[j].second));
+                for (size_t k = 0; k < plan.aggregates.size(); ++k) {
+                    const auto type = columns[plan.groups.size() + k].second;
+                    values.push_back(Native::Sql::castColumnValue(finish(plan.aggregates[k], inputTypes[k], type, group.accumulators[k]), type));
+                }
+                Native::Sql::SqlTuple tuple(std::move(values));
+                insert_tuple(tuple, *table, insertContext);
+            }
+        }
+        temporaries.bind(name, table);
+
+        // the select list over them
+        auto output = std::make_unique<semanticalAnalysis::SelectStatement>();
+        semanticalAnalysis::Relation relation;
+        relation.name = name;
+        relation.version = "master";
+        output->relations.push_back(relation);
+        output->projections = plan.outputs;
+        QueryContext context(db);
+        context.analyzingContext.parserResult.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
+        context.analyzingContext.parserResult.selectStmt = output.release();
+        StatementResult result = runSelect(context, "aggregate", db, branch, transaction, temporaries, sink, described, describeOnly);
+        temporaries.bind(name, nullptr);
+        temporaries.release(table);
+        return result;
+    }
+
+    /// Runs a parsed query (relations of temporary tables already in master) under the latches of its statement
+    static StatementResult runSelect(QueryContext & queryContext, const std::string & text, Database & db, const std::string & branch,
+                                     const Transaction * transaction, TemporaryTables & temporaries,
+                                     const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                     const std::function<void(const StatementResult &)> & described, bool describeOnly) {
+        queryContext.tupleSink = sink; // the translation streams the tuples to a sink instead of printing them
+        auto & parserResult = queryContext.analyzingContext.parserResult;
+        std::optional<ModuleGen> moduleGen;
+        moduleGen.emplace("QueryModule");
+        provideOneRowTable(db, temporaries, parserResult);
+        auto analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
+        try {
+            analyser->verify();
+        } catch (const semanticalAnalysis::general_aggregation_required &) {
+            moduleGen.reset(); // the queries of the aggregation generate their own modules
+            return runAggregation(*parserResult.selectStmt, db, branch, transaction, temporaries, sink, described, describeOnly);
+        }
+        analyser->constructTree();
+        auto & queryTree = queryContext.analyzingContext.joinedTree;
+        auto * root = (queryTree != nullptr) ? dynamic_cast<Algebra::Logical::Result *>(queryTree->getRoot()) : nullptr;
+        if (root == nullptr) throw semanticalAnalysis::semantic_sql_error("WITH, UNION and VALUES combine queries");
+        StatementResult result;
+        result.tag = "SELECT";
+        describeResult(*root, parserResult, result);
+        if (described) described(result);
+        if (describeOnly) return result;
+
+        auto queryFunc = compileQuery(text, queryTree, queryContext);
+        QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds, queryContext);
+        std::vector<llvm::GenericValue> args(2);
+        args[0].IntVal = llvm::APInt(64, 5);
+        args[1].PointerVal = (void *) &queryContext;
+        uint64_t rows = 0;
+        // workers of parallel scans call the sink under the result latch: an exception must not leave it (the
+        // generated code would not release the latch); the first one ends the statement after the scan
+        std::exception_ptr failure;
+        queryContext.tupleSink = [&rows, &sink, &failure](Native::Sql::SqlTuple * tuple) {
+            if (failure) return;
+            try {
+                ++rows;
+                sink(tuple);
+            } catch (...) {
+                failure = std::current_exception();
+            }
+        };
+        QueryExecutor::executeFunction(queryFunc, args, (void *) &printFunction);
+        if (failure) std::rethrow_exception(failure);
+        result.rows = rows;
+        return result;
+    }
+
     /// Runs a query of a WITH statement or of a UNION under the latches of the statement: relations named
     /// as temporary tables (the common table expressions) are read in the master branch
     static StatementResult runQuery(const std::string & text, Database & db, const std::string & branch, const Transaction * transaction,
@@ -831,8 +1267,6 @@ namespace QueryCompiler {
                                     const std::function<void(const StatementResult &)> & described,
                                     const std::string & recursiveName = std::string(), bool describeOnly = false) {
         QueryContext queryContext(db);
-        queryContext.tupleSink = sink; // the translation streams the tuples to a sink instead of printing them
-        ModuleGen moduleGen("QueryModule");
         const std::string defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
         queryContext.parsingContext.defaultBranch = defaultBranch;
         tardisParser::SQLParser::parseStatement(queryContext.parsingContext, text + ";");
@@ -853,31 +1287,8 @@ namespace QueryCompiler {
         if (recursiveReferences > 1) {
             throw semanticalAnalysis::semantic_sql_error("recursive reference to query \"" + recursiveName + "\" must not appear more than once");
         }
-        provideOneRowTable(db, temporaries, parserResult);
         if (transaction != nullptr) confine(parserResult, *transaction, db);
-
-        auto analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
-        analyser->verify();
-        analyser->constructTree();
-        auto & queryTree = queryContext.analyzingContext.joinedTree;
-        auto * root = (queryTree != nullptr) ? dynamic_cast<Algebra::Logical::Result *>(queryTree->getRoot()) : nullptr;
-        if (root == nullptr) throw semanticalAnalysis::semantic_sql_error("WITH, UNION and VALUES combine queries");
-        StatementResult result;
-        result.tag = "SELECT";
-        describeResult(*root, parserResult, result);
-        if (described) described(result);
-        if (describeOnly) return result;
-
-        auto queryFunc = compileQuery(text, queryTree, queryContext);
-        QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds, queryContext);
-        std::vector<llvm::GenericValue> args(2);
-        args[0].IntVal = llvm::APInt(64, 5);
-        args[1].PointerVal = (void *) &queryContext;
-        uint64_t rows = 0;
-        queryContext.tupleSink = [&rows, &sink](Native::Sql::SqlTuple * tuple) { ++rows; sink(tuple); };
-        QueryExecutor::executeFunction(queryFunc, args, (void *) &printFunction);
-        result.rows = rows;
-        return result;
+        return runSelect(queryContext, text, db, branch, transaction, temporaries, sink, described, describeOnly);
     }
 
     /// WITH [ RECURSIVE ], UNION, INTERSECT and EXCEPT [ ALL ], and VALUES. Each common table expression
@@ -1091,14 +1502,16 @@ namespace QueryCompiler {
         return result;
     }
 
-    StatementResult execute(const std::string & query, Database & db, const std::string & branch,
-                            const std::function<void(Native::Sql::SqlTuple *)> & sink,
-                            const std::function<void(const StatementResult &)> & described,
-                            const Transaction * transaction) {
-        with::WithStatement setStatement;
-        if (with::parseSetStatement(query, setStatement)) {
-            return executeSetStatement(setStatement, db, branch, sink, described, transaction);
-        }
+    /// \returns The query without the semicolons and spaces at its end
+    static std::string withoutEnd(std::string query) {
+        while (!query.empty() && (query.back() == ';' || std::isspace(static_cast<unsigned char>(query.back())))) query.pop_back();
+        return query;
+    }
+
+    static StatementResult executeStatement(const std::string & query, Database & db, const std::string & branch,
+                                            const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                            const std::function<void(const StatementResult &)> & described,
+                                            const Transaction * transaction) {
         QueryContext queryContext(db);
         queryContext.tupleSink = sink;
         ModuleGen moduleGen("QueryModule");
@@ -1142,13 +1555,42 @@ namespace QueryCompiler {
         args[0].IntVal = llvm::APInt(64, 5);
         args[1].PointerVal = (void *) &queryContext;
         uint64_t rows = 0;
+        std::exception_ptr failure;
         if (result.returnsRows) {
-            // count the tuples on their way to the sink
-            queryContext.tupleSink = [&rows, &sink](Native::Sql::SqlTuple * tuple) { ++rows; sink(tuple); };
+            // count the tuples on their way to the sink; an exception of the sink must not leave the result
+            // latch of a parallel scan, so the first one ends the statement after the scan
+            queryContext.tupleSink = [&rows, &sink, &failure](Native::Sql::SqlTuple * tuple) {
+                if (failure) return;
+                try {
+                    ++rows;
+                    sink(tuple);
+                } catch (...) {
+                    failure = std::current_exception();
+                }
+            };
         }
         QueryExecutor::executeFunction(queryFunc, args, (void *) &printFunction);
+        if (failure) std::rethrow_exception(failure);
         result.rows = result.returnsRows ? rows : queryContext.executionContext.affectedRows;
         return result;
+    }
+
+    StatementResult execute(const std::string & query, Database & db, const std::string & branch,
+                            const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                            const std::function<void(const StatementResult &)> & described,
+                            const Transaction * transaction) {
+        with::WithStatement setStatement;
+        if (with::parseSetStatement(query, setStatement)) {
+            return executeSetStatement(setStatement, db, branch, sink, described, transaction);
+        }
+        try {
+            return executeStatement(query, db, branch, sink, described, transaction);
+        } catch (const semanticalAnalysis::general_aggregation_required &) {
+            // the latches and the module of the statement are gone: its query runs as the queries of WITH
+            with::WithStatement statement;
+            statement.query = with::makeTerm(withoutEnd(query));
+            return executeSetStatement(statement, db, branch, sink, described, transaction);
+        }
     }
 
     BenchmarkResult compileAndBenchmark(const std::string &query, Database &db, void *callbackFunction) {

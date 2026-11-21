@@ -1445,6 +1445,17 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
 }
 }
 
+NumberArray toNumbers(Handle handle, SqlType elementType)
+{
+    Numbers n = numbersOf(handle, elementType);
+    return NumberArray{std::move(n.widths), std::move(n.lowers), std::move(n.values), std::move(n.nulls)};
+}
+
+Handle fromNumbers(const NumberArray & numbers, Arena * arena)
+{
+    return doubles(numbers.widths, numbers.lowers, numbers.values, numbers.nulls, arena);
+}
+
 extern "C" bool tardisArrayCall(uint32_t function, Arena * arena, uint64_t resultType, void * result,
                                 uint32_t argc, void * const * args, const bool * nulls, const uint64_t * types)
 {

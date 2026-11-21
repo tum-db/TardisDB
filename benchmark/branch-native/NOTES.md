@@ -959,14 +959,52 @@ computed in double precision; the results are `double precision[]` (or `double p
   two 1000 x 1000 matrices in 0.6 s); TardisDB links no BLAS. The functions run in the generated code
   through `tardisArrayCall` (`Function::Elementwise`, `MatrixProduct`, `Kronecker`, `Transpose`, `Map`,
   `Softmax`, `SoftmaxCce`, `SoftmaxCceP`, `HighestPosition`), with their results in the query's arena.
-* `softmax` is exp(x) / sum exp(x) and `softmaxcce` the loss; element-wise operations require one shape, and the products, the Kronecker product and the functions handle NULL elements. The aggregates of arrays (`avg(transpose(x) ** d)` of the scripts in `~/nn2sql`) are
-  not here: aggregates of TardisDB take columns.
+* `softmax` is exp(x) / sum exp(x) and `softmaxcce` the loss; element-wise operations require one
+  shape, and the products, the Kronecker product and the functions handle NULL elements. The aggregates
+  of arrays (`avg(transpose(x) ** d)`) are in the general aggregation below.
 
 Checks: `test/linear_algebra_test.cpp` (6 tests: the element-wise operators and their precedence, the
 products with NULLs and errors, `transpose` and the functions, softmax and positions, a product larger
 than the blocks against a plain loop, gradient descent of least squares in a recursive common table
 expression), every query also with parallel scans and with `TARDISDB_VERIFY_IR=1`; products of both
 drivers in `test/test_pgserver.py`.
+
+# Aggregates of expressions and arrays, GROUP BY columns (the general aggregation)
+
+`BranchAggregation` computes aggregates of columns of numbers over one table, per branch (`GROUP BY
+branch`). Aggregates of expressions, in expressions (`w - 0.1 * avg(g)`), over joins or common table
+expressions, of arrays or text, and `GROUP BY` columns are computed by the general aggregation
+(`runAggregation` in `queryCompiler.cpp`); queries over several branches stay with `BranchAggregation`.
+`SelectAnalyser::verify` decides (`needsGeneralAggregation`, with the types of the columns) and throws
+`general_aggregation_required`; `execute` and `compileAndExecute` then run the statement as the queries of
+`WITH`, under their latches, and so do the queries of `WITH`, also of a recursive step.
+
+* **Three steps**: a query computes the `GROUP BY` columns and the arguments of the aggregates of the rows
+  (`_g0, ..., _a0, ...`; joins, conditions and common table expressions as written); the rows are grouped
+  by the text of their `GROUP BY` values (`NULL` a group of its own) and aggregated in C++; the groups go to
+  a temporary table, over which the select list runs, its aggregates and columns replaced by the columns of
+  the table. Without `GROUP BY`, one group, also of no rows.
+* **Aggregates**: `count(*)`, and `count`, `sum`, `avg`, `min`, `max` of expressions, skipping `NULL`s. Of
+  numbers with the types of `BranchAggregation` (counts and sums of integers, and all aggregates of bigints,
+  numerics of 18 digits; the others keep the type of their input; `avg` of integers truncates, as there);
+  `sum` and `avg` of arrays of numbers element by element as `double precision[]` (arrays of one shape; a
+  `NULL` element makes its element `NULL`); `min` and `max` of numbers, text, dates, timestamps, booleans and
+  arrays in the order of PostgreSQL's btree operators. Strings (`GROUP BY` columns, `min`, `max`) are `text`,
+  since a varchar of `castColumnValue` points into characters that are gone when the groups are read.
+* As PostgreSQL: a column of the select list outside of aggregates must be a `GROUP BY` column, aggregates do
+  not nest, `SELECT *` takes no aggregates. Not supported: `HAVING`, `DISTINCT` aggregates, `GROUP BY`
+  expressions (columns only).
+* Fixed on the way: the workers of a parallel scan call the result sink under the result latch, which the
+  generated code takes and releases around it; an exception of the sink (a row of a common table
+  expression or an aggregate that fails) left the latch held, and the next worker and the query waited
+  forever. The sinks of `execute` and of the queries of `WITH` keep the first exception and throw it after
+  the scan.
+
+Checks: `test/aggregate_test.cpp` (6 tests: `sum` and `avg` of arrays, `GROUP BY` columns with `min` and
+`max` of several types, aggregates over joins and common table expressions, groups of no rows and the types
+of `BranchAggregation`, errors, mini-batch gradient descent with `avg` in a recursive common table
+expression), every query also with parallel scans and with `TARDISDB_VERIFY_IR=1`; aggregates of arrays of
+both drivers in `test/test_pgserver.py`.
 
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 

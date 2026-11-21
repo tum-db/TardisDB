@@ -178,7 +178,7 @@ namespace {
         // queries over several branches and DIFF take any condition, but columns (and aggregates of them) only
         EXPECT_EQ(query("select branch , count(*) from t version all where a[1] = 1 or k > 2 group by branch;"), (rows_t{"(master, 2)"}));
         EXPECT_EQ(query("select count(*) from t where k between 2 and 3 and k <> 3;"), (rows_t{"(1)"}));
-        EXPECT_THROW(query("select sum(a[1]) from t;"), std::exception);
+        EXPECT_EQ(query("select sum(a[1]) from t;"), (rows_t{"(1)"})); // the general aggregation (one branch)
         EXPECT_THROW(query("select a[1] from diff ( t version main , t version main );"), std::exception);
     }
 
