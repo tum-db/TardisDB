@@ -48,6 +48,24 @@ namespace {
         if (Native::Sql::toString(*tuple) != "(0)") ++changedRows;
     }
 
+    // writers of different branches record their writes and deletes at the same time, each under its own
+    // identifier: the lists and sets of all identifiers exist before (growing them moved them under the others)
+    TEST(ConcurrencyTest, WriteListsExistBeforeWrites) {
+        Database db;
+        exec(db, "create table before ( k integer not null );");
+        for (int b = 0; b < 5; ++b) exec(db, "create branch b" + std::to_string(b) + " from main;");
+        exec(db, "create table after ( k integer not null );");
+        exec(db, "create branch c from b0;");
+        for (const char * name : {"before", "after"}) {
+            Table & table = *db.getTable(name);
+            for (const auto & [id, branch] : db._branches) {
+                const ident_t ident = db.getIdent(id);
+                EXPECT_LT(ident, table._writes.size()) << name << " " << branch->name;
+                EXPECT_LT(ident, table._deleted.size()) << name << " " << branch->name;
+            }
+        }
+    }
+
     TEST(ConcurrencyTest, BranchesInParallel) {
         constexpr int64_t tuples = 4000, groups = 8, workers = 6, rounds = 20, perGroup = tuples / groups;
         const size_t threads = Parallel::threads, morselSize = Parallel::morselSize;

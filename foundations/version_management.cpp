@@ -1,5 +1,6 @@
 #include "foundations/version_management.hpp"
 
+#include <stdexcept>
 #include <atomic>
 #include <malloc.h>
 #include <mutex>
@@ -92,17 +93,18 @@ static void record_write(Table & table, branch_id_t branch, tid_t tid, bool dele
         return;
     }
     const ident_t ident = table.getDatabase().getIdent(branch);
-    if (table._writes.size() <= ident) {
-        table._writes.resize(ident + 1);
+    // writers of other branches record theirs meanwhile, in the lists of their identifiers: growing the
+    // outer vectors here would move those lists under them (Database::newIdent() sizes them in advance)
+    if (ident >= table._writes.size() || ident >= table._deleted.size()) {
+        throw std::logic_error("the write lists of identifier " + std::to_string(ident) + " do not exist");
     }
     auto & tids = table._writes[ident];
     if (tids.empty() || tids.back() != tid) {
         tids.push_back(tid);
     }
     if (deleted) {
-        if (table._deleted.size() <= ident) table._deleted.resize(ident + 1);
         table._deleted[ident].insert(tid);
-    } else if (ident < table._deleted.size()) {
+    } else {
         table._deleted[ident].erase(tid);
     }
 }

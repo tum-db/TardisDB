@@ -1012,6 +1012,13 @@ was a delete (`Table::_deleted`, freed when its branch is dropped; the identifie
 down to the one at which the two sides split wrote later). Without a base, a tuple the target
 has alone stays, and one the source has alone is inserted.
 
+`Table::_deleted` grew when the first delete under an identifier arrived (`record_write`), while
+writers of other branches, which hold the table shared, inserted into and erased from the sets of their
+identifiers: the vector moved the sets under them, a use after free that crashed
+`ConcurrencyTest.BranchesInParallel` about once in a few hundred runs (ThreadSanitizer showed it). Like
+`Table::_writes`, the sets of all identifiers now exist before any write (`Database::newIdent` and new
+tables size both), and `record_write` no longer grows either (`ConcurrencyTest.WriteListsExistBeforeWrites`).
+
 Checks: `MergePoliciesResolveConflicts`, `MergePoliciesResolveDeleteChangeConflicts`, and the randomised
 comparison with the model, whose merges now take a random policy (one third each); it found both
 flaws of the base (seeds 1 and 4) and passes with 60 seeds.

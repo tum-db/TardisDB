@@ -794,6 +794,7 @@ std::unique_ptr<Table> Database::createTemporaryTable() {
         }
     }
     table->_writes.resize(_identParent.size());
+    table->_deleted.resize(_identParent.size());
     return table;
 }
 
@@ -983,10 +984,11 @@ ident_t Database::newIdent(ident_t parent) {
         _identL.push_back(0);
         _identR.push_back(0);
         _identNextFree.push_back(0);
-        // writers of different branches record their writes at the same time, each in the list of its own
-        // identifier: the lists exist before any write
+        // writers of different branches record their writes and deletes at the same time, each in the list
+        // and the set of its own identifier: they exist before any write (record_write() does not grow them)
         for (auto & [name, table] : _tables) {
             if (table->_writes.size() <= id) table->_writes.resize(id + 1);
+            if (table->_deleted.size() <= id) table->_deleted.resize(id + 1);
         }
     }
     if (parent != invalid_ident) {
