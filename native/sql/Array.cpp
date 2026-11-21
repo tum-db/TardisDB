@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <limits>
 #include <functional>
 #include <stdexcept>
 
@@ -789,6 +790,150 @@ std::vector<int32_t> integerList(Handle handle, const char * what)
     return values;
 }
 
+/// The numbers of an array as doubles, with its shape and NULL elements
+struct Numbers {
+    std::vector<int32_t> widths, lowers;
+    std::vector<double> values;
+    std::vector<bool> nulls;
+    bool anyNull = false;
+    size_t count() const { return values.size(); }
+};
+
+double powerOf10(uint32_t n)
+{
+    double p = 1;
+    while (n-- > 0) p *= 10;
+    return p;
+}
+
+/// \returns The number (integer, bigint, numeric or double precision) at \p p as a double
+double numberAt(const uint8_t * p, SqlType type)
+{
+    switch (type.typeID) {
+        case TypeID::IntegerID: return load32(p);
+        case TypeID::LongIntegerID: return static_cast<double>(load64(p));
+        case TypeID::NumericID: return static_cast<double>(load64(p)) / powerOf10(type.numericLayout.precision);
+        case TypeID::DoubleID: return loadDouble(p);
+        default: throw arrayError("linear algebra takes numbers, not " + ::Sql::getName(::Sql::toNotNullableTy(type)));
+    }
+}
+
+Numbers numbersOf(Handle handle, SqlType elementType)
+{
+    View view(handle, elementType);
+    Numbers n;
+    if (view.count() > 0) {
+        for (uint32_t d = 0; d < view.dims(); ++d) { n.widths.push_back(view.width(d)); n.lowers.push_back(view.lower(d)); }
+    }
+    n.values.resize(view.count());
+    n.nulls.resize(view.count());
+    for (uint32_t i = 0; i < view.count(); ++i) {
+        if (view.isNull(i)) {
+            n.nulls[i] = true;
+            n.anyNull = true;
+        } else {
+            n.values[i] = numberAt(view.fixed(i), elementType);
+        }
+    }
+    return n;
+}
+
+/// \returns An array of double precision of the shape with the values (NULL where \p nulls says)
+Handle doubles(const std::vector<int32_t> & widths, const std::vector<int32_t> & lowers, const std::vector<double> & values,
+               const std::vector<bool> & nulls, Arena * arena)
+{
+    Builder builder(::Sql::getDoubleTy());
+    builder.widths = widths;
+    builder.lowers = lowers;
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (!nulls.empty() && nulls[i]) builder.addNull();
+        else builder.addFixed(&values[i]);
+    }
+    return builder.finish(arena);
+}
+
+void writeDouble(void * result, double value) { std::memcpy(result, &value, 8); }
+
+double elementwise(ElementwiseOp op, double x, double y)
+{
+    switch (op) {
+        case ElementwiseOp::Add: return x + y;
+        case ElementwiseOp::Sub: return x - y;
+        case ElementwiseOp::Mul: return x * y;
+        case ElementwiseOp::Div:
+            if (y == 0) throw arrayError("division by zero");
+            return x / y;
+        case ElementwiseOp::Pow: return std::pow(x, y);
+    }
+    return 0;
+}
+
+double mapNumber(MapOp op, double x)
+{
+    switch (op) {
+        case MapOp::Abs: return std::fabs(x);
+        case MapOp::Sig: return 1.0 / (1.0 + std::exp(-x));
+        case MapOp::Relu: return x > 0 ? x : 0;
+        case MapOp::ReluP: return x > 0 ? 1 : 0;
+        case MapOp::Tanh: return std::tanh(x);
+    }
+    return 0;
+}
+
+/// C (m x n) = A (m x k) B (k x n), row-major, in blocks that stay in the caches; the innermost loop runs
+/// over a row of B and of C, which the compiler vectorises
+void multiply(const double * a, const double * b, double * c, size_t m, size_t k, size_t n)
+{
+    std::fill(c, c + m * n, 0.0);
+    constexpr size_t blockM = 64, blockK = 256, blockN = 512;
+    for (size_t i0 = 0; i0 < m; i0 += blockM) {
+        const size_t i1 = std::min(m, i0 + blockM);
+        for (size_t k0 = 0; k0 < k; k0 += blockK) {
+            const size_t k1 = std::min(k, k0 + blockK);
+            for (size_t j0 = 0; j0 < n; j0 += blockN) {
+                const size_t j1 = std::min(n, j0 + blockN);
+                for (size_t i = i0; i < i1; ++i) {
+                    double * row = c + i * n;
+                    for (size_t l = k0; l < k1; ++l) {
+                        const double x = a[i * k + l];
+                        const double * other = b + l * n;
+                        for (size_t j = j0; j < j1; ++j) row[j] += x * other[j];
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The exponentials of x - max over all elements and their sum (the shift keeps them finite)
+double shiftedExponentials(const Numbers & x, std::vector<double> & out)
+{
+    double max = -std::numeric_limits<double>::infinity();
+    for (double v : x.values) max = std::max(max, v);
+    out.resize(x.count());
+    double sum = 0;
+    for (size_t i = 0; i < x.count(); ++i) {
+        out[i] = std::exp(x.values[i] - max);
+        sum += out[i];
+    }
+    return sum;
+}
+
+/// \returns The shift x - max - log(sum of exp(x - max)), the logarithms of softmax(x)
+std::vector<double> logSoftmax(const Numbers & x)
+{
+    double max = -std::numeric_limits<double>::infinity();
+    for (double v : x.values) max = std::max(max, v);
+    std::vector<double> e;
+    const double logSum = std::log(shiftedExponentials(x, e));
+    std::vector<double> out(x.count());
+    for (size_t i = 0; i < x.count(); ++i) out[i] = x.values[i] - max - logSum;
+    return out;
+}
+
+/// \returns Whether an argument is an array (otherwise a number)
+bool isArrayArgument(const Args & a, uint32_t i) { return a.type(i).typeID == TypeID::ArrayID; }
+
 /// \returns Whether the result is NULL
 bool call(Function function, Arena * arena, SqlType resultType, void * result, const Args & a)
 {
@@ -1145,6 +1290,154 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
         case Function::Equals: {
             if (a.null(0) || a.null(1)) return true;
             writeBool(result, equals(a.array(0), a.array(1), a.type(0)));
+            return false;
+        }
+        case Function::Elementwise: {
+            if (a.null(0) || a.null(1) || a.null(2)) return true;
+            const auto op = static_cast<ElementwiseOp>(a.integer(2));
+            const bool leftArray = isArrayArgument(a, 0), rightArray = isArrayArgument(a, 1);
+            if (!leftArray && !rightArray) {
+                writeDouble(result, elementwise(op, numberAt(static_cast<const uint8_t *>(a.args[0]), a.type(0)),
+                                                numberAt(static_cast<const uint8_t *>(a.args[1]), a.type(1))));
+                return false;
+            }
+            Numbers x, y;
+            double scalar = 0;
+            if (leftArray) x = numbersOf(a.array(0), elementTypeOf(0));
+            else scalar = numberAt(static_cast<const uint8_t *>(a.args[0]), a.type(0));
+            if (rightArray) y = numbersOf(a.array(1), elementTypeOf(1));
+            else scalar = numberAt(static_cast<const uint8_t *>(a.args[1]), a.type(1));
+            if (leftArray && rightArray && (x.widths != y.widths)) {
+                throw arrayError("arrays of different shapes: " + std::to_string(x.widths.size()) + " and " + std::to_string(y.widths.size()) +
+                                 " dimensions or different lengths");
+            }
+            const Numbers & shape = leftArray ? x : y;
+            std::vector<double> values(shape.count());
+            std::vector<bool> nulls(shape.count());
+            for (size_t i = 0; i < shape.count(); ++i) {
+                nulls[i] = (leftArray && x.nulls[i]) || (rightArray && y.nulls[i]);
+                if (nulls[i]) continue;
+                values[i] = elementwise(op, leftArray ? x.values[i] : scalar, rightArray ? y.values[i] : scalar);
+            }
+            storeHandle(result, doubles(shape.widths, shape.lowers, values, nulls, arena));
+            return false;
+        }
+        case Function::MatrixProduct: {
+            if (a.null(0) || a.null(1)) return true;
+            Numbers x = numbersOf(a.array(0), elementTypeOf(0)), y = numbersOf(a.array(1), elementTypeOf(1));
+            if (x.widths.empty() || y.widths.empty() || x.widths.back() != y.widths.front()) {
+                throw arrayError("arrays do not have suitable size for **: the last dimension of the first (" +
+                                 (x.widths.empty() ? std::string("empty") : std::to_string(x.widths.back())) +
+                                 ") differs from the first dimension of the second (" +
+                                 (y.widths.empty() ? std::string("empty") : std::to_string(y.widths.front())) + ")");
+            }
+            const size_t k = static_cast<size_t>(x.widths.back()), m = x.count() / std::max<size_t>(k, 1), n = y.count() / std::max<size_t>(k, 1);
+            std::vector<int32_t> widths(x.widths.begin(), x.widths.end() - 1), lowers(x.lowers.begin(), x.lowers.end() - 1);
+            widths.insert(widths.end(), y.widths.begin() + 1, y.widths.end());
+            lowers.insert(lowers.end(), y.lowers.begin() + 1, y.lowers.end());
+            if (widths.empty()) { widths = {1}; lowers = {1}; } // two vectors: their dot product
+            std::vector<double> values(m * n);
+            multiply(x.values.data(), y.values.data(), values.data(), m, k, n);
+            // a NULL in a row of the first or a column of the second makes the sums over it NULL
+            std::vector<bool> nulls;
+            if (x.anyNull || y.anyNull) {
+                std::vector<bool> rowNull(m), columnNull(n);
+                for (size_t i = 0; i < m; ++i) for (size_t l = 0; l < k; ++l) if (x.nulls[i * k + l]) rowNull[i] = true;
+                for (size_t l = 0; l < k; ++l) for (size_t j = 0; j < n; ++j) if (y.nulls[l * n + j]) columnNull[j] = true;
+                nulls.resize(m * n);
+                for (size_t i = 0; i < m; ++i) for (size_t j = 0; j < n; ++j) nulls[i * n + j] = rowNull[i] || columnNull[j];
+            }
+            storeHandle(result, doubles(widths, lowers, values, nulls, arena));
+            return false;
+        }
+        case Function::Kronecker: {
+            if (a.null(0) || a.null(1)) return true;
+            Numbers x = numbersOf(a.array(0), elementTypeOf(0)), y = numbersOf(a.array(1), elementTypeOf(1));
+            if (x.widths.size() != 2 || y.widths.size() != 2) throw arrayError("arrays for kronecker product need two dimensions");
+            const size_t r1 = x.widths[0], c1 = x.widths[1], r2 = y.widths[0], c2 = y.widths[1], columns = c1 * c2;
+            std::vector<double> values(r1 * r2 * columns);
+            std::vector<bool> nulls(values.size());
+            for (size_t i = 0; i < r1; ++i)
+                for (size_t k = 0; k < r2; ++k)
+                    for (size_t j = 0; j < c1; ++j)
+                        for (size_t l = 0; l < c2; ++l) {
+                            const size_t to = (i * r2 + k) * columns + j * c2 + l, p = i * c1 + j, q = k * c2 + l;
+                            nulls[to] = x.nulls[p] || y.nulls[q];
+                            values[to] = x.values[p] * y.values[q];
+                        }
+            storeHandle(result, doubles({static_cast<int32_t>(r1 * r2), static_cast<int32_t>(columns)}, {1, 1}, values, nulls, arena));
+            return false;
+        }
+        case Function::Transpose: {
+            if (a.null(0)) return true;
+            SqlType elementType = elementTypeOf(0);
+            View view(a.array(0), elementType);
+            Builder builder(elementType);
+            if (view.count() == 0) { storeHandle(result, builder.finish(arena)); return false; }
+            // a vector is a row of one matrix: its transpose a column
+            std::vector<int32_t> widths, lowers;
+            for (uint32_t d = 0; d < view.dims(); ++d) { widths.push_back(view.width(d)); lowers.push_back(view.lower(d)); }
+            if (widths.size() == 1) { widths.insert(widths.begin(), 1); lowers.insert(lowers.begin(), 1); }
+            const size_t rows = widths[0], columns = widths[1], inner = view.count() / (rows * columns);
+            builder.widths = {widths[1], widths[0]};
+            builder.lowers = {lowers[1], lowers[0]};
+            for (size_t d = 2; d < widths.size(); ++d) { builder.widths.push_back(widths[d]); builder.lowers.push_back(lowers[d]); }
+            for (size_t j = 0; j < columns; ++j)
+                for (size_t i = 0; i < rows; ++i)
+                    for (size_t e = 0; e < inner; ++e) builder.add(view, static_cast<uint32_t>((i * columns + j) * inner + e));
+            storeHandle(result, builder.finish(arena));
+            return false;
+        }
+        case Function::Map: {
+            if (a.null(0) || a.null(1)) return true;
+            const auto op = static_cast<MapOp>(a.integer(1));
+            if (!isArrayArgument(a, 0)) {
+                writeDouble(result, mapNumber(op, numberAt(static_cast<const uint8_t *>(a.args[0]), a.type(0))));
+                return false;
+            }
+            Numbers x = numbersOf(a.array(0), elementTypeOf(0));
+            for (size_t i = 0; i < x.count(); ++i) if (!x.nulls[i]) x.values[i] = mapNumber(op, x.values[i]);
+            storeHandle(result, doubles(x.widths, x.lowers, x.values, x.nulls, arena));
+            return false;
+        }
+        case Function::Softmax:
+        case Function::SoftmaxCce:
+        case Function::SoftmaxCceP:
+        case Function::HighestPosition: {
+            // over all elements: NULL if one of them is NULL
+            if (a.null(0) || (a.argc > 1 && a.null(1))) return true;
+            Numbers x = numbersOf(a.array(0), elementTypeOf(0)), labels;
+            if (x.anyNull) return true;
+            if (a.argc > 1) {
+                labels = numbersOf(a.array(1), elementTypeOf(1));
+                if (labels.anyNull) return true;
+                if (labels.count() != x.count()) {
+                    throw arrayError("arrays do not have suitable size: " + std::to_string(x.count()) + " values and " +
+                                     std::to_string(labels.count()) + " labels");
+                }
+            }
+            if (function == Function::HighestPosition) {
+                if (x.count() == 0) return true;
+                size_t best = 0;
+                for (size_t i = 1; i < x.count(); ++i) if (x.values[i] > x.values[best]) best = i;
+                writeInteger(result, static_cast<int32_t>(best));
+                return false;
+            }
+            if (function == Function::SoftmaxCce) {
+                if (x.count() == 0) return true;
+                const auto logs = logSoftmax(x);
+                double loss = 0;
+                for (size_t i = 0; i < x.count(); ++i) loss -= labels.values[i] * logs[i];
+                writeDouble(result, loss);
+                return false;
+            }
+            std::vector<double> e;
+            const double sum = shiftedExponentials(x, e);
+            for (size_t i = 0; i < x.count(); ++i) {
+                e[i] /= sum;
+                if (function == Function::SoftmaxCceP) e[i] -= labels.values[i];
+            }
+            storeHandle(result, doubles(x.widths, x.lowers, e, {}, arena));
             return false;
         }
     }

@@ -168,6 +168,12 @@ with psycopg.connect(dsn, autocommit=True) as c3:
                       "union all select k.id, up.level + 1 from k, up where k.id = up.id - 1) select id, level from up", (3,)).fetchall()
     assert sorted(rows) == [(1, 2), (2, 1), (3, 0)], rows
     print("psycopg3 recursive:", sorted(rows))
+# linear algebra on arrays: matrix product of lists of both drivers (psycopg 3 in binary)
+cur.execute("select %s::double precision[] ** %s::double precision[], sig(0)", ([[1, 2], [3, 4]], [[5, 6], [7, 8]]))
+assert cur.fetchone() == ([[19.0, 22.0], [43.0, 50.0]], 0.5)
+with psycopg.connect(dsn, autocommit=True) as c3:
+    row = c3.execute("select transpose(%b::double precision[]) ** %b::double precision[]", ([[1.0, 2.0]], [[3.0, 4.0]])).fetchone()
+    assert row == ([[3.0, 4.0], [6.0, 8.0]],), row
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types

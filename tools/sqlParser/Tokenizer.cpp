@@ -52,7 +52,8 @@ namespace tardisParser {
             return false;
         if (tok.type == Type::op) return true;
         // comparisons, and the operators of arrays
-        static const std::set<std::string> comparisons = {"=", "<", "<=", ">", ">=", "<>", "!=", "@>", "<@", "&&", "||"};
+        static const std::set<std::string> comparisons = {"=", "<", "<=", ">", ">=", "<>", "!=", "@>", "<@", "&&", "||",
+                                                          "**", "^", "@"}; // ** ^ @: of linear algebra
         if (comparisons.count(tok.value) > 0) {
             tok.type = Type::op;
             return true;
@@ -213,8 +214,8 @@ namespace tardisParser {
                 }
                 ss << static_cast<char>(c);
                 break;
-            } else if (c == '<' || c == '>' || c == '=' || c == '!' || c == '@' ||
-                       ((c == '&' || c == '|') && _in.peek() == c)) {
+            } else if (c == '<' || c == '>' || c == '=' || c == '!' || c == '@' || c == '^' ||
+                       ((c == '&' || c == '|' || c == '*') && _in.peek() == c)) {
                 // a comparison or an operator ends the token before it: a>=5 is a, >=, 5
                 if (i > 0) {
                     _in.putback(c);
@@ -222,7 +223,7 @@ namespace tardisParser {
                     ss << static_cast<char>(c);
                     int n = _in.peek();
                     if ((c == '<' && (n == '=' || n == '>' || n == '@')) || ((c == '>' || c == '!') && n == '=') ||
-                        (c == '@' && n == '>') || c == '&' || c == '|') {
+                        (c == '@' && n == '>') || c == '&' || c == '|' || c == '*') {
                         ss << static_cast<char>(_in.get());
                     }
                 }

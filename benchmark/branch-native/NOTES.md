@@ -933,6 +933,41 @@ the rows, `UNION` and `VALUES` with the types of their columns, `INTERSECT` and 
 parallel scans and with `TARDISDB_VERIFY_IR=1`; recursion and set operations of both drivers in
 `test/test_pgserver.py`.
 
+# Linear algebra on arrays (without BLAS)
+
+Operations on arrays of numbers (`integer`, `bigint`, `numeric`, `double precision` elements),
+computed in double precision; the results are `double precision[]` (or `double precision`).
+
+* **Operators**: `+ - * / ^` element by element, of two arrays of one shape or of an array and a number on
+  either side (`1 - a`, `0.1 * g`, `a ^ 2`); unary minus; `**` the matrix product, in general the sums over
+  the last dimension of the first and the first dimension of the second (the tensor product of
+  `tensor.hpp`: a matrix and a vector, two vectors give their dot product as an array of one element);
+  prefix `@` the absolute values. `^` binds closer than `* /` (unary minus closer than `^`), and `**` and
+  `@`, like the other operators of PostgreSQL that are not arithmetic, less closely than `+ -`: write
+  `(x ** w) - y`. `^`, `@` and the functions below also take numbers (`2 ^ 10`, `sig(0)`).
+* **Functions**: `transpose(a)` swaps the first two dimensions (of any element type; a vector becomes a
+  column), `kroneckerproduct(a, b)` of two matrices, `sig`, `relu`, `relup` (its derivative), `tanh`,
+  `abs` of each element, `softmax(a)` over all elements, `softmaxcce(a, labels)` the categorical
+  cross-entropy of `softmax(a)` and the labels (a number), `softmaxccep(a, labels)` its gradient
+  `softmax(a) - labels`, `highestposition(a)` the offset (from 0) of the first greatest
+  element.
+* **NULL**: a NULL element gives NULL elements (of `**`, the sums over its row of the first or its
+  column of the second); `softmax`, `softmaxcce(p)` and `highestposition` are NULL if an element is.
+  Shapes that do not fit, division by zero and arrays that are not of numbers are errors.
+* **Without BLAS**: the products run in blocks (64 x 256 x 512) that stay in the caches, whose innermost loop over a row the
+  compiler vectorises (`multiply` in `native/sql/Array.cpp`), about 3 GFLOP/s in one thread (a product of
+  two 1000 x 1000 matrices in 0.6 s); TardisDB links no BLAS. The functions run in the generated code
+  through `tardisArrayCall` (`Function::Elementwise`, `MatrixProduct`, `Kronecker`, `Transpose`, `Map`,
+  `Softmax`, `SoftmaxCce`, `SoftmaxCceP`, `HighestPosition`), with their results in the query's arena.
+* `softmax` is exp(x) / sum exp(x) and `softmaxcce` the loss; element-wise operations require one shape, and the products, the Kronecker product and the functions handle NULL elements. The aggregates of arrays (`avg(transpose(x) ** d)` of the scripts in `~/nn2sql`) are
+  not here: aggregates of TardisDB take columns.
+
+Checks: `test/linear_algebra_test.cpp` (6 tests: the element-wise operators and their precedence, the
+products with NULLs and errors, `transpose` and the functions, softmax and positions, a product larger
+than the blocks against a plain loop, gradient descent of least squares in a recursive common table
+expression), every query also with parallel scans and with `TARDISDB_VERIFY_IR=1`; products of both
+drivers in `test/test_pgserver.py`.
+
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 
 `compare/run.sh <dir>` builds pgserver with LLVM 7 in the container and runs it there (host network,

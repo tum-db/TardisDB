@@ -2,6 +2,7 @@
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 
+#include <set>
 #include <climits>
 
 #include "native/sql/SqlValues.hpp"
@@ -14,6 +15,8 @@ using Expressions::exp_op_t;
 using Sql::SqlType;
 using TypeID = Sql::SqlType::TypeID;
 using Function = Native::Sql::Arrays::Function;
+using ElementwiseOp = Native::Sql::Arrays::ElementwiseOp;
+using MapOp = Native::Sql::Arrays::MapOp;
 
 namespace {
 
@@ -472,8 +475,126 @@ exp_op_t ExpressionAnalyser::textArgument(const Node & n, const std::string & wh
     return e;
 }
 
+/// A number or an array of numbers of linear algebra: a constant number is a double precision, a quoted
+/// constant '{...}' an array of them
+exp_op_t ExpressionAnalyser::numericArgument(const Node & n, const std::string & what)
+{
+    if (isLiteral(n)) {
+        const bool array = n.quoted && !n.value.empty() && (n.value[0] == '{' || n.value[0] == '[');
+        SqlType type = array ? Sql::getArrayTy(Sql::getDoubleTy()) : Sql::getDoubleTy();
+        return analyse(n, &type);
+    }
+    exp_op_t e = analyse(n);
+    SqlType t = e->getType();
+    if (!isNumber(isArray(t) ? Sql::getElementTy(t) : t)) {
+        throw semantic_sql_error(what + " takes numbers or arrays of numbers, not " + typeText(t));
+    }
+    return e;
+}
+
+/// The operators of linear algebra: + - * / ^ of arrays (element by element, also with a
+/// number), ** (matrix product), @ (absolute values), and ^ of numbers; nullptr for other arithmetic
+exp_op_t ExpressionAnalyser::arrayArithmetic(const Node & n)
+{
+    const std::string & op = n.name;
+    auto arrayLike = [&](const Node & c) {
+        if (c.kind == Kind::Array) return true;
+        if (isLiteral(c)) return c.quoted && !c.value.empty() && (c.value[0] == '{' || c.value[0] == '[');
+        return isArray(analyse(c)->getType());
+    };
+    auto code = [&](int32_t value) {
+        Node literal;
+        literal.kind = Kind::Literal;
+        literal.value = std::to_string(value);
+        return constant(literal, Sql::getIntegerTy());
+    };
+    const SqlType doubles = Sql::getArrayTy(Sql::getDoubleTy(), true), number = Sql::getDoubleTy(true);
+    const std::string what = "operator " + op;
+    std::vector<exp_op_t> arguments;
+    if (op == "@" || op == "neg") {
+        const bool array = arrayLike(n.children[0]);
+        if (op == "neg" && !array) return nullptr;
+        arguments.push_back(numericArgument(n.children[0], what));
+        if (op == "@") {
+            arguments.push_back(code(static_cast<int32_t>(MapOp::Abs)));
+            return std::make_unique<Expressions::ArrayFunction>(Function::Map, array ? doubles : number, std::move(arguments));
+        }
+        // - a is 0 - a
+        Node zero;
+        zero.kind = Kind::Literal;
+        zero.value = "0";
+        arguments.insert(arguments.begin(), constant(zero, Sql::getDoubleTy()));
+        arguments.push_back(code(static_cast<int32_t>(ElementwiseOp::Sub)));
+        return std::make_unique<Expressions::ArrayFunction>(Function::Elementwise, doubles, std::move(arguments));
+    }
+    const bool leftArray = arrayLike(n.children[0]), rightArray = arrayLike(n.children[1]);
+    if (op == "**") {
+        if (!leftArray || !rightArray) throw semantic_sql_error("operator ** (matrix product) takes two arrays");
+        arguments.push_back(numericArgument(n.children[0], what));
+        arguments.push_back(numericArgument(n.children[1], what));
+        return std::make_unique<Expressions::ArrayFunction>(Function::MatrixProduct, doubles, std::move(arguments));
+    }
+    if (!leftArray && !rightArray && op != "^") return nullptr;
+    const ElementwiseOp e = op == "+" ? ElementwiseOp::Add : op == "-" ? ElementwiseOp::Sub : op == "*" ? ElementwiseOp::Mul :
+                            op == "/" ? ElementwiseOp::Div : ElementwiseOp::Pow;
+    arguments.push_back(numericArgument(n.children[0], what));
+    arguments.push_back(numericArgument(n.children[1], what));
+    arguments.push_back(code(static_cast<int32_t>(e)));
+    return std::make_unique<Expressions::ArrayFunction>(Function::Elementwise, leftArray || rightArray ? doubles : number, std::move(arguments));
+}
+
+/// The functions of linear algebra; nullptr for other functions
+exp_op_t ExpressionAnalyser::linearAlgebraFunction(const Node & n)
+{
+    static const std::set<std::string> names = {"transpose", "kroneckerproduct", "sig", "relu", "relup", "tanh", "abs",
+                                                "softmax", "softmaxcce", "softmaxccep", "highestposition"};
+    const std::string & name = n.name;
+    if (names.count(name) == 0) return nullptr;
+    const size_t argc = name == "kroneckerproduct" || name == "softmaxcce" || name == "softmaxccep" ? 2 : 1;
+    if (n.children.size() != argc) throw semantic_sql_error("function " + name + " takes " + std::to_string(argc) + " argument" + (argc > 1 ? "s" : ""));
+    const SqlType doubles = Sql::getArrayTy(Sql::getDoubleTy(), true);
+    std::vector<exp_op_t> arguments;
+    auto array = [&](const Node & c) {
+        exp_op_t e = numericArgument(c, "function " + name);
+        if (!isArray(e->getType())) throw semantic_sql_error("function " + name + " takes an array, not " + typeText(e->getType()));
+        return e;
+    };
+    auto call = [&](Function f, SqlType type) -> exp_op_t {
+        return std::make_unique<Expressions::ArrayFunction>(f, type, std::move(arguments));
+    };
+    if (name == "transpose") {
+        // of any element type: it moves elements only
+        std::vector<exp_op_t> arrays, elements;
+        SqlType type;
+        polymorphic(name, {&n.children[0]}, {}, arrays, elements, type);
+        arguments.push_back(std::move(arrays.front()));
+        return call(Function::Transpose, Sql::toNullableTy(type));
+    }
+    if (name == "kroneckerproduct" || name == "softmaxcce" || name == "softmaxccep") {
+        arguments.push_back(array(n.children[0]));
+        arguments.push_back(array(n.children[1]));
+        if (name == "kroneckerproduct") return call(Function::Kronecker, doubles);
+        return name == "softmaxcce" ? call(Function::SoftmaxCce, Sql::getDoubleTy(true)) : call(Function::SoftmaxCceP, doubles);
+    }
+    if (name == "softmax" || name == "highestposition") {
+        arguments.push_back(array(n.children[0]));
+        return name == "softmax" ? call(Function::Softmax, doubles) : call(Function::HighestPosition, Sql::getIntegerTy(true));
+    }
+    // of each element, or of a number
+    exp_op_t x = numericArgument(n.children[0], "function " + name);
+    const bool isArrayArgument = isArray(x->getType());
+    MapOp op = name == "sig" ? MapOp::Sig : name == "relu" ? MapOp::Relu : name == "relup" ? MapOp::ReluP : name == "tanh" ? MapOp::Tanh : MapOp::Abs;
+    Node literal;
+    literal.kind = Kind::Literal;
+    literal.value = std::to_string(static_cast<int32_t>(op));
+    arguments.push_back(std::move(x));
+    arguments.push_back(constant(literal, Sql::getIntegerTy()));
+    return call(Function::Map, isArrayArgument ? doubles : Sql::getDoubleTy(true));
+}
+
 exp_op_t ExpressionAnalyser::function(const Node & n)
 {
+    if (exp_op_t e = linearAlgebraFunction(n)) return e;
     const std::string & name = n.name;
     const size_t argc = n.children.size();
     auto arity = [&](size_t low, size_t high) {
@@ -590,6 +711,7 @@ exp_op_t ExpressionAnalyser::operation(const Node & n)
     if (op == "not") return std::make_unique<Expressions::Not>(condition(n.children[0]));
     if (op == "is null" || op == "is not null") return std::make_unique<Expressions::IsNull>(analyse(n.children[0]), op == "is not null");
     if (op == "neg") {
+        if (exp_op_t e = arrayArithmetic(n)) return e;
         exp_op_t e = analyse(n.children[0]);
         if (!isNumber(e->getType())) throw semantic_sql_error("unary minus takes a number");
         Node zero;
@@ -597,7 +719,9 @@ exp_op_t ExpressionAnalyser::operation(const Node & n)
         zero.value = "0";
         return std::make_unique<Expressions::Subtraction>(constant(zero, e->getType()), std::move(e));
     }
+    if (op == "**" || op == "^" || op == "@") return arrayArithmetic(n);
     if (op == "+" || op == "-" || op == "*" || op == "/") {
+        if (exp_op_t e = arrayArithmetic(n)) return e;
         auto pair = typedPair(n.children[0], n.children[1], "operator " + op);
         if (!isNumber(pair.first->getType())) throw semantic_sql_error("operator " + op + " takes numbers, not " + typeText(pair.first->getType()));
         if (op == "+") return std::make_unique<Expressions::Addition>(std::move(pair.first), std::move(pair.second));

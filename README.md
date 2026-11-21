@@ -204,6 +204,8 @@ treat two `NULL`s as equal (`test/null_test.cpp`). Columns may be arrays of Post
 Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION`, `INTERSECT` and
 `EXCEPT` (each also with `ALL`); `VALUES` and
 `SELECT` without `FROM` are queries too (`test/cte_test.cpp`).
+Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
+`kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`).
 
 ## SQL shell
 

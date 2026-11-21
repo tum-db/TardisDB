@@ -78,8 +78,8 @@ namespace tardisParser {
     }
 
     /// Reads an expression by precedence (as PostgreSQL: OR, AND, NOT, comparisons with IS, BETWEEN and
-    /// IN, the other operators || @> <@ &&, + and -, * and /, unary minus, subscripts); token() is then
-    /// the first token after it
+    /// IN, the other operators || @> <@ && ** and prefix @, + and -, * and /, ^, unary minus, subscripts);
+    /// token() is then the first token after it
     class ExpressionParser {
     public:
         ExpressionParser(Tokenizer & tokenizer, Token first) :
@@ -213,13 +213,23 @@ namespace tardisParser {
         }
 
         Node other() {
-            Node l = additive();
-            while (_token.type == Type::op && (_token.value == "||" || _token.value == "@>" || _token.value == "<@" || _token.value == "&&")) {
+            Node l = prefixOther();
+            while (_token.type == Type::op && (_token.value == "||" || _token.value == "@>" || _token.value == "<@" ||
+                                               _token.value == "&&" || _token.value == "**")) {
                 std::string op = _token.value;
                 advance();
-                l = make(Node::Kind::Operator, op, {std::move(l), additive()});
+                l = make(Node::Kind::Operator, op, {std::move(l), prefixOther()});
             }
             return l;
+        }
+
+        /// @ x (absolute values): a prefix operator of the precedence of the other operators
+        Node prefixOther() {
+            if (_token.type == Type::op && _token.value == "@") {
+                advance();
+                return make(Node::Kind::Operator, "@", {prefixOther()});
+            }
+            return additive();
         }
 
         Node additive() {
@@ -233,11 +243,21 @@ namespace tardisParser {
         }
 
         Node multiplicative() {
-            Node l = unary();
+            Node l = power();
             while (symbol(controlSymbols::star) || bare("/")) {
                 std::string op = symbol(controlSymbols::star) ? "*" : "/";
                 advance();
-                l = make(Node::Kind::Operator, op, {std::move(l), unary()});
+                l = make(Node::Kind::Operator, op, {std::move(l), power()});
+            }
+            return l;
+        }
+
+        /// x ^ y, from left to right; unary minus binds closer (-2 ^ 2 is 4), as in PostgreSQL
+        Node power() {
+            Node l = unary();
+            while (_token.type == Type::op && _token.value == "^") {
+                advance();
+                l = make(Node::Kind::Operator, "^", {std::move(l), unary()});
             }
             return l;
         }

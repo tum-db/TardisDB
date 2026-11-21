@@ -185,6 +185,10 @@ namespace semanticalAnalysis {
                                           std::vector<Expressions::exp_op_t> & elementOut, Sql::SqlType & arrayType);
         Expressions::exp_op_t function(const sqlExpressions::Node & n);
         Expressions::exp_op_t operation(const sqlExpressions::Node & n);
+        // linear algebra on arrays of numbers
+        Expressions::exp_op_t numericArgument(const sqlExpressions::Node & n, const std::string & what);
+        Expressions::exp_op_t arrayArithmetic(const sqlExpressions::Node & n);
+        Expressions::exp_op_t linearAlgebraFunction(const sqlExpressions::Node & n);
     };
 
     /// \returns Whether CREATE TABLE and ALTER TABLE know the type
