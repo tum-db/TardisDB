@@ -456,6 +456,35 @@ struct Branch {
 // Database
 
 struct ExecutionContext;
+class Database;
+
+/// Tables that only the current thread sees, under names that shadow those of the catalogue, while the
+/// object exists: the results of the common table expressions of WITH and the row of a SELECT without
+/// FROM. Only statements of the thread read them, in the master branch. The statement that creates them
+/// holds the catalog latch shared, so that no branch is created or dropped meanwhile, which these
+/// tables, unknown to the catalogue, would miss.
+class TemporaryTables {
+public:
+    explicit TemporaryTables(Database & db);
+    ~TemporaryTables();
+    TemporaryTables(const TemporaryTables &) = delete;
+    TemporaryTables & operator=(const TemporaryTables &) = delete;
+
+    /// \returns A new table with the columns, not yet named
+    Table & create(const std::vector<std::pair<std::string, Sql::SqlType>> & columns);
+    /// Names the table (nullptr: the name is no longer temporary)
+    void bind(const std::string & name, Table * table);
+    /// Frees a table that has no name and that no statement reads any more
+    void release(Table * table);
+    /// \returns The temporary table of the name on the current thread, or nullptr
+    static Table * find(const Database & db, const std::string & name);
+
+private:
+    Database & _db;
+    TemporaryTables * _previous;
+    std::unordered_map<std::string, Table *> _names;
+    std::vector<std::unique_ptr<Table>> _tables;
+};
 
 class Database {
 public:
@@ -463,6 +492,10 @@ public:
 
     Table & createTable(const std::string & name);
 
+    /// \returns A table outside the catalogue with the branches of the catalogue (see TemporaryTables)
+    std::unique_ptr<Table> createTemporaryTable();
+
+    /// \returns The table of the name: a temporary table of the current thread or one of the catalogue
     Table * getTable(const std::string & tableName);
 
     const std::unordered_map<std::string, std::unique_ptr<Table>> & getTables() const { return _tables; }

@@ -1695,6 +1695,12 @@ namespace tardisParser {
                         context.state = State::SelectFrom;
                     } else if (end.equalsControlSymbol(controlSymbols::separator)) {
                         context.state = State::SelectProjectionAttrSeparator;
+                    } else if (end.hasType(Type::delimiter)) {
+                        // SELECT without FROM: the expressions of one row
+                        context.selectStmt->relations.push_back(Table());
+                        context.selectStmt->relations.back().name = sqlExpressions::oneRowTable;
+                        context.selectStmt->relations.back().version = "master";
+                        context.state = State::Done;
                     } else {
                         throw syntactical_error("Expected ',' or 'FROM', found '" + end.value + "'");
                     }

@@ -881,6 +881,52 @@ TABLE` and `COPY`, computed arrays in parallel scans, double precision with both
 and doubles in joins and as join keys), with
 `TARDISDB_VERIFY_IR=1`; `test/test_pgserver.py` (lists of both drivers, arrays and floats in results).
 
+# Common table expressions (`WITH [RECURSIVE]`), `UNION` and `VALUES`
+
+`WITH [RECURSIVE] name [ ( columns ) ] AS ( query ) [, ...] query`, where a query is `SELECT`s combined
+by `UNION [ALL]` from left to right, `VALUES ( ... ) [, ...]` (a `SELECT` per row, with the columns
+`column1`, ...) or a `SELECT` without `FROM` (one row). `QueryCompiler::execute` recognises these
+statements (`with::parseSetStatement`, which splits the text at the parentheses and the words `WITH`,
+`AS` and `UNION` outside strings and comments) and runs each `SELECT` as a statement of its own
+(`runQuery`), under the latches of the whole statement: the catalog shared, the tables of all its
+queries, and their branches (all branches if a query reads `VERSION ALL`, `DESCENDANTS` or `LEAVES`).
+
+* **Temporary tables** (`TemporaryTables`, `foundations/Database.hpp`): tables outside the catalogue that
+  only the statements of the current thread see, under names that shadow the tables of the catalogue
+  (`Database::getTable` looks there first), read and written in master; their statement holds the
+  catalog latch, so no branch is created while they exist. A common table expression is computed into
+  one before the queries that follow read it; the row of a `SELECT` without `FROM` is one too
+  (`sqlExpressions::oneRowTable`, a name no statement can spell). A query reads a common table
+  expression in master whatever the branch of the session or of a transaction (`confine` leaves it
+  alone); `VERSION` on it is an error.
+* **Recursion**: with `RECURSIVE`, the queries of a `UNION` that read their own expression are its
+  recursive queries; they follow the others, as in PostgreSQL, and read the working table, the rows the
+  previous step added (at first those of the other queries), until a step adds none. Each step compiles
+  its queries again (about 2 ms per step for a query of one table) and frees the working table before.
+  A recursive query reads its expression once (`recursive reference ... must not appear more than
+  once`).
+* **Columns**: the names of the first query (or of the column list), in the common type of the
+  non-recursive queries, as PostgreSQL resolves `UNION`: integer < bigint < numeric (of the greater
+  scale, 18 digits) < double precision, strings as `text`; other types must be equal. The recursive
+  queries must give these types. All columns may be `NULL`. Rows are copied into the temporary tables
+  through the text of their values (`castColumnValue`), so that they own their strings.
+* **Duplicates**: `UNION` without `ALL` removes the duplicates of all queries up to it (left to right:
+  `a UNION ALL b UNION c` has no duplicates, `a UNION b UNION ALL c` may), comparing the values in the
+  column's type (`1` and `1.0` of a numeric column are one, two `NULL`s are equal); in a recursive
+  expression, also against the rows of earlier steps, so that the recursion ends on cycles of a graph.
+* `SELECT` without `FROM` works everywhere (`SELECT 1;`); in the `sql` shell, such statements and those
+  with `WITH`, `UNION` or `VALUES` run as statements of a session in master.
+* Not supported: `INTERSECT`, `EXCEPT`, `ORDER BY` and `LIMIT` (in no query of TardisDB), subqueries in
+  `FROM`, data-modifying statements in `WITH`, mutual recursion (an expression reads only those before
+  it, and itself); `+ - * /` of bigint and `||` of text, which recursive queries often use, are not in
+  the expressions of TardisDB yet.
+
+Checks: `test/cte_test.cpp` (8 tests: `SELECT` without `FROM`, counting, hierarchies over joins, graphs
+with cycles, several expressions that read each other or hide a table, `NULL`s, arrays and doubles in
+the rows, `UNION` and `VALUES` with the types of their columns, branches and a transaction, the errors of
+PostgreSQL), every query also with parallel scans and with `TARDISDB_VERIFY_IR=1`; recursion and
+`UNION` of both drivers in `test/test_pgserver.py`.
+
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 
 `compare/run.sh <dir>` builds pgserver with LLVM 7 in the container and runs it there (host network,

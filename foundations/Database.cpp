@@ -778,22 +778,73 @@ Database::Database() :
 }
 
 Table & Database::createTable(const std::string & name) {
-    auto [it, ok] = _tables.emplace(name, std::make_unique<Table>(*this));
+    auto [it, ok] = _tables.emplace(name, createTemporaryTable());
     assert(ok);
+    return *it->second;
+}
+
+std::unique_ptr<Table> Database::createTemporaryTable() {
+    auto table = std::make_unique<Table>(*this);
     // one entry per branch identifier, including those of dropped branches; parents come first
     for (branch_id_t i = 1; i < _next_branch_id; i++) {
         auto branch = _branches.find(i);
-        it->second->createBranch(i, branch != _branches.end() ? branch->second->parent_id : invalid_branch_id);
+        table->createBranch(i, branch != _branches.end() ? branch->second->parent_id : invalid_branch_id);
         if (branch == _branches.end()) {
-            it->second->getMembership().removeBranch(i);
+            table->getMembership().removeBranch(i);
         }
     }
-    it->second->_writes.resize(_identParent.size());
-    return *it->second;
+    table->_writes.resize(_identParent.size());
+    return table;
+}
+
+//-----------------------------------------------------------------------------
+// TemporaryTables
+
+static thread_local TemporaryTables * currentTemporaryTables = nullptr;
+static thread_local const Database * currentTemporaryDatabase = nullptr;
+
+TemporaryTables::TemporaryTables(Database & db) : _db(db), _previous(currentTemporaryTables) {
+    // the tables of an enclosing object stay visible: its names are copied
+    if (_previous != nullptr && currentTemporaryDatabase == &db) _names = _previous->_names;
+    currentTemporaryTables = this;
+    currentTemporaryDatabase = &db;
+}
+
+TemporaryTables::~TemporaryTables() {
+    currentTemporaryTables = _previous;
+    currentTemporaryDatabase = (_previous != nullptr) ? &_previous->_db : nullptr;
+}
+
+Table & TemporaryTables::create(const std::vector<std::pair<std::string, Sql::SqlType>> & columns) {
+    _tables.push_back(_db.createTemporaryTable());
+    Table & table = *_tables.back();
+    for (auto & [name, type] : columns) table.addColumn(name, type);
+    return table;
+}
+
+void TemporaryTables::bind(const std::string & name, Table * table) {
+    if (table == nullptr) _names.erase(name);
+    else _names[name] = table;
+}
+
+void TemporaryTables::release(Table * table) {
+    for (auto it = _tables.begin(); it != _tables.end(); ++it) {
+        if (it->get() == table) {
+            _tables.erase(it);
+            return;
+        }
+    }
+}
+
+Table * TemporaryTables::find(const Database & db, const std::string & name) {
+    if (currentTemporaryTables == nullptr || currentTemporaryDatabase != &db) return nullptr;
+    auto it = currentTemporaryTables->_names.find(name);
+    return it != currentTemporaryTables->_names.end() ? it->second : nullptr;
 }
 
 Table* Database::getTable(const std::string & tableName)
 {
+    if (Table * temporary = TemporaryTables::find(*this, tableName)) return temporary;
     // TODO search case insensitive
     auto it = _tables.find(tableName);
     if (it != _tables.end()) {

@@ -33,4 +33,8 @@ struct Node {
 
 using node_p_t = std::shared_ptr<Node>;
 
+/// The relation of a SELECT without FROM: a temporary table of one row (TemporaryTables), under a name
+/// that no statement can spell
+inline const std::string oneRowTable("\x01one");
+
 } // end namespace sqlExpressions

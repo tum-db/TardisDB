@@ -150,6 +150,20 @@ with psycopg.connect(dsn, autocommit=True) as c3:
 # a join with expressions over arrays
 cur.execute("select k.name, ar.v[1] + nn.v from k, ar, nn where k.id = ar.id and ar.id = nn.id and ar.id = 2")
 assert cur.fetchall() == [("n'2", 24)]
+# WITH RECURSIVE, UNION and SELECT without FROM, with parameters of both drivers
+cur.execute("with recursive t(n) as (select 1 union all select n + 1 from t where n < %s) select n, n * n as sq from t", (4,))
+assert [d.name for d in cur.description] == ["n", "sq"], cur.description
+assert sorted(cur.fetchall()) == [(1, 1), (2, 4), (3, 9), (4, 16)]
+assert cur.rowcount == 4
+cur.execute("select 1 union select 2.5")
+assert sorted(r[0] for r in cur.fetchall()) == [decimal.Decimal("1.0"), decimal.Decimal("2.5")]
+cur.execute("select 1")
+assert cur.fetchall() == [(1,)]
+with psycopg.connect(dsn, autocommit=True) as c3:
+    rows = c3.execute("with recursive up(id, level) as (select id, 0 from k where id = %s "
+                      "union all select k.id, up.level + 1 from k, up where k.id = up.id - 1) select id, level from up", (3,)).fetchall()
+    assert sorted(rows) == [(1, 2), (2, 1), (3, 0)], rows
+    print("psycopg3 recursive:", sorted(rows))
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types

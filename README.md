@@ -201,6 +201,8 @@ every branch: `WHERE` has SQL's three-valued logic, aggregates skip `NULL`s, and
 treat two `NULL`s as equal (`test/null_test.cpp`). Columns may be arrays of PostgreSQL (`integer[]`,
 `text[]`, ... of any number of dimensions, with their functions and operators) and of type
 `double precision`; the select list, `WHERE` and `SET` take expressions (`test/array_test.cpp`).
+Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION [ALL]`; `VALUES` and
+`SELECT` without `FROM` are queries too (`test/cte_test.cpp`).
 
 ## SQL shell
 
