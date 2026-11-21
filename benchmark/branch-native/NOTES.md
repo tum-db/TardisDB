@@ -843,7 +843,10 @@ bounds and `NULL` elements, in `native/sql/Array.hpp`.
   comparisons with `IS [NOT] NULL`, `[NOT] BETWEEN`, `[NOT] IN`, `op ANY/SOME/ALL (array)`, `||`, `@>`,
   `<@`, `&&`, `+ -`, `* /`, unary minus, subscripts, casts `::type` and `CAST(x AS type)`, function calls,
   `ARRAY[...]`), whose tree (`sqlExpressions::Node`) the `ExpressionAnalyser` types: constants take the
-  type of the other side, numbers are cast to a common type (integer, bigint, numeric, double). Computed
+  type of the other side, a number the common type of both (`k + 0.5` of an integer `k` is a numeric),
+  and numbers are cast to a common type (integer, bigint, numeric, double; `+ - * /` take no bigint yet).
+  In `WHERE`, numbers with a point or an exponent go through the expression rather than the predicates of
+  a column, which take a constant in the column's type (`k < 1.5` held for no integer `k = 1`). Computed
   columns of the select list (named as in PostgreSQL, `AS` aliases) are a `Map` (now implemented,
   logical and physical); conditions over one table go to its production, those over several above the
   joins; `SET c = expr` is an update expression in the column's type. Queries over several branches and

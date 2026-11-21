@@ -164,6 +164,11 @@ namespace {
         EXPECT_EQ(query("select k from t where k not in ( 1 , 3 );"), (rows_t{"(2)"}));
         EXPECT_EQ(query("select k from t where k * k > 3 and k - 1 <> 2;"), (rows_t{"(2)"}));
         EXPECT_EQ(query("select k , - k from t where k = 2;"), (rows_t{"(2, -2)"}));
+        // a number takes the common type with the other side: k + 0.5 of an integer k is a numeric
+        EXPECT_EQ(query("select k + 0.5 , k * 1.5 , 0.25 + k , k - 2.25 from t where k = 1;"), (rows_t{"(1.5, 1.50, 1.25, -1.25)"}));
+        EXPECT_EQ(query("select k from t where k < 1.5;"), (rows_t{"(1)"}));
+        EXPECT_EQ(query("select k from t where k * 2.5 >= 5 and k between 1.5 and 2.5;"), (rows_t{"(2)"}));
+        EXPECT_EQ(query("select k + 1e0 from t where k = 3;"), (rows_t{"(4)"}));
         // the names of computed columns (as PostgreSQL), and aliases
         std::vector<std::string> names;
         QueryCompiler::execute("select k , a[1] , cardinality(a) , ARRAY[k] , k + 1 , k + 2 as two from t;", *db, "main",

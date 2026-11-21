@@ -284,17 +284,25 @@ exp_op_t ExpressionAnalyser::analyse(const Node & n, const SqlType * expected)
 
 std::pair<exp_op_t, exp_op_t> ExpressionAnalyser::typedPair(const Node & l, const Node & r, const std::string & what)
 {
-    // a constant (also ARRAY[ ... ] of constants) takes the type of the other side
+    // a constant (also ARRAY[ ... ] of constants) takes the type of the other side; a number takes the
+    // common type of both, as in PostgreSQL: k + 0.5 of an integer k is a numeric
     auto adaptable = [](const Node & c) { return isLiteral(c) || isConstantArray(c); };
+    auto adapt = [&](const Node & c, SqlType type) {
+        SqlType own = isLiteral(c) ? literalType(c) : Sql::getUnknownTy(), common;
+        if (isNumber(type) && isNumber(own) && commonType(type, own, common)) {
+            common.nullable = type.nullable;
+            type = common;
+        }
+        return analyse(c, &type);
+    };
     exp_op_t left, right;
     if (adaptable(l) && !adaptable(r)) {
         right = analyse(r);
-        SqlType type = right->getType();
-        left = analyse(l, &type);
+        left = adapt(l, right->getType());
     } else {
         left = analyse(l);
         SqlType type = left->getType();
-        right = adaptable(r) && type.typeID != TypeID::UnknownID ? analyse(r, &type) : analyse(r);
+        right = adaptable(r) && type.typeID != TypeID::UnknownID ? adapt(r, type) : analyse(r);
     }
     SqlType a = left->getType(), b = right->getType(), common;
     if (!commonType(a, b, common)) {

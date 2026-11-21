@@ -503,7 +503,15 @@ namespace tardisParser {
         split(condition);
 
         auto isColumn = [](const Node & n) { return n.kind == Node::Kind::Column; };
-        auto isValue = [](const Node & n) { return uncast(n).kind == Node::Kind::Literal; };
+        // a constant of the predicates, which take it in the column's type; numbers with a point or an
+        // exponent go through the expression instead, which compares in the common type (k < 1.5 of an integer k)
+        auto isValue = [](const Node & n) {
+            const Node & u = uncast(n);
+            if (u.kind != Node::Kind::Literal) return false;
+            const bool number = !u.quoted && !u.value.empty() && (std::isdigit(static_cast<unsigned char>(u.value[0])) ||
+                                                                   u.value[0] == '-' || u.value[0] == '+' || u.value[0] == '.');
+            return !number || u.value.find_first_of(".eE") == std::string::npos;
+        };
         auto items = [](const Node & n) {
             std::vector<const Node *> list;
             if (n.kind == Node::Kind::Row) for (auto & c : n.children) list.push_back(&uncast(c));
