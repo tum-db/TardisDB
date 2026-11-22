@@ -57,7 +57,12 @@ make -j branchBench tester
 * LLVM 16 made the block and instruction lists private: `BasicBlock::insertInto`, `BasicBlock::front`.
 * The legacy pass manager of LLVM 18 has no aggressive DCE; plain DCE is used there.
 * GCC 13: missing standard includes; `std::make_unique`.
-* CMake: `TARDISDB_LLVM_VERSION` (default 7) selects the LLVM major version.
+* CMake: `TARDISDB_LLVM_VERSION` selects the LLVM major version; empty (the default), the first installed
+  of 18 and 7. Only `LLVM_DIR` and the versioned directories of Debian/Ubuntu and Homebrew are searched,
+  so that another installed LLVM is not taken instead. The REST server needs Pistache and is skipped
+  without it.
+* `TypeTranslator` of the integer and floating-point types returned nothing; builds without optimisation
+  crashed there (SIGILL in `InteropTest`).
 
 **Multi-threaded execution**: TardisDB compiled every query into one sequential loop. Queries now run
 morsel-driven (`foundations/Parallel.*`):

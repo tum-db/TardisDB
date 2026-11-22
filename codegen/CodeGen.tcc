@@ -29,52 +29,52 @@ llvm::CallInst * CodeGen::CreateCall(
 
 template<>
 struct TypeTranslator<int8_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt8Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt8Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<int16_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt16Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt16Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<int32_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt32Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt32Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<int64_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt64Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt64Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<uint8_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt8Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt8Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<uint16_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt16Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt16Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<uint32_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt32Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt32Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<uint64_t> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getInt64Ty(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getInt64Ty(ctx); }
 };
 
 template<>
 struct TypeTranslator<float> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getFloatTy(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getFloatTy(ctx); }
 };
 
 template<>
 struct TypeTranslator<double> {
-    static llvm::Type* get(llvm::LLVMContext& ctx) { llvm::Type::getDoubleTy(ctx); }
+    static llvm::Type* get(llvm::LLVMContext& ctx) { return llvm::Type::getDoubleTy(ctx); }
 };
 
 //-----------------------------------------------------------------------------
