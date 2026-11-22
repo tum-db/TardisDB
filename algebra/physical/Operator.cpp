@@ -36,6 +36,16 @@ void Operator::setParent(Operator * parent)
     this->_parent = parent;
 }
 
+void Operator::emit(const iu_value_mapping_t & values)
+{
+    if (_rowCounter != nullptr) {
+        auto & context = _codeGen.getLLVMContext();
+        llvm::Value * counter = createPointerValue(_rowCounter, llvm::Type::getInt64Ty(context));
+        LLVMCompat::createAtomicAdd(_codeGen.getIRBuilder(), counter, llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1));
+    }
+    _parent->consume(values, *this);
+}
+
 const iu_set_t & Operator::getRequired()
 {
     return _logicalOperator.getRequired();

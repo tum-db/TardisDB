@@ -5,6 +5,8 @@
 #include "queryCompiler/queryCompiler.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <mutex>
 #include <exception>
 #include <optional>
@@ -29,6 +31,7 @@
 
 #include "algebra/logical/operators.hpp"
 #include "algebra/translation.hpp"
+#include "algebra/physical/operators.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/loader.hpp"
@@ -290,7 +293,443 @@ namespace QueryCompiler {
         drop_branches(db, {db._branchMapping.at(transaction.snapshot)});
     }
 
+    /// The times of the statement that runs on this thread (see Timing)
+    namespace timing {
+
+    using Clock = std::chrono::steady_clock;
+
+    thread_local Timing current;
+    thread_local int depth = 0;
+
+    inline double since(Clock::time_point start) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+    }
+
+    /// Adds the time of its scope to a phase
+    struct Phase {
+        double & slot;
+        Clock::time_point start = Clock::now();
+        explicit Phase(double & slot) : slot(slot) { }
+        ~Phase() { slot += since(start); }
+    };
+
+    /// A call of execute() or compileAndExecute(); the outermost one starts the times of the statement
+    struct Statement {
+        Clock::time_point start = Clock::now();
+        bool outer;
+        Statement() : outer(depth++ == 0) {
+            if (outer) {
+                current = Timing();
+                QueryExecutor::runTimes() = QueryExecutor::RunTimes();
+            }
+        }
+        ~Statement() { --depth; }
+        Timing finish() const {
+            Timing t = current;
+            t.llvm = QueryExecutor::runTimes().compilation;
+            t.total = since(start);
+            t.execution = std::max(0.0, t.total - t.compilation());
+            return t;
+        }
+    };
+
+    } // end namespace timing
+
+    /// EXPLAIN [ANALYZE]: the plans of the queries a statement compiles, as JSON
+    namespace explain {
+
+    namespace LE = Algebra::Logical::Expressions;
+
+    /// An operator of a plan: its fields (rendered JSON values), its row counter and its inputs
+    struct Node {
+        std::vector<std::pair<std::string, std::string>> fields;
+        const uint64_t * rows = nullptr;
+        std::vector<Node> children;
+    };
+
+    struct Plan {
+        std::string query;
+        Node root;
+        std::vector<std::unique_ptr<uint64_t>> counters; // addresses that the generated code embeds
+    };
+
+    struct State {
+        bool analyze = false;
+        std::vector<Plan> plans;
+    };
+
+    thread_local State * active = nullptr;
+
+    /// The tables of the scans of the plan being described, by the scanUID of their columns; with
+    /// more than one table, columns are qualified by their table
+    thread_local std::unordered_map<uint32_t, std::string> scanTables;
+    thread_local bool qualify = false;
+
+    std::string quote(const std::string & s) {
+        std::string out = "\"";
+        for (char c : s) {
+            switch (c) {
+                case '"': out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                default:
+                    if (static_cast<unsigned char>(c) < 0x20) {
+                        char buffer[8];
+                        std::snprintf(buffer, sizeof(buffer), "\\u%04x", c);
+                        out += buffer;
+                    } else {
+                        out += c;
+                    }
+            }
+        }
+        return out + "\"";
+    }
+
+    std::string list(const std::vector<std::string> & items) {
+        std::string out = "[";
+        for (size_t i = 0; i < items.size(); ++i) out += (i ? ", " : "") + quote(items[i]);
+        return out + "]";
+    }
+
+    std::string number(double value) {
+        char buffer[32];
+        std::snprintf(buffer, sizeof(buffer), "%.3f", value);
+        return buffer;
+    }
+
+    std::string tableName(Database & db, const Table & table) {
+        for (auto & [name, t] : db.getTables()) if (t.get() == &table) return name;
+        return "(temporary)"; // a common table expression, the groups of an aggregation, ...
+    }
+
+    std::string branchName(Database & db, branch_id_t id) {
+        for (auto & [name, b] : db._branchMapping) if (b == id) return name;
+        return std::to_string(id);
+    }
+
+    std::string iuName(iu_p_t iu) {
+        if (iu != nullptr && iu->iuType == InformationUnit::Type::ColumnRef && iu->columnInformation != nullptr) {
+            auto table = scanTables.find(iu->scanUID);
+            if (qualify && table != scanTables.end()) return table->second + "." + iu->columnInformation->columnName;
+            return iu->columnInformation->columnName;
+        }
+        return "?column?";
+    }
+
+    std::string arrayFunctionName(Native::Sql::Arrays::Function function) {
+        static const char * names[] = {"array", "subscript", "slice", "array_append", "array_prepend", "array_cat",
+            "array_length", "array_lower", "array_upper", "array_ndims", "array_dims", "cardinality", "array_position",
+            "array_positions", "array_remove", "array_replace", "array_fill", "array_to_string", "string_to_array",
+            "trim_array", "@>", "<@", "&&", "any", "all", "=", "elementwise", "**", "kroneckerproduct", "transpose",
+            "map", "softmax", "softmaxcce", "softmaxccep", "highestposition"};
+        const auto i = static_cast<size_t>(function);
+        return i < sizeof(names) / sizeof(names[0]) ? names[i] : "array_function";
+    }
+
+    /// \returns The expression in SQL
+    std::string expression(const LE::Expression & e) {
+        auto binary = [](const LE::BinaryOperator & b, const char * op) {
+            return "(" + expression(b.getLeftChild()) + " " + op + " " + expression(b.getRightChild()) + ")";
+        };
+        if (auto * c = dynamic_cast<const LE::Comparison *>(&e)) {
+            static const char * ops[] = {"<", "<=", "=", ">=", ">"};
+            return binary(*c, ops[static_cast<int>(c->_mode)]);
+        }
+        if (auto * b = dynamic_cast<const LE::And *>(&e)) return binary(*b, "AND");
+        if (auto * b = dynamic_cast<const LE::Or *>(&e)) return binary(*b, "OR");
+        if (auto * b = dynamic_cast<const LE::Addition *>(&e)) return binary(*b, "+");
+        if (auto * b = dynamic_cast<const LE::Subtraction *>(&e)) return binary(*b, "-");
+        if (auto * b = dynamic_cast<const LE::Multiplication *>(&e)) return binary(*b, "*");
+        if (auto * b = dynamic_cast<const LE::Division *>(&e)) return binary(*b, "/");
+        if (auto * n = dynamic_cast<const LE::Not *>(&e)) return "(NOT " + expression(n->getChild()) + ")";
+        if (auto * n = dynamic_cast<const LE::IsNull *>(&e)) return "(" + expression(n->getChild()) + (n->_negated ? " IS NOT NULL)" : " IS NULL)");
+        if (auto * c = dynamic_cast<const LE::Cast *>(&e)) return expression(c->getChild()) + "::" + Sql::getName(Sql::toNotNullableTy(c->_destType));
+        if (auto * i = dynamic_cast<const LE::Identifier *>(&e)) return iuName(i->_iu);
+        if (auto * c = dynamic_cast<const LE::Constant *>(&e)) {
+            const auto id = c->_type.typeID;
+            const bool quoted = id == Sql::SqlType::TypeID::TextID || id == Sql::SqlType::TypeID::VarcharID || id == Sql::SqlType::TypeID::CharID ||
+                                id == Sql::SqlType::TypeID::DateID || id == Sql::SqlType::TypeID::TimestampID || id == Sql::SqlType::TypeID::ArrayID;
+            return quoted ? "'" + c->_value + "'" : c->_value;
+        }
+        if (dynamic_cast<const LE::NullConstant *>(&e)) return "NULL";
+        if (auto * f = dynamic_cast<const LE::ArrayFunction *>(&e)) {
+            std::string out = arrayFunctionName(f->_function) + "(";
+            for (size_t i = 0; i < f->_arguments.size(); ++i) out += (i ? ", " : "") + expression(*f->_arguments[i]);
+            return out + ")";
+        }
+        return "?";
+    }
+
+    /// The node of an operator and its inputs; with ANALYZE, a row counter per operator
+    Node describe(Algebra::Physical::Operator & op, Database & db, Plan & plan) {
+        namespace P = Algebra::Physical;
+        namespace L = Algebra::Logical;
+        Node node;
+        auto field = [&](const std::string & key, const std::string & json) { node.fields.emplace_back(key, json); };
+        auto type = [&](const std::string & name) { field("Node Type", quote(name)); };
+        const L::Operator & logical = op.getLogicalOperator();
+
+        if (dynamic_cast<P::TableScan *>(&op)) {
+            auto & scan = const_cast<L::TableScan &>(dynamic_cast<const L::TableScan &>(logical));
+            type(scan.getIndex() != nullptr ? "Index Scan" : "Table Scan");
+            field("Relation Name", quote(tableName(db, scan.getTable())));
+            field("Branch", quote(branchName(db, scan.getBranchId())));
+            if (scan.getIndex() != nullptr) field("Index Name", quote(scan.getIndex()->name));
+        } else if (dynamic_cast<P::Select *>(&op)) {
+            type("Filter");
+            field("Filter", quote(expression(*dynamic_cast<const L::Select &>(logical)._exp)));
+        } else if (dynamic_cast<P::Map *>(&op)) {
+            type("Map");
+            std::vector<std::string> outputs;
+            for (auto & mapping : dynamic_cast<const L::Map &>(logical)._mappings) outputs.push_back(expression(*mapping.exp));
+            field("Output", list(outputs));
+        } else if (dynamic_cast<P::HashJoin *>(&op)) {
+            type("Hash Join");
+            std::string condition;
+            for (auto & e : dynamic_cast<const L::Join &>(logical)._joinExprVec) condition += (condition.empty() ? "" : " AND ") + expression(*e);
+            if (!condition.empty()) field("Join Cond", quote(condition));
+        } else if (dynamic_cast<P::GroupBy *>(&op)) {
+            type("Aggregate");
+            std::vector<std::string> aggregates;
+            for (auto & a : dynamic_cast<const L::GroupBy &>(logical)._aggregations) {
+                namespace A = L::Aggregations;
+                aggregates.push_back(dynamic_cast<A::Sum *>(a.get()) ? "sum" : dynamic_cast<A::Avg *>(a.get()) ? "avg" :
+                                     dynamic_cast<A::CountAll *>(a.get()) ? "count(*)" : dynamic_cast<A::Min *>(a.get()) ? "min" : "group key");
+            }
+            field("Aggregates", list(aggregates));
+        } else if (dynamic_cast<P::BranchAggregation *>(&op)) {
+            auto & aggregation = dynamic_cast<const L::BranchAggregation &>(logical);
+            type("Branch Aggregation");
+            field("Relation Name", quote(tableName(db, aggregation.getTable())));
+            std::vector<std::string> branches;
+            for (auto b : aggregation.getBranches()) branches.push_back(branchName(db, b));
+            field("Branches", list(branches));
+            field("Strategy", quote(L::BranchAggregation::_strategy == L::BranchAggregation::Strategy::Shared ? "branch-shared scan" : "scan per branch"));
+            std::vector<std::string> aggregates;
+            static const char * functions[] = {"count", "sum", "min", "max", "avg"};
+            for (auto & a : aggregation.getAggregates()) {
+                aggregates.push_back(std::string(functions[static_cast<int>(a.function)]) + "(" + (a.input ? iuName(a.input) : "*") + ")");
+            }
+            field("Aggregates", list(aggregates));
+            std::string condition;
+            for (auto & e : aggregation._predicates) condition += (condition.empty() ? "" : " AND ") + expression(*e);
+            if (!condition.empty()) field("Filter", quote(condition));
+        } else if (dynamic_cast<P::BranchDiff *>(&op)) {
+            auto & diff = dynamic_cast<const L::BranchDiff &>(logical);
+            type("Branch Diff");
+            field("Relation Name", quote(tableName(db, diff.getTable())));
+            field("Branches", list({branchName(db, diff.getFirst()), branchName(db, diff.getSecond())}));
+            std::string condition;
+            for (auto & e : diff._predicates) condition += (condition.empty() ? "" : " AND ") + expression(*e);
+            if (!condition.empty()) field("Filter", quote(condition));
+        } else if (dynamic_cast<P::Insert *>(&op)) {
+            auto & insert = const_cast<L::Insert &>(dynamic_cast<const L::Insert &>(logical));
+            type("Insert");
+            field("Relation Name", quote(tableName(db, insert.getTable())));
+            field("Branch", quote(branchName(db, insert.getBranchId())));
+            field("Tuples", std::to_string(insert.getTuples().size()));
+        } else if (auto * physicalUpdate = dynamic_cast<P::Update *>(&op)) {
+            auto & update = const_cast<L::Update &>(dynamic_cast<const L::Update &>(logical));
+            type("Update");
+            field("Relation Name", quote(tableName(db, update.getTable())));
+            field("Branch", quote(branchName(db, update.getBranchId())));
+            std::vector<std::string> set; // the constants went to the physical operator
+            for (auto & pair : physicalUpdate->getUpdateIUs()) if (!pair.second.empty()) set.push_back(iuName(pair.first) + " = " + pair.second);
+            for (auto & pair : update.updateExpressions) set.push_back(iuName(pair.first) + " = " + expression(*pair.second));
+            field("Set", list(set));
+        } else if (dynamic_cast<P::Delete *>(&op)) {
+            auto & del = const_cast<L::Delete &>(dynamic_cast<const L::Delete &>(logical));
+            type("Delete");
+            field("Relation Name", quote(tableName(db, del.getTable())));
+            field("Branch", quote(branchName(db, del.getBranchId())));
+        } else if (dynamic_cast<P::Print *>(&op) || dynamic_cast<P::TupleStream *>(&op)) {
+            type("Result");
+            std::vector<std::string> outputs;
+            if (auto * result = dynamic_cast<const L::Result *>(&logical)) for (iu_p_t iu : result->selection) outputs.push_back(iuName(iu));
+            field("Output", list(outputs));
+        } else {
+            type("Operator");
+        }
+
+        for (auto * child : op.getChildren()) node.children.push_back(describe(*child, db, plan));
+        // the writes pass nothing on (their rows are those of their input)
+        const bool write = dynamic_cast<P::Insert *>(&op) || dynamic_cast<P::Update *>(&op) || dynamic_cast<P::Delete *>(&op);
+        if (active->analyze && !write) {
+            if (op.getChildren().empty() || !(dynamic_cast<P::Print *>(&op) || dynamic_cast<P::TupleStream *>(&op))) {
+                plan.counters.push_back(std::make_unique<uint64_t>(0));
+                op.setRowCounter(plan.counters.back().get());
+                node.rows = plan.counters.back().get();
+            } else {
+                node.rows = node.children.front().rows; // the result passes on what its input produces
+            }
+        }
+        return node;
+    }
+
+    /// Before the code of a query is generated: its plan, and its row counters with ANALYZE
+    void collectScans(Algebra::Physical::Operator & op, Database & db, std::set<std::string> & tables) {
+        if (dynamic_cast<Algebra::Physical::TableScan *>(&op)) {
+            auto & scan = const_cast<Algebra::Logical::TableScan &>(dynamic_cast<const Algebra::Logical::TableScan &>(op.getLogicalOperator()));
+            const std::string name = tableName(db, scan.getTable());
+            for (iu_p_t iu : scan.getProduced()) if (iu->iuType == InformationUnit::Type::ColumnRef) scanTables[iu->scanUID] = name;
+            tables.insert(name + "#" + std::to_string(reinterpret_cast<uintptr_t>(&op)));
+        }
+        for (auto * child : op.getChildren()) collectScans(*child, db, tables);
+    }
+
+    void record(const std::string & query, Algebra::Physical::Operator & root, Database & db) {
+        scanTables.clear();
+        std::set<std::string> scans;
+        collectScans(root, db, scans);
+        qualify = scans.size() > 1;
+        Plan plan;
+        plan.query = query;
+        plan.root = describe(root, db, plan);
+        active->plans.push_back(std::move(plan));
+    }
+
+    void render(const Node & node, const std::string & indent, std::vector<std::pair<std::string, std::string>> extra,
+                uint64_t rows, bool analyze, std::string & out, const std::vector<const Node *> * repeats = nullptr) {
+        out += "{\n";
+        std::vector<std::pair<std::string, std::string>> fields = std::move(extra);
+        fields.insert(fields.end(), node.fields.begin(), node.fields.end());
+        if (analyze && node.rows != nullptr) fields.emplace_back("Actual Rows", std::to_string(rows));
+        for (size_t i = 0; i < fields.size(); ++i) {
+            out += indent + "  " + quote(fields[i].first) + ": " + fields[i].second;
+            out += (i + 1 < fields.size() || !node.children.empty()) ? ",\n" : "\n";
+        }
+        if (!node.children.empty()) {
+            out += indent + "  \"Plans\": [\n";
+            for (size_t c = 0; c < node.children.size(); ++c) {
+                uint64_t childRows = 0;
+                std::vector<const Node *> childRepeats;
+                if (repeats != nullptr) for (auto * r : *repeats) childRepeats.push_back(&r->children[c]);
+                for (auto * r : childRepeats) if (r->rows) childRows += *r->rows;
+                if (repeats == nullptr && node.children[c].rows) childRows = *node.children[c].rows;
+                out += indent + "    ";
+                render(node.children[c], indent + "    ", {}, childRows, analyze, out, repeats ? &childRepeats : nullptr);
+                out += (c + 1 < node.children.size()) ? ",\n" : "\n";
+            }
+            out += indent + "  ]\n";
+        }
+        out += indent + "}";
+    }
+
+    /// \returns The node without its row counts, to recognise the same plan run again
+    std::string shape(const Node & node) {
+        std::string out;
+        for (auto & f : node.fields) out += f.first + "=" + f.second + ";";
+        out += "[";
+        for (auto & c : node.children) out += shape(c) + ",";
+        return out + "]";
+    }
+
+    /// \returns The JSON of EXPLAIN: one plan, or of several queries the plan of each (the same query
+    /// run again, as the steps of a recursive common table expression, once with its executions)
+    std::string document(const State & state, double planning, double translation, double compilation, double execution) {
+        std::string plan;
+        const std::string indent = "    ";
+        if (state.plans.size() == 1) {
+            const Node & root = state.plans.front().root;
+            render(root, indent, {}, root.rows ? *root.rows : 0, state.analyze, plan);
+        } else {
+            // runs of the same query with the same plan
+            std::vector<std::vector<const Plan *>> groups;
+            std::vector<std::string> shapes;
+            for (auto & p : state.plans) {
+                std::string s = p.query + "|" + shape(p.root);
+                if (!groups.empty() && shapes.back() == s) groups.back().push_back(&p);
+                else { groups.push_back({&p}); shapes.push_back(s); }
+            }
+            plan = "{\n" + indent + "  \"Node Type\": \"Queries\",\n" + indent + "  \"Plans\": [\n";
+            for (size_t g = 0; g < groups.size(); ++g) {
+                std::vector<const Node *> repeats;
+                uint64_t rows = 0;
+                for (auto * p : groups[g]) { repeats.push_back(&p->root); if (p->root.rows) rows += *p->root.rows; }
+                std::vector<std::pair<std::string, std::string>> extra = {{"Query", quote(groups[g].front()->query)}};
+                if (groups[g].size() > 1) extra.emplace_back("Executions", std::to_string(groups[g].size()));
+                plan += indent + "    ";
+                render(groups[g].front()->root, indent + "    ", extra, rows, state.analyze, plan, &repeats);
+                plan += (g + 1 < groups.size()) ? ",\n" : "\n";
+            }
+            plan += indent + "  ]\n" + indent + "}";
+        }
+        std::string out = "[\n  {\n    \"Plan\": " + plan + ",\n";
+        out += "    \"Planning Time\": " + number(planning) + ",\n";
+        out += "    \"Translation Time\": " + number(translation);
+        if (state.analyze) {
+            out += ",\n    \"Compilation Time\": " + number(compilation) + ",\n";
+            out += "    \"Execution Time\": " + number(execution);
+        }
+        return out + "\n  }\n]";
+    }
+
+    /// EXPLAIN [ ANALYZE ] [ VERBOSE ] [ ( option [ , ... ] ) ] statement
+    /// \returns Whether the statement is EXPLAIN; then \p analyze and the explained \p statement
+    bool parse(const std::string & query, bool & analyze, std::string & statement) {
+        size_t i = 0;
+        auto skip = [&]() { while (i < query.size() && std::isspace(static_cast<unsigned char>(query[i]))) ++i; };
+        auto word = [&]() {
+            skip();
+            size_t start = i;
+            while (i < query.size() && (std::isalnum(static_cast<unsigned char>(query[i])) || query[i] == '_')) ++i;
+            std::string w = query.substr(start, i - start);
+            std::transform(w.begin(), w.end(), w.begin(), ::tolower);
+            return w;
+        };
+        if (word() != "explain") return false;
+        analyze = false;
+        for (;;) {
+            const size_t before = i;
+            skip();
+            if (i < query.size() && query[i] == '(') {
+                ++i;
+                for (;;) {
+                    const std::string option = word();
+                    skip();
+                    std::string value;
+                    if (i < query.size() && query[i] != ',' && query[i] != ')') value = word();
+                    skip();
+                    if (option == "analyze") {
+                        if (value.empty() || value == "true" || value == "on" || value == "1") analyze = true;
+                        else if (value == "false" || value == "off" || value == "0") analyze = false;
+                        else throw tardisParser::syntactical_error("invalid value for ANALYZE: " + value);
+                    } else if (option == "format") {
+                        if (value != "json") throw tardisParser::syntactical_error("EXPLAIN supports FORMAT JSON only");
+                    } else if (option != "verbose" && option != "costs" && option != "timing" && option != "summary") {
+                        throw tardisParser::syntactical_error("unrecognized EXPLAIN option \"" + option + "\"");
+                    }
+                    if (i < query.size() && query[i] == ',') { ++i; continue; }
+                    if (i < query.size() && query[i] == ')') { ++i; break; }
+                    throw tardisParser::syntactical_error("expected ',' or ')' in the options of EXPLAIN");
+                }
+                continue;
+            }
+            const size_t wordStart = i;
+            const std::string w = word();
+            if (w == "analyze") { analyze = true; continue; }
+            if (w == "verbose") continue;
+            i = (w.empty()) ? before : wordStart;
+            break;
+        }
+        statement = query.substr(i);
+        if (statement.find_first_not_of(" \t\r\n;") == std::string::npos) throw tardisParser::syntactical_error("EXPLAIN needs a statement");
+        return true;
+    }
+
+    /// A statement that EXPLAIN without ANALYZE cannot show, as it runs several queries
+    void requireAnalyze(const char * what) {
+        if (active != nullptr && !active->analyze) {
+            throw semanticalAnalysis::semantic_sql_error(std::string("EXPLAIN of ") + what + " runs its queries: use EXPLAIN ANALYZE");
+        }
+    }
+
+    } // end namespace explain
+
     static llvm::Function *compileQuery(const std::string &query, std::unique_ptr<Operator> &queryTree, QueryContext &queryContext) {
+        timing::Phase phase(timing::current.translation);
         auto &codeGen = getThreadLocalCodeGen();
         auto &llvmContext = codeGen.getLLVMContext();
         auto &moduleGen = codeGen.getCurrentModuleGen();
@@ -311,6 +750,7 @@ namespace QueryCompiler {
             FunctionGen funcGen(moduleGen, "query", funcTy);
 
             auto physicalTree = Algebra::translateToPhysicalTree(*queryTree,queryContext);
+            if (explain::active != nullptr) explain::record(query, *physicalTree, queryContext.analyzingContext.db);
             physicalTree->produce();
 
             queryFunc = funcGen.getFunction();
@@ -325,13 +765,31 @@ namespace QueryCompiler {
 
     static void compileAndExecuteStatement(const std::string &query, Database &db, void *callbackFunction);
 
-    void compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {
+    static StatementResult executeExplain(const std::string & statement, bool analyze, Database & db, const std::string & branch,
+                                          const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                          const std::function<void(const StatementResult &)> & described,
+                                          const Transaction * transaction);
+
+    Timing compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {
+        timing::Statement clock;
+        bool analyze = false;
+        std::string explained;
+        if (explain::parse(query, analyze, explained)) {
+            // the plan as it is, not as a tuple
+            auto print = [callbackFunction](Native::Sql::SqlTuple * tuple) {
+                if (callbackFunction != nullptr) reinterpret_cast<void (*)(Native::Sql::SqlTuple *)>(callbackFunction)(tuple);
+                else std::cout << Native::Sql::toString(*tuple->values[0]) << "\n";
+            };
+            executeExplain(explained, analyze, db, "master", print, nullptr, nullptr);
+            return clock.finish();
+        }
         try {
             compileAndExecuteStatement(query, db, callbackFunction);
         } catch (const semanticalAnalysis::general_aggregation_required &) {
             auto print = (callbackFunction != nullptr) ? reinterpret_cast<void (*)(Native::Sql::SqlTuple *)>(callbackFunction) : &printFunction;
             execute(query, db, "master", [print](Native::Sql::SqlTuple * tuple) { print(tuple); });
         }
+        return clock.finish();
     }
 
     static void compileAndExecuteStatement(const std::string &query, Database &db, void *callbackFunction) {
@@ -358,14 +816,20 @@ namespace QueryCompiler {
         if (!queryContext.hyriseResult.isValid()) throw std::runtime_error("invalid statement");
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
 #else
-        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
-        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
+        {
+            timing::Phase phase(timing::current.parsing);
+            tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
+            QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
+        }
 #endif
         StatementLatches latches(db, queryContext.analyzingContext.parserResult);
 
         std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
-        analyser->verify();
-        analyser->constructTree();
+        {
+            timing::Phase phase(timing::current.analysis);
+            analyser->verify();
+            analyser->constructTree();
+        }
         auto &queryTree = queryContext.analyzingContext.joinedTree;
         if (queryTree == nullptr) return;
         latches.latchReadBranches(db, queryContext.analyzingContext.branchIds);
@@ -1083,6 +1547,7 @@ namespace QueryCompiler {
                                           const std::function<void(const StatementResult &)> & described, bool describeOnly) {
         using namespace aggregation;
         using Native::Sql::nullLiteral;
+        explain::requireAnalyze("an aggregate computed from several queries");
         Plan plan(select);
 
         // the rows: GROUP BY columns and arguments
@@ -1229,12 +1694,16 @@ namespace QueryCompiler {
         provideOneRowTable(db, temporaries, parserResult);
         auto analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
         try {
+            timing::Phase phase(timing::current.analysis);
             analyser->verify();
         } catch (const semanticalAnalysis::general_aggregation_required &) {
             moduleGen.reset(); // the queries of the aggregation generate their own modules
             return runAggregation(*parserResult.selectStmt, db, branch, transaction, temporaries, sink, described, describeOnly);
         }
-        analyser->constructTree();
+        {
+            timing::Phase phase(timing::current.analysis);
+            analyser->constructTree();
+        }
         auto & queryTree = queryContext.analyzingContext.joinedTree;
         auto * root = (queryTree != nullptr) ? dynamic_cast<Algebra::Logical::Result *>(queryTree->getRoot()) : nullptr;
         if (root == nullptr) throw semanticalAnalysis::semantic_sql_error("WITH, UNION and VALUES combine queries");
@@ -1278,7 +1747,10 @@ namespace QueryCompiler {
         QueryContext queryContext(db);
         const std::string defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
         queryContext.parsingContext.defaultBranch = defaultBranch;
-        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, text + ";");
+        {
+            timing::Phase phase(timing::current.parsing);
+            tardisParser::SQLParser::parseStatement(queryContext.parsingContext, text + ";");
+        }
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
         auto & parserResult = queryContext.analyzingContext.parserResult;
         if (parserResult.opType != semanticalAnalysis::SQLParserResult::OpType::Select) {
@@ -1312,6 +1784,7 @@ namespace QueryCompiler {
         using semanticalAnalysis::semantic_sql_error;
         using with::SetQuery;
         using with::Row;
+        explain::requireAnalyze("WITH, VALUES and set operations");
         const std::string defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
         std::function<void(SetQuery &, std::vector<SetQuery *> &)> terms = [&](SetQuery & query, std::vector<SetQuery *> & out) {
             if (query.isTerm()) {
@@ -1339,7 +1812,10 @@ namespace QueryCompiler {
             for (SetQuery * term : termsOf(query)) {
                 QueryContext context(db);
                 context.parsingContext.defaultBranch = defaultBranch;
-                tardisParser::SQLParser::parseStatement(context.parsingContext, term->term + ";");
+                {
+                    timing::Phase phase(timing::current.parsing);
+                    tardisParser::SQLParser::parseStatement(context.parsingContext, term->term + ";");
+                }
                 QueryContext::convertToParserResult(context.analyzingContext.parserResult, context.parsingContext);
                 auto & parsed = context.analyzingContext.parserResult;
                 if (parsed.opType != semanticalAnalysis::SQLParserResult::OpType::Select) {
@@ -1526,8 +2002,19 @@ namespace QueryCompiler {
         ModuleGen moduleGen("QueryModule");
 
         queryContext.parsingContext.defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
-        tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
-        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
+        {
+            timing::Phase phase(timing::current.parsing);
+            tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
+            QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
+        }
+        if (explain::active != nullptr) {
+            // the other statements run in their analysis, which EXPLAIN must not do
+            using OpType = semanticalAnalysis::SQLParserResult::OpType;
+            const auto op = queryContext.analyzingContext.parserResult.opType;
+            if (op != OpType::Select && op != OpType::Insert && op != OpType::Update && op != OpType::Delete) {
+                throw semanticalAnalysis::semantic_sql_error("EXPLAIN takes SELECT, INSERT, UPDATE, DELETE, WITH, VALUES and set operations");
+            }
+        }
         StatementLatches latches(db, queryContext.analyzingContext.parserResult, transaction);
         std::optional<TemporaryTables> temporaries; // under the latches: no branch is created meanwhile
         if (readsOneRow(queryContext.analyzingContext.parserResult)) {
@@ -1539,8 +2026,11 @@ namespace QueryCompiler {
         StatementResult result;
         result.tag = statementTag(parserResult.opType);
         std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
-        analyser->verify();
-        analyser->constructTree();
+        {
+            timing::Phase phase(timing::current.analysis);
+            analyser->verify();
+            analyser->constructTree();
+        }
         auto & queryTree = queryContext.analyzingContext.joinedTree;
         if (queryTree == nullptr) {
             result.rows = queryContext.analyzingContext.changedTuples;
@@ -1558,6 +2048,7 @@ namespace QueryCompiler {
 
         auto queryFunc = compileQuery(query, queryTree, queryContext);
         if (queryFunc == nullptr) return result;
+        if (explain::active != nullptr && !explain::active->analyze) return result; // EXPLAIN: the plan only
         QueryContext::constructBranchLineages(queryContext.analyzingContext.branchIds, queryContext);
 
         std::vector<llvm::GenericValue> args(2);
@@ -1584,22 +2075,78 @@ namespace QueryCompiler {
         return result;
     }
 
-    StatementResult execute(const std::string & query, Database & db, const std::string & branch,
-                            const std::function<void(Native::Sql::SqlTuple *)> & sink,
-                            const std::function<void(const StatementResult &)> & described,
-                            const Transaction * transaction) {
+    static StatementResult executeAny(const std::string & query, Database & db, const std::string & branch,
+                                      const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                      const std::function<void(const StatementResult &)> & described,
+                                      const Transaction * transaction) {
         with::WithStatement setStatement;
-        if (with::parseSetStatement(query, setStatement)) {
+        bool isSet;
+        {
+            timing::Phase phase(timing::current.parsing);
+            isSet = with::parseSetStatement(query, setStatement);
+        }
+        if (isSet) {
             return executeSetStatement(setStatement, db, branch, sink, described, transaction);
         }
         try {
             return executeStatement(query, db, branch, sink, described, transaction);
         } catch (const semanticalAnalysis::general_aggregation_required &) {
+            explain::requireAnalyze("an aggregate computed from several queries");
             // the latches and the module of the statement are gone: its query runs as the queries of WITH
             with::WithStatement statement;
             statement.query = with::makeTerm(withoutEnd(query));
             return executeSetStatement(statement, db, branch, sink, described, transaction);
         }
+    }
+
+    /// EXPLAIN [ANALYZE] of \p statement: one row, the plan in JSON
+    static StatementResult executeExplain(const std::string & statement, bool analyze, Database & db, const std::string & branch,
+                                          const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                          const std::function<void(const StatementResult &)> & described,
+                                          const Transaction * transaction) {
+        if (explain::active != nullptr) throw tardisParser::syntactical_error("EXPLAIN cannot explain EXPLAIN");
+        explain::State state;
+        state.analyze = analyze;
+        explain::active = &state;
+        struct Reset { ~Reset() { explain::active = nullptr; } } reset;
+
+        const Timing before = timing::current;
+        const double llvmBefore = QueryExecutor::runTimes().compilation;
+        const auto start = timing::Clock::now();
+        executeAny(statement, db, branch, [](Native::Sql::SqlTuple *) { }, nullptr, transaction); // the rows are not shown
+        const double elapsed = timing::since(start);
+        const Timing & after = timing::current;
+        const double planning = (after.parsing - before.parsing) + (after.analysis - before.analysis);
+        const double translation = after.translation - before.translation;
+        const double llvm = QueryExecutor::runTimes().compilation - llvmBefore;
+        const std::string json = explain::document(state, planning, translation, llvm, std::max(0.0, elapsed - planning - translation - llvm));
+
+        StatementResult result;
+        result.tag = "EXPLAIN";
+        result.columnNames = {"QUERY PLAN"};
+        result.columnTypes = {Sql::getTextTy(false)};
+        result.returnsRows = true;
+        result.rows = 1;
+        if (described) described(result);
+        std::vector<Native::Sql::value_op_t> values;
+        values.push_back(Native::Sql::castColumnValue(json, Sql::getTextTy(false)));
+        Native::Sql::SqlTuple tuple(std::move(values));
+        sink(&tuple);
+        return result;
+    }
+
+    StatementResult execute(const std::string & query, Database & db, const std::string & branch,
+                            const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                            const std::function<void(const StatementResult &)> & described,
+                            const Transaction * transaction) {
+        timing::Statement clock;
+        bool analyze = false;
+        std::string explained;
+        StatementResult result = explain::parse(query, analyze, explained)
+                ? executeExplain(explained, analyze, db, branch, sink, described, transaction)
+                : executeAny(query, db, branch, sink, described, transaction);
+        if (clock.outer) result.timing = clock.finish();
+        return result;
     }
 
     BenchmarkResult compileAndBenchmark(const std::string &query, Database &db, void *callbackFunction) {

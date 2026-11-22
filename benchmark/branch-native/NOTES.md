@@ -1016,6 +1016,40 @@ of `BranchAggregation`, `HAVING` (also in the step of a recursive common table e
 expression), every query also with parallel scans and with `TARDISDB_VERIFY_IR=1`; aggregates of arrays of
 both drivers and `HAVING` with a parameter in `test/test_pgserver.py`.
 
+# EXPLAIN [ANALYZE] and the times of a statement
+
+* **`EXPLAIN [ANALYZE] [VERBOSE] [( option, ... )] statement`** (options `ANALYZE [boolean]`, `FORMAT
+  JSON`; `VERBOSE`, `COSTS`, `TIMING` and `SUMMARY` are accepted and ignored; other formats are errors)
+  returns one row with one column `QUERY PLAN` (text): the plan in JSON, shaped as PostgreSQL's `FORMAT
+  JSON` (`[{"Plan": {...}, "Planning Time": ..., ...}]`). A node is a physical operator (`Result`,
+  `Map`, `Filter`, `Hash Join`, `Aggregate`, `Table Scan` or `Index Scan`, `Branch Aggregation`, `Branch
+  Diff`, `Insert`, `Update`, `Delete`) with its relation and branch(es), conditions and output columns in
+  SQL (columns qualified by their table when the plan reads several), its inputs under `"Plans"`.
+  `"Planning Time"` is parsing and analysis, `"Translation Time"` the generation of the code.
+* **`ANALYZE`** executes the statement, writes included, and discards its rows. Each operator but the
+  writes counts the tuples it passes to its parent (`Operator::emit()`, through which all operators now
+  pass them on: an atomic add, as the workers of a parallel scan share the counter) as `"Actual Rows"`;
+  `"Compilation Time"` is LLVM's passes and machine code, `"Execution Time"` the rest. Without `ANALYZE`,
+  the code is generated but not run.
+* A statement of several queries (`WITH`, set operations, `VALUES`, the general aggregation) shows the
+  plan of each query it ran under a node `Queries`, each with its `"Query"` (the term, or `aggregate rows`
+  and `aggregate`); the same query run again with the same plan (the steps of a recursive common table
+  expression) is shown once with its `"Executions"` and their rows added up. Since the later queries read
+  the results of the earlier ones, these statements need `ANALYZE`. `EXPLAIN` takes `SELECT`, `INSERT`,
+  `UPDATE`, `DELETE`, `WITH`, `VALUES` and set operations, and refuses the others before their analysis,
+  which would execute them. Temporary tables (common table expressions, the groups) are named
+  `(temporary)`, and the columns of the groups by their internal names (`_g0`, `_a0`, ...).
+* **Times**: `execute()` returns them in `StatementResult::timing`, `compileAndExecute()` as its result
+  (`QueryCompiler::Timing`: parsing, analysis, translation, LLVM, execution, total; the queries of a
+  statement add up). Execution is the total minus the compilation, so it includes the work outside of
+  the generated code (the groups of the general aggregation, the rows of `WITH`) and the waits for
+  latches. `\timing` of the `sql` shell prints them:
+  `Time: 4.965 ms (compilation 4.747 ms: parsing 0.052, analysis 0.021, translation 0.257, LLVM 4.417; execution 0.217 ms)`.
+
+Checks: `test/explain_test.cpp` (5 tests: the plan without execution, row counts with one thread and with
+parallel scans, several queries and branch aggregation, errors, times), with `TARDISDB_VERIFY_IR=1`;
+`EXPLAIN ANALYZE` of both drivers, its JSON parsed, in `test/test_pgserver.py`.
+
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 
 `compare/run.sh <dir>` builds pgserver with LLVM 7 in the container and runs it there (host network,

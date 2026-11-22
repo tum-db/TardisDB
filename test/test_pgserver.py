@@ -184,6 +184,15 @@ with psycopg.connect(dsn, autocommit=True) as c3:
 # HAVING with a parameter
 cur.execute("select g, count(*) from ag group by g having count(*) > %s", (1,))
 assert cur.fetchall() == [(1, 2)]
+# EXPLAIN ANALYZE: one row of valid JSON with the row counts, also with a parameter of psycopg 3
+import json
+cur.execute("explain analyze select g from ag where g > %s", (1,))
+plan = json.loads(cur.fetchone()[0])
+assert plan[0]["Plan"]["Node Type"] == "Result" and plan[0]["Plan"]["Actual Rows"] == 1, plan
+assert "Execution Time" in plan[0] and cur.description[0].name == "QUERY PLAN"
+with psycopg.connect(dsn, autocommit=True) as c3:
+    plan = json.loads(c3.execute("explain (analyze, format json) select g, count(*) from ag where g >= %s group by g", (1,)).fetchone()[0])
+    assert [q["Query"] for q in plan[0]["Plan"]["Plans"]] == ["aggregate rows", "aggregate"], plan
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types

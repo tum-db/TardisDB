@@ -25,7 +25,7 @@ void Map::consume(const iu_value_mapping_t & values, const Operator & src)
         computed.push_back(mapping.exp->evaluate(values));
         extended[mapping.dest] = computed.back().get();
     }
-    _parent->consume(extended, *this);
+    emit(extended);
 }
 
 } // end namespace Physical

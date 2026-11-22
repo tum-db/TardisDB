@@ -149,7 +149,7 @@ void IndexJoin::consumeRight(const iu_value_mapping_t & values)
         generatedValues[iu] = _leftIncoming->at(iu);
     }
 
-    _parent->consume(generatedValues, *this);
+    emit(generatedValues);
 }
 
 } // end namespace Physical

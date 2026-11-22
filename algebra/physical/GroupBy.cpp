@@ -357,7 +357,7 @@ void GroupBy::produce()
             // get payload pointer
             cg_voidptr_t groupPtr = genHashtableGetUserDataPtr(nodePtr);
             auto result = getResult(groupPtr);
-            _parent->consume(result.second, *this);
+            emit(result.second);
         });
 
         genHashtableFreeCall(_hashTable);
@@ -376,7 +376,7 @@ void GroupBy::produce()
         IfGen notEmptyCheck(!isEmpty);
         {
             auto result = getResult(_singleGroup);
-            _parent->consume(result.second, *this);
+            emit(result.second);
         }
         notEmptyCheck.EndIf();
 

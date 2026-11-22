@@ -569,7 +569,7 @@ void BranchAggregation::genOutput(State & state)
                 }
                 values[aggregates[i].produced] = outputs.back().get();
             }
-            _parent->consume(values, *this);
+            emit(values);
         }
         nonEmpty.EndIf();
     }

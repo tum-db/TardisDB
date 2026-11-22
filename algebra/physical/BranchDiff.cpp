@@ -126,7 +126,7 @@ void BranchDiff::produce()
                 branchName = Text::fromRawValues({name}, iu->sqlType);
                 values[iu] = branchName.get();
             }
-            _parent->consume(values, *this);
+            emit(values);
         }
         matches.EndIf();
     }

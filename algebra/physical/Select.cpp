@@ -30,7 +30,7 @@ void Select::consume(const iu_value_mapping_t & values, const Operator & src)
     // pass only matching tuples
     IfGen check(result);
     {
-        _parent->consume(values, *this);
+        emit(values);
     }
     check.EndIf();
 }

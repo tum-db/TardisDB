@@ -70,6 +70,11 @@ namespace QueryExecutor {
 
     void defaultStreamingCallback(Native::Sql::SqlTuple *tuple) {}
 
+    RunTimes & runTimes() {
+        static thread_local RunTimes times;
+        return times;
+    }
+
     llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
@@ -88,6 +93,7 @@ namespace QueryExecutor {
             throw std::runtime_error("invalid IR");
         }
 
+        const auto optimisationStart = std::chrono::high_resolution_clock::now();
 #ifndef DISABLE_OPTIMIZATIONS
         optimize(moduleGen.getModule());
 
@@ -115,6 +121,8 @@ namespace QueryExecutor {
         const auto query_start = std::chrono::high_resolution_clock::now();
         llvm::GenericValue returnValue = ee->runFunction(queryFunc, args);
         const auto queryDuration = std::chrono::high_resolution_clock::now() - query_start;
+        runTimes().compilation += std::chrono::duration<double, std::milli>(query_start - optimisationStart).count();
+        runTimes().execution += std::chrono::duration<double, std::milli>(queryDuration).count();
 
 #ifdef EMIT_RUNTIME
         printf("Compilation time: %lums\n", std::chrono::duration_cast<std::chrono::milliseconds>(compilationDuration).count());

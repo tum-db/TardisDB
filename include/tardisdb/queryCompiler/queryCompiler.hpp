@@ -49,7 +49,24 @@ namespace QueryCompiler {
     };
     extern Latching latching;
 
-    void compileAndExecute(const std::string & query, Database &db, void *callbackFunction = nullptr);
+    /// Where the time of a statement went, in milliseconds. Compilation is parsing, analysis, translation
+    /// (the generation of the code) and the compilation of the generated code (LLVM's passes and machine
+    /// code); execution is the rest, mostly the generated code, and also what a statement computes
+    /// outside of it (the groups of the general aggregation, the rows of WITH and set operations) and
+    /// the time it waits for latches. A statement of several queries adds up the times of all of them.
+    struct Timing {
+        double parsing = 0;
+        double analysis = 0;
+        double translation = 0;
+        double llvm = 0;
+        double execution = 0;
+        double total = 0;
+        double compilation() const { return parsing + analysis + translation + llvm; }
+    };
+
+    /// Executes a statement and prints its rows (EXPLAIN [ANALYZE]: the plan as JSON)
+    /// \returns Its times
+    Timing compileAndExecute(const std::string & query, Database &db, void *callbackFunction = nullptr);
 
     BenchmarkResult compileAndBenchmark(const std::string & query, Database &db, void *callbackFunction = nullptr);
 
@@ -61,6 +78,7 @@ namespace QueryCompiler {
         uint64_t rows = 0;                    // returned, or written by INSERT, UPDATE and DELETE
         std::string tag;                      // the statement, as PostgreSQL names it ("SELECT", "INSERT", ...)
         std::string notice;                   // a message for the client, e.g. of MERGE
+        Timing timing;                        // of the statement
     };
 
     /// A transaction of a session over several statements (BEGIN ... COMMIT). It runs in a private branch,
@@ -91,6 +109,14 @@ namespace QueryCompiler {
     /// ROLLBACK
     void rollbackTransaction(Database & db, const Transaction & transaction);
 
+    /// EXPLAIN [ ANALYZE ] [ ( option , ... ) ] statement, with the options ANALYZE [ boolean ] and FORMAT
+    /// JSON: one row with one column "QUERY PLAN" (text), the plan in JSON as PostgreSQL's FORMAT JSON
+    /// shapes it: the tree of physical operators ("Node Type", the relation and branches, conditions and
+    /// output columns), "Planning Time" (parsing and analysis), "Translation Time" and, with ANALYZE, which
+    /// executes the statement (and its writes), "Actual Rows" per operator, "Compilation Time" and
+    /// "Execution Time". A statement of several queries (WITH, set operations, the general aggregation)
+    /// shows each query it ran, and needs ANALYZE. execute() and compileAndExecute() take it.
+    ///
     /// Executes one statement on behalf of a session: relations without VERSION are read and written
     /// in \p branch, and every result tuple goes to \p sink (refilled for the next row; called by
     /// the workers of a parallel scan under the result latch). \p described receives the columns

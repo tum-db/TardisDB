@@ -183,7 +183,7 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
         }
     }
 
-    _parent->consume(values, *this);
+    emit(values);
     if (seesVersion) {
         seesVersion->EndIf();
     }
@@ -224,7 +224,7 @@ void TableScan::produce(cg_tid_t tid) {
         }
     }
 
-    _parent->consume(values, *this);
+    emit(values);
 }
 #endif
 

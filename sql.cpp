@@ -1,4 +1,6 @@
 #include <chrono>
+#include <cstdio>
+#include <optional>
 #include <csignal>
 #include <cstdlib>
 #include <ctime>
@@ -89,14 +91,25 @@ static void handleQuery(Database & db, const std::string & text, bool showTiming
 {
     for (auto & statement : splitStatements(text)) {
         auto start = std::chrono::steady_clock::now();
+        std::optional<QueryCompiler::Timing> timing;
         try {
-            QueryCompiler::compileAndExecute(statement, db);
+            timing = QueryCompiler::compileAndExecute(statement, db);
         } catch (const std::exception & e) {
             std::cerr << "Error: " << e.what() << std::endl;
         }
         if (showTiming) {
             auto end = std::chrono::steady_clock::now();
-            std::cout << "Time: " << std::chrono::duration<double, std::milli>(end - start).count() << " ms" << std::endl;
+            const double total = std::chrono::duration<double, std::milli>(end - start).count();
+            char line[256];
+            if (timing) {
+                // compilation: parsing, analysis, translation into LLVM IR and LLVM; execution: the rest
+                std::snprintf(line, sizeof(line), "Time: %.3f ms (compilation %.3f ms: parsing %.3f, analysis %.3f, translation %.3f, "
+                              "LLVM %.3f; execution %.3f ms)", total, timing->compilation(), timing->parsing, timing->analysis,
+                              timing->translation, timing->llvm, timing->execution);
+            } else {
+                std::snprintf(line, sizeof(line), "Time: %.3f ms", total);
+            }
+            std::cout << line << std::endl;
         }
     }
 }
@@ -158,7 +171,7 @@ static void printHelp()
               << "  \\d        List tables\n"
               << "  \\d TABLE  Describe table\n"
               << "  \\b        List branches\n"
-              << "  \\timing   Toggle timing display\n";
+              << "  \\timing   Toggle timing display (compilation and execution)\n";
 }
 
 static void listTables(Database & db)

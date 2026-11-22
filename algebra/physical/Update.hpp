@@ -10,6 +10,8 @@ namespace Algebra {
 /// The print operator
         class Update : public UnaryOperator {
         public:
+            /// SET c = constant (an empty constant: the column keeps its value)
+            const std::vector<std::pair<iu_p_t,std::string>> & getUpdateIUs() const { return _updateIUs; }
             using update_expressions_t = std::vector<std::pair<iu_p_t, Expressions::exp_op_t>>;
 
             Update(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, Table & table,

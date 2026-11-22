@@ -42,6 +42,14 @@ public:
 
     const iu_set_t & getRequired();
 
+    const logical_operator_t & getLogicalOperator() const { return _logicalOperator; }
+
+    /// \returns The inputs, left before right
+    virtual std::vector<Operator *> getChildren() const { return {}; }
+
+    /// EXPLAIN ANALYZE: the tuples this operator passes to its parent are counted (atomically) in *counter
+    void setRowCounter(uint64_t * counter) { _rowCounter = counter; }
+
     friend class NullaryOperator;
     friend class UnaryOperator;
     friend class BinaryOperator;
@@ -49,7 +57,11 @@ public:
 protected:
     void setParent(Operator * parent);
 
+    /// Passes a tuple to the parent (counted, see setRowCounter)
+    void emit(const iu_value_mapping_t & values);
+
     Operator * _parent = nullptr;
+    uint64_t * _rowCounter = nullptr;
     CodeGen & _codeGen;
     QueryContext & _context;
     const logical_operator_t & _logicalOperator;
@@ -74,6 +86,8 @@ public:
 
     size_t arity() const final;
 
+    std::vector<Operator *> getChildren() const override { return {child.get()}; }
+
 protected:
     std::unique_ptr<Operator> child;
 };
@@ -88,6 +102,8 @@ public:
     void consume(const iu_value_mapping_t & values, const Operator & src) final;
 
     size_t arity() const final;
+
+    std::vector<Operator *> getChildren() const override { return {_leftChild.get(), _rightChild.get()}; }
 
 protected:
     virtual void consumeLeft(const iu_value_mapping_t & values) = 0;

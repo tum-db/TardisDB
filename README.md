@@ -208,7 +208,9 @@ Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
 `kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`);
 `sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,
 read joins and common table expressions, group by columns, and `HAVING` filters the groups
-(`test/aggregate_test.cpp`).
+(`test/aggregate_test.cpp`). `EXPLAIN [ANALYZE]` returns the plan as JSON, with the rows of each
+operator, and `\timing` in the `sql` shell splits the time into compilation and execution
+(`test/explain_test.cpp`).
 
 ## SQL shell
 

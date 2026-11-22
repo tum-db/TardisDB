@@ -152,4 +152,14 @@ inline llvm::CallInst * createMemSet(llvm::IRBuilder<> & builder, llvm::Value * 
 #endif
 }
 
+/// *ptr += value, atomically (monotonic): counters that the workers of a parallel scan share
+inline llvm::Value * createAtomicAdd(llvm::IRBuilder<> & builder, llvm::Value * ptr, llvm::Value * value)
+{
+#if LLVM_VERSION_MAJOR < 13
+    return builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, value, llvm::AtomicOrdering::Monotonic);
+#else
+    return builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, value, llvm::MaybeAlign(8), llvm::AtomicOrdering::Monotonic);
+#endif
+}
+
 } // end namespace LLVMCompat

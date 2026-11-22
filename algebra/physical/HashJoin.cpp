@@ -295,7 +295,7 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
             values[iu] = rightIncoming->at(iu);
         }
 
-        _parent->consume(values, *this);
+        emit(values);
     }
     check.EndIf();
 
