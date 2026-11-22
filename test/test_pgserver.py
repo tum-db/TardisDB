@@ -181,6 +181,9 @@ cur.execute("select g, sum(a), avg(a) from ag group by g")
 assert sorted(cur.fetchall()) == [(1, [4.0, 6.0], [2.0, 3.0]), (2, [5.0, 6.0], [5.0, 6.0])]
 with psycopg.connect(dsn, autocommit=True) as c3:
     assert c3.execute("select avg(a * %b::double precision[]) from ag", ([2.0, 0.5],)).fetchone() == ([6.0, 2.0],)
+# HAVING with a parameter
+cur.execute("select g, count(*) from ag group by g having count(*) > %s", (1,))
+assert cur.fetchall() == [(1, 2)]
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types

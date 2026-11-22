@@ -1,6 +1,6 @@
 // The general aggregation: sum and avg of arrays (element by element), aggregates of expressions and in
 // expressions, GROUP BY columns, aggregates over joins and common table expressions, min and max of any
-// type, groups of no rows, the errors of PostgreSQL, and mini-batch gradient descent with avg
+// type, groups of no rows, HAVING, the errors of PostgreSQL, and mini-batch gradient descent with avg
 
 #include "codegen/LLVMCompat.hpp"
 
@@ -111,6 +111,33 @@ namespace {
         EXPECT_THROW(exec("SELECT * FROM m GROUP BY g;"), std::exception);
         EXPECT_THROW(exec("SELECT sum(x, g) FROM m;"), std::exception);
         EXPECT_EQ(query("SELECT count(*) FROM m;"), (rows_t{"(5)"})); // the database still answers
+    }
+
+    TEST_F(AggregateTest, Having) {
+        // of aggregates of the select list, of others, and of grouped columns
+        EXPECT_EQ(query("SELECT g, count(*) FROM m GROUP BY g HAVING count(*) > 1;"), (rows_t{"(1, 2)", "(2, 2)"}));
+        EXPECT_EQ(query("SELECT g FROM m GROUP BY g HAVING sum(x) > 5;"), (rows_t{"(1)", "(2)"}));
+        EXPECT_EQ(query("SELECT g, max(x) FROM m GROUP BY g having g >= 2 AND max(x) < 10;"), (rows_t{"(2, 7)", "(3, 1)"}));
+        // after WHERE; a NULL condition keeps no group
+        EXPECT_EQ(query("SELECT g, count(*) FROM m WHERE x IS NOT NULL GROUP BY g HAVING count(*) = 1;"), (rows_t{"(2, 1)", "(3, 1)"}));
+        EXPECT_EQ(query("SELECT name FROM m GROUP BY name HAVING max(x) > 5;"), (rows_t{"(a)", "(b)", "(c)"}));
+        // without GROUP BY, all rows are one group
+        EXPECT_EQ(query("SELECT count(*) FROM m HAVING count(*) > 3;"), (rows_t{"(5)"}));
+        EXPECT_TRUE(query("SELECT count(*) FROM m HAVING count(*) > 9;").empty());
+        EXPECT_EQ(query("SELECT sum(x) FROM m t HAVING min(t.x) = 1;"), (rows_t{"(38)"}));
+        // of arrays
+        EXPECT_EQ(query("SELECT g FROM m GROUP BY g HAVING cardinality(sum(a)) = 2 AND count(a) = 2;"), (rows_t{"(1)"}));
+        // in common table expressions, also in the step of a recursive one
+        EXPECT_EQ(query("WITH s AS (SELECT g, sum(x) AS total FROM m GROUP BY g HAVING sum(x) > 5) SELECT count(*) FROM s;"), (rows_t{"(2)"}));
+        EXPECT_EQ(query("WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT r.i + 1 FROM r, m WHERE r.i < 3 GROUP BY r.i "
+                        "HAVING count(*) = 5) SELECT max(i) FROM r;"), (rows_t{"(3)"}));
+        // errors
+        EXPECT_THROW(exec("SELECT g FROM m GROUP BY g HAVING x > 1;"), std::exception);  // x neither grouped nor aggregated
+        EXPECT_THROW(exec("SELECT g FROM m GROUP BY g HAVING;"), std::exception);
+        EXPECT_THROW(exec("SELECT g FROM m GROUP BY g HAVING count(*) > 1 GROUP BY g;"), std::exception);
+        EXPECT_THROW(exec("SELECT count(*) FROM m VERSION ALL HAVING count(*) > 1;"), std::exception);
+        EXPECT_THROW(exec("SELECT branch, count(*) FROM m GROUP BY branch HAVING count(*) > 1;"), std::exception);
+        EXPECT_EQ(query("SELECT count(*) FROM m;"), (rows_t{"(5)"}));
     }
 
     TEST_F(AggregateTest, MiniBatchGradientDescent) {

@@ -71,6 +71,7 @@ namespace semanticalAnalysis {
         std::vector<std::pair<Column,std::string>> selections;
         std::vector<Column> groupBy;
         std::vector<Predicate> predicates;
+        sqlExpressions::node_p_t having; // the condition of HAVING, if any
     };
     struct UpdateStatement {
         Relation relation;

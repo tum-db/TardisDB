@@ -51,6 +51,7 @@ namespace tardisParser {
         const std::string Of = "of";
         const std::string Group = "group";
         const std::string By = "by";
+        const std::string Having = "having";
 
         // branch lifecycle and branch-local indexes
         const std::string Drop = "drop";
@@ -67,7 +68,7 @@ namespace tardisParser {
 
         static std::set<std::string> keywordset = {Version, Select, From, Where, And, Insert, Into, Values, Update, Set, Delete, Create,
                                             Table, Not, Null, Branch, Copy, With, Format, CSV, TBL, To,
-                                            All, Descendants, Leaves, Of, Group, By,
+                                            All, Descendants, Leaves, Of, Group, By, Having,
                                             Drop, Cascade, Merge, Index, On,
                                             Alter, Add, Column, Default};
     }

@@ -863,6 +863,7 @@ namespace QueryCompiler {
         std::vector<Column> groups;
         std::vector<Aggregate> aggregates;
         std::vector<Column> outputs;
+        sqlExpressions::node_p_t having; // over the table of the groups
 
         static Node columnNode(const std::string & name, const std::string & table = std::string()) {
             Node n;
@@ -917,6 +918,8 @@ namespace QueryCompiler {
                 }
                 outputs.push_back(std::move(out));
             }
+            // HAVING: its aggregates join those of the select list, its columns must be grouped
+            if (select.having) having = std::make_shared<Node>(rewrite(*select.having));
         }
     };
 
@@ -1073,7 +1076,7 @@ namespace QueryCompiler {
     /// An aggregate query that BranchAggregation does not compute (aggregates of expressions, in
     /// expressions, over several tables or temporary tables, of arrays or text, GROUP BY columns): the GROUP
     /// BY columns and the arguments of the aggregates of its rows (a query), their groups aggregated here
-    /// into a temporary table, and the select list over it (another query)
+    /// into a temporary table, and the select list over it (another query), whose WHERE is the condition of HAVING
     static StatementResult runAggregation(const semanticalAnalysis::SelectStatement & select, Database & db, const std::string & branch,
                                           const Transaction * transaction, TemporaryTables & temporaries,
                                           const std::function<void(Native::Sql::SqlTuple *)> & sink,
@@ -1199,6 +1202,12 @@ namespace QueryCompiler {
         relation.version = "master";
         output->relations.push_back(relation);
         output->projections = plan.outputs;
+        if (plan.having) {
+            semanticalAnalysis::Predicate predicate;
+            predicate.op = "expr";
+            predicate.expression = plan.having;
+            output->predicates.push_back(std::move(predicate));
+        }
         QueryContext context(db);
         context.analyzingContext.parserResult.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
         context.analyzingContext.parserResult.selectStmt = output.release();

@@ -148,7 +148,10 @@ namespace semanticalAnalysis {
     bool SelectAnalyser::needsGeneralAggregation(SelectStatement *stmt) {
         // queries over several branches (VERSION ALL, ...) and those of the branch column stay with BranchAggregation
         for (auto &relation : stmt->relations) {
-            if (!relation.versionScope.empty()) return false;
+            if (!relation.versionScope.empty()) {
+                if (stmt->having) throw semantic_sql_error("HAVING is not supported in queries over several branches");
+                return false;
+            }
         }
         bool aggregates = false, expressions = false, branchColumn = false;
         for (auto &column : stmt->projections) {
@@ -163,6 +166,11 @@ namespace semanticalAnalysis {
         for (auto &column : stmt->groupBy) {
             if (column.name == "branch" && column.table.empty()) branchColumn = true;
             else groupByColumns = true;
+        }
+        if (stmt->having) {
+            // the condition over the groups is a WHERE over the table of the groups
+            if (branchColumn) throw semantic_sql_error("HAVING is not supported with the column branch");
+            return true;
         }
         if (!aggregates && stmt->groupBy.empty()) return false;
         if (branchColumn) return false;
@@ -372,6 +380,7 @@ namespace semanticalAnalysis {
         if (stmt->relations.size() != 1 || !stmt->joinConditions.empty())
             throw semantic_sql_error("DIFF cannot be combined with other relations yet");
         if (!stmt->groupBy.empty()) throw semantic_sql_error("DIFF does not support GROUP BY yet");
+        if (stmt->having) throw semantic_sql_error("DIFF does not support HAVING");
         Relation &relation = stmt->relations.front();
         Table *table = db.getTable(relation.name);
         if (table == nullptr) throw semantic_sql_error("table '" + relation.name + "' does not exist");

@@ -490,25 +490,28 @@ namespace tardisParser {
     }
 
     /// Parses the conditions of WHERE, beginning with \p first, up to the end of the statement or, if
-    /// \p groupMayFollow, to GROUP: any condition (see ExpressionParser). Of the conjuncts (AND), the
+    /// \p groupMayFollow, to GROUP or HAVING: any condition (see ExpressionParser). Of the conjuncts (AND), the
     /// comparisons with =, <>, <, <=, > and >= of a column and a value (either side), of two row values
     /// ( a , b ) >= ( 1 , 2 ), column BETWEEN v AND w, column IN ( v , ... ), column IS [ NOT ] NULL and,
     /// given \p joins, the equalities of two columns are kept apart, which index probes, joins and the
     /// queries over several branches take: equalities of a column and a value become selections, the
     /// others predicates. All other conjuncts are predicates of op "expr". A comparison with NULL is NULL,
     /// so it holds for no tuple.
-    /// \returns Whether GROUP ended the conditions
-    static bool parseWhere(Tokenizer & tokenizer, Token token, std::vector<std::pair<Column,std::string>> & selections,
-                           std::vector<Predicate> & predicates, std::vector<std::pair<Column,Column>> * joins,
-                           bool groupMayFollow) {
+    /// \returns The keyword that ended the conditions: GROUP, HAVING or none (the end)
+    enum class WhereEnd { End, Group, Having };
+    static WhereEnd parseWhere(Tokenizer & tokenizer, Token token, std::vector<std::pair<Column,std::string>> & selections,
+                               std::vector<Predicate> & predicates, std::vector<std::pair<Column,Column>> * joins,
+                               bool groupMayFollow) {
         ExpressionParser parser(tokenizer, token);
         Node condition = parser.parse();
         const Token & end = parser.token();
-        bool group = false;
+        WhereEnd group = WhereEnd::End;
         if (groupMayFollow && end.equalsKeyword(Keyword::Group)) {
-            group = true;
+            group = WhereEnd::Group;
+        } else if (groupMayFollow && end.equalsKeyword(Keyword::Having)) {
+            group = WhereEnd::Having;
         } else if (!end.hasType(Type::delimiter)) {
-            throw syntactical_error("Expected 'AND'" + std::string(groupMayFollow ? ", 'GROUP'" : "") + " or the end, found '" + end.value + "'");
+            throw syntactical_error("Expected 'AND'" + std::string(groupMayFollow ? ", 'GROUP', 'HAVING'" : "") + " or the end, found '" + end.value + "'");
         }
 
         std::vector<const Node *> conjuncts;
@@ -1805,6 +1808,8 @@ namespace tardisParser {
                     context.state = State::SelectWhere;
                 } else if (token.equalsKeyword(Keyword::Group)) {
                     context.state = State::SelectGroup;
+                } else if (token.equalsKeyword(Keyword::Having)) {
+                    context.state = State::SelectHaving;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectFromSeparator;
                 } else {
@@ -1896,6 +1901,8 @@ namespace tardisParser {
                     context.state = State::SelectWhere;
                 } else if (token.equalsKeyword(Keyword::Group)) {
                     context.state = State::SelectGroup;
+                } else if (token.equalsKeyword(Keyword::Having)) {
+                    context.state = State::SelectHaving;
                 } else if (token.type == Type::identifier) {
                     context.selectStmt->relations.back().alias = token.value;
                     context.state = State::SelectFromBindingName;
@@ -1923,6 +1930,8 @@ namespace tardisParser {
                     context.state = State::SelectWhere;
                 } else if (token.equalsKeyword(Keyword::Group)) {
                     context.state = State::SelectGroup;
+                } else if (token.equalsKeyword(Keyword::Having)) {
+                    context.state = State::SelectHaving;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectFromSeparator;
                 } else if (token.type == Type::identifier) {
@@ -1937,6 +1946,8 @@ namespace tardisParser {
                     context.state = State::SelectWhere;
                 } else if (token.equalsKeyword(Keyword::Group)) {
                     context.state = State::SelectGroup;
+                } else if (token.equalsKeyword(Keyword::Having)) {
+                    context.state = State::SelectHaving;
                 } else if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectFromSeparator;
                 } else {
@@ -1944,11 +1955,11 @@ namespace tardisParser {
                 }
                 break;
             case State::SelectWhere:
-                if (parseWhere(tokenizer, token, context.selectStmt->selections, context.selectStmt->predicates,
-                               &context.selectStmt->joinConditions, true)) {
-                    context.state = State::SelectGroup;
-                } else {
-                    context.state = State::Done;
+                switch (parseWhere(tokenizer, token, context.selectStmt->selections, context.selectStmt->predicates,
+                                   &context.selectStmt->joinConditions, true)) {
+                    case WhereEnd::Group: context.state = State::SelectGroup; break;
+                    case WhereEnd::Having: context.state = State::SelectHaving; break;
+                    case WhereEnd::End: context.state = State::Done; break;
                 }
                 break;
             case State::SelectWhereExprLhs:
@@ -1982,6 +1993,8 @@ namespace tardisParser {
                     context.state = State::SelectWhereAnd;
                 } else if (token.equalsKeyword(Keyword::Group)) {
                     context.state = State::SelectGroup;
+                } else if (token.equalsKeyword(Keyword::Having)) {
+                    context.state = State::SelectHaving;
                 } else {
                     throw syntactical_error("Expected 'AND' or 'GROUP', found '" + token.value + "'");
                 }
@@ -2012,10 +2025,23 @@ namespace tardisParser {
             case State::SelectGroupByName:
                 if (token.equalsControlSymbol(controlSymbols::separator)) {
                     context.state = State::SelectGroupBySeparator;
+                } else if (token.equalsKeyword(Keyword::Having)) {
+                    context.state = State::SelectHaving;
                 } else {
-                    throw syntactical_error("Expected ',', found '" + token.value + "'");
+                    throw syntactical_error("Expected ',', 'HAVING' or the end, found '" + token.value + "'");
                 }
                 break;
+            case State::SelectHaving: {
+                // HAVING condition: a condition over the groups, up to the end of the statement
+                ExpressionParser parser(tokenizer, token);
+                Node condition = parser.parse();
+                if (!parser.token().hasType(Type::delimiter)) {
+                    throw syntactical_error("Expected the end, found '" + parser.token().value + "'");
+                }
+                context.selectStmt->having = std::make_shared<Node>(std::move(condition));
+                context.state = State::Done;
+                break;
+            }
             default:
                 throw syntactical_error("unexpected token: " + token.value);
         }

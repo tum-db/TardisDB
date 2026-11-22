@@ -997,19 +997,24 @@ expressions, of arrays or text, and `GROUP BY` columns are computed by the gener
   arrays in the order of PostgreSQL's btree operators. Strings (`GROUP BY` columns, `min`, `max`) are `text`,
   since a varchar of `castColumnValue` points into characters that are gone when the groups are read.
 * As PostgreSQL: a column of the select list outside of aggregates must be a `GROUP BY` column, aggregates do
-  not nest, `SELECT *` takes no aggregates. Not supported: `HAVING`, `DISTINCT` aggregates, `GROUP BY`
-  expressions (columns only).
+  not nest, `SELECT *` takes no aggregates. Not supported: `DISTINCT` aggregates, `GROUP BY` expressions
+  (columns only).
+* **`HAVING`** after `FROM`, `WHERE` or `GROUP BY` (without `GROUP BY`, all rows are one group) sends a query
+  to the general aggregation. Its condition is rewritten like the select list (its aggregates join those of
+  the select list, its columns must be `GROUP BY` columns) and becomes the `WHERE` of the query over the
+  table of the groups, so a group whose condition is `NULL` is left out. Not with queries over several
+  branches, the column `branch` or `DIFF`. `having` is now a keyword (reserved, as in PostgreSQL).
 * Fixed on the way: the workers of a parallel scan call the result sink under the result latch, which the
   generated code takes and releases around it; an exception of the sink (a row of a common table
   expression or an aggregate that fails) left the latch held, and the next worker and the query waited
   forever. The sinks of `execute` and of the queries of `WITH` keep the first exception and throw it after
   the scan.
 
-Checks: `test/aggregate_test.cpp` (6 tests: `sum` and `avg` of arrays, `GROUP BY` columns with `min` and
+Checks: `test/aggregate_test.cpp` (7 tests: `sum` and `avg` of arrays, `GROUP BY` columns with `min` and
 `max` of several types, aggregates over joins and common table expressions, groups of no rows and the types
-of `BranchAggregation`, errors, mini-batch gradient descent with `avg` in a recursive common table
+of `BranchAggregation`, `HAVING` (also in the step of a recursive common table expression), errors, mini-batch gradient descent with `avg` in a recursive common table
 expression), every query also with parallel scans and with `TARDISDB_VERIFY_IR=1`; aggregates of arrays of
-both drivers in `test/test_pgserver.py`.
+both drivers and `HAVING` with a parameter in `test/test_pgserver.py`.
 
 # Dolt through their servers (`compare/`, `results/paper/compare_*.csv`)
 

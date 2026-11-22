@@ -43,6 +43,7 @@ namespace tardisParser {
         SelectGroupBy,
         SelectGroupByName,
         SelectGroupBySeparator,
+        SelectHaving,
 
         Insert,
         InsertInto,
@@ -232,6 +233,7 @@ namespace tardisParser {
         std::vector<std::pair<Column,std::string>> selections;
         std::vector<Column> groupBy;
         std::vector<Predicate> predicates;
+        sqlExpressions::node_p_t having; // the condition of HAVING, if any
     };
     struct UpdateStatement {
         Table relation;

@@ -207,7 +207,8 @@ Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION`, `I
 Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
 `kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`);
 `sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,
-read joins and common table expressions, and group by columns (`test/aggregate_test.cpp`).
+read joins and common table expressions, group by columns, and `HAVING` filters the groups
+(`test/aggregate_test.cpp`).
 
 ## SQL shell
 
