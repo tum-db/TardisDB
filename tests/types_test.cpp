@@ -105,62 +105,6 @@ static void testScan(CodeGen & codeGen)
     loopGen.loopDone(nextIndex < tableSize, {nextIndex});
 }
 
-// no longer relevant; this was just the implementation sketch for the TableScan operator
-#if 0
-static void doTestScan2(CodeGen & codeGen, const iu_set_t & produce)
-{
-    auto & context = codeGen.getLLVMContext();
-    auto & funcGen = codeGen.getCurrentFunctionGen();
-
-    size_t tableSize = test_vec1->size(); // store in operator
-
-    typedef std::tuple<SqlType, llvm::Type *, llvm::Value *> load_t;
-
-    std::vector<load_t> to_load;
-    for (auto iu : produce) {
-        SqlType type = iu->sqlType;
-        llvm::Type * elementTy = toLLVMTy(type);
-        elementTy->dump();
-        llvm::Type * columnTy = llvm::ArrayType::get(elementTy, tableSize);
-        Vector * column = tables[iu->columnName];
-        llvm::Value * columnPtr = createPointerValue(column, columnTy);
-columnTy->dump();
-        to_load.emplace_back(type, columnTy, columnPtr);
-    }
-
-    LoopGen scanLoop(funcGen, {{"index", cg_size_t(0ul)}});
-    cg_size_t index(scanLoop.getLoopVar(0));
-    {
-        LoopBodyGen bodyGen(scanLoop);
-
-        Functions::genPrintfCall("scan iteration: %lu\n", index);
-
-        std::vector<value_op_t> values;
-        for (auto & t : to_load) {
-            llvm::Value * elemPtr = codeGen->CreateGEP(std::get<1>(t), std::get<2>(t), index); // {cg_size_t(0ul), index});
-            auto sqlValue = Value::load(elemPtr, std::get<0>(t));
-            values.push_back(std::move(sqlValue));
-
-            Functions::genPrintfCall("value: ");
-            Utils::genPrintValue(*sqlValue);
-            Functions::genPrintfCall("\n");
-        }
-
-        //parent->consume(values);
-    }
-    cg_size_t nextIndex = index + 1ul;
-    scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
-}
-
-static void testScan2(CodeGen & codeGen)
-{
-    auto iu1 = iuFactory.getIU("column1");
-    auto iu2 = iuFactory.getIU("column2");
-    iu_set_t p = {iu1, iu2};
-    doTestScan2(codeGen, p);
-}
-#endif
-
 //-----------------------------------------------------------------------------
 // hash combine test
 

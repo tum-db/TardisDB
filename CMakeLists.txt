@@ -5,9 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 
 set(LIBXML_AVAILABLE false)
 set(ENABLE_PERFBENCHMARKING false)
-set(USE_DATA_VERSIONING true)
-set(USE_HYRISE false)
-set(TUPLE_STREAM_REQUIRED true)
 option(INTERVAL_VISIBILITY "decide version visibility with interval labels of branch identifiers instead of the lineage map" OFF)
 option(COMPILED_LINEAGE "without INTERVAL_VISIBILITY: compile the lineage test into the scans (one array lookup per version, with the same in-place fast path as the labels)" OFF)
 option(LAZY_MEMBERSHIP "keep the membership of a branch as its changes against its parent instead of one bitmap column per branch" OFF)
@@ -90,9 +87,6 @@ include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
 if(ENABLE_PERFBENCHMARKING)
 	include("${CMAKE_SOURCE_DIR}/vendor/perfevent.cmake")
 endif(ENABLE_PERFBENCHMARKING)
-if(USE_HYRISE)
-	include("${CMAKE_SOURCE_DIR}/vendor/hyrise.cmake")
-endif(USE_HYRISE)
 
 ##################
 ### config #######
@@ -100,7 +94,6 @@ endif(USE_HYRISE)
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
 		${GFLAGS_INCLUDE_DIR}
-		${HYRISE_INCLUDE_DIR}
 		${CMAKE_SOURCE_DIR}/include/tardisdb
 		)
 add_definitions(${LLVM_DEFINITIONS})
@@ -108,9 +101,7 @@ add_definitions(${LLVM_DEFINITIONS})
 ##################
 ### libraries ####
 ##################
-if(NOT USE_HYRISE)
-	include(tools/sqlParser/local.cmake)
-endif(NOT USE_HYRISE)
+include(tools/sqlParser/local.cmake)
 include(tools/semanticalAnalyser/local.cmake)
 include(tools/queryCompiler/local.cmake)
 include(tools/queryExecutor/local.cmake)
@@ -162,9 +153,6 @@ if(LIBXML_AVAILABLE)
 	target_compile_definitions(semanticalBench PUBLIC -D LIBXML_AVAILABLE=true)
 	target_link_libraries(semanticalBench wikiparser)
 endif(LIBXML_AVAILABLE)
-if(USE_DATA_VERSIONING)
-	target_compile_definitions(semanticalBench PUBLIC -D USE_DATA_VERSIONING=true)
-endif(USE_DATA_VERSIONING)
 if(ENABLE_PERFBENCHMARKING)
 	target_compile_definitions(semanticalBench PUBLIC -D PERF_AVAILABLE=true)
 endif(ENABLE_PERFBENCHMARKING)
@@ -226,12 +214,6 @@ set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
-if(TUPLE_STREAM_REQUIRED)
-	target_compile_definitions(dblib PUBLIC -D TUPLE_STREAM_REQUIRED=true)
-endif(TUPLE_STREAM_REQUIRED)
-if(USE_DATA_VERSIONING)
-	target_compile_definitions(dblib PUBLIC -D USE_DATA_VERSIONING=true)
-endif(USE_DATA_VERSIONING)
 target_link_libraries(dblib semanticalAnalyser LLVM dl)
 if(INTERVAL_VISIBILITY)
 	target_compile_definitions(dblib PUBLIC -D INTERVAL_VISIBILITY=1)
@@ -245,13 +227,7 @@ endif(COMPILED_LINEAGE)
 if(LAZY_MEMBERSHIP)
 	target_compile_definitions(dblib PUBLIC -D LAZY_MEMBERSHIP=1)
 endif(LAZY_MEMBERSHIP)
-if(USE_HYRISE)
-	target_compile_definitions(dblib PUBLIC -D USE_HYRISE=true)
-	target_link_libraries(dblib hyriselib)
-else(NOT USE_HYRISE)
-	target_compile_definitions(dblib PUBLIC -D USE_HYRISE=false)
-	target_link_libraries(dblib sqlparser)
-endif(USE_HYRISE)
+target_link_libraries(dblib sqlparser)
 
 ### main application
 add_executable(protodb main.cpp ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})

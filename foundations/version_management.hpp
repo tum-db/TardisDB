@@ -94,8 +94,6 @@ const void * get_latest_chain_element(const VersionEntry * version_entry, Table 
 
 const void * get_earliest_chain_element(const VersionEntry * version_entry, Table & table, QueryContext & ctx);
 
-const void * get_chain_element(const VersionEntry * version_entry, unsigned revision_offset, Table & table, QueryContext & ctx);
-
 //branch_id_t create_branch(std::string name, branch_id_t parent);
 
 // FIXME tuple has to exist in the master branch!
@@ -366,27 +364,6 @@ void produce_earliest_tuple(QueryContext & ctx, tid_t tid, Table & table, Consum
     }
 }
 
-
-// revision_offset == 0 => latest revision
-std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx);
-
-template<typename Consumer, typename... Ts>
-void produce_tuple(QueryContext & ctx, tid_t tid, unsigned revision_offset, Table & table, Consumer consumer, std::tuple<Ts...> & scan_items) {
-    const auto version_entry = get_version_entry(tid, table);
-    if (!has_lineage_intersection(ctx, version_entry)) {
-        return;
-    }
-    const void * element = get_chain_element(version_entry, revision_offset, table, ctx);
-
-    if (element == nullptr) {
-        return;
-    } else if (element == version_entry) { // current master
-        produce_current_master(tid, consumer, scan_items);
-    } else {
-        auto storage = static_cast<const VersionedTupleStorage *>(element);
-        produce(storage, consumer, scan_items);
-    }
-}
 
 template<typename Consumer, typename... Ts>
 void scan_relation_yielding_earliest(QueryContext & ctx, Table & table, Consumer consumer, std::tuple<Ts...> & scan_items) {

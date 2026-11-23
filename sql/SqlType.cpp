@@ -193,7 +193,6 @@ static llvm::Type * createLLVMTy(const SqlType & type, const std::string & name)
     auto & context = codeGen.getLLVMContext();
 
     // add the external null indicator
-#ifndef USE_INTERNAL_NULL_INDICATOR
     if (type.nullable) {
         SqlType notNullType = type;
         notNullType.nullable = false;
@@ -205,7 +204,6 @@ static llvm::Type * createLLVMTy(const SqlType & type, const std::string & name)
 
         return nullableTy;
     }
-#endif
 
     switch (type.typeID) {
         case TypeID::UnknownID:

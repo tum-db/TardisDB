@@ -29,19 +29,9 @@ public:
     Hashtable();
     Hashtable(size_t sizeHint);
 
-    /// \brief Input: Linked list of nodes
-    /// Attention: The constructor doesn't preserve the input list's structure.
-    /// The caller is responsible to free the list's memory.
-    Hashtable(Node * first, size_t len);
     ~Hashtable();
 
-    Node * first();
-
     Node * lookup(hash_code_t h);
-
-    Node * next(Node * current);
-
-    Node * next(Node * current, hash_code_t h);
 
     /// \brief Inserts one element with the hashcode h.
     /// \returns A Node with "size" bytes of user data.
@@ -52,7 +42,6 @@ public:
     size_t tableSize() const { return _tableSize;}
 
 private:
-    void build(Node * first);
 
     void insert(Node * node);
 
@@ -73,11 +62,9 @@ private:
 
 // generator functions
 cg_voidptr_t genHashtableCreateCall();
-cg_voidptr_t genHashtableCreateCall(cg_voidptr_t first, cg_size_t len);
 void genHashtableFreeCall(cg_voidptr_t hashtable);
 cg_voidptr_t genHashtableLookupCall(cg_voidptr_t hashtable, cg_hash_t h);
 void genHashtableIter(cg_voidptr_t hashtable, std::function<void(cg_voidptr_t)> elementHandler);
-void genHashtableIter(cg_voidptr_t hashtable, cg_hash_t h, std::function<void(cg_voidptr_t)> elementHandler);
 cg_voidptr_t genHashtableInsertCall(cg_voidptr_t hashtable, cg_hash_t h, cg_size_t size);
 cg_size_t genHashtableTableSizeCall(cg_voidptr_t hashtable);
 cg_voidptr_t genHashtableGetUserDataPtr(cg_voidptr_t nodePtr);

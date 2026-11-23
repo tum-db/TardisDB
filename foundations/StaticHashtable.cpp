@@ -54,20 +54,6 @@ StaticHashtable::Node * StaticHashtable::lookup(hash_code_t h)
     return nullptr;
 }
 
-StaticHashtable::Node * StaticHashtable::next(hash_code_t h, StaticHashtable::Node * start)
-{
-    Node * node = start;
-    while (node != nullptr) {
-        if (node->hashCode == h) {
-            return node;
-        }
-
-        node = node->next;
-    }
-
-    return nullptr;
-}
-
 void StaticHashtable::build(StaticHashtable::Node * first)
 {
     Node * current = first;

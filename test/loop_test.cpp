@@ -26,19 +26,6 @@ llvm::Function * loop_break_test()
     llvm::FunctionType * funcTy = llvm::TypeBuilder<void(), false>::get(context);
     FunctionGen funcGen(moduleGen, "loopBreakTest", funcTy);
 
-#if 0
-    {
-        LoopGen loopGen( funcGen, {{"index", cg_size_t(0ul)}} );
-        cg_size_t i( loopGen.getLoopVar(0) );
-        {
-            LoopBodyGen bodyGen(loopGen);
-            Functions::genPrintfCall("iteration: %lu\n", i);
-        }
-        cg_size_t nextIndex( i + 1ul );
-        loopGen.loopDone( nextIndex < 3, {nextIndex} );
-    }
-#endif
-
     // Loop break test:
     {
         Value * start = codeGen->getInt32(0);
@@ -160,35 +147,4 @@ TEST(LoopTest, LoopWhileTest) {
     std::vector<llvm::GenericValue> args;
     llvm::GenericValue result = QueryExecutor::executeFunction(loopBreakTest,args);
     ASSERT_EQ(result.IntVal.getZExtValue(),1);
-}
-
-void executeLoopBreakTest() {
-    ModuleGen moduleGen("LoopBreakTestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * loopContinueTest = loop_continue_test();
-    llvm::GenericValue resultLoopContinueTest = QueryExecutor::executeFunction(loopContinueTest,args);
-    std::cout << "test2: passed: " << resultLoopContinueTest.IntVal.getZExtValue() << "\n";
-}
-
-void executeLoopContinueTest() {
-    ModuleGen moduleGen("LoopContinueTestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * loopBreakTest = loop_break_test();
-    llvm::GenericValue resultLoopBreakTest = QueryExecutor::executeFunction(loopBreakTest,args);
-    std::cout << "test1: passed: " << resultLoopBreakTest.IntVal.getZExtValue() << "\n";
-}
-
-void executeLoopWhileTest() {
-    ModuleGen moduleGen("LoopWhileTestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * loopWhileTest = loop_while_test();
-    llvm::GenericValue resultLoopWhileTest = QueryExecutor::executeFunction(loopWhileTest,args);
-    std::cout << "test2: passed: " << resultLoopWhileTest.IntVal.getZExtValue() << "\n";
-}
-
-void loop_test()
-{
-    executeLoopBreakTest();
-    executeLoopContinueTest();
-    executeLoopWhileTest();
 }

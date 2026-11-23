@@ -478,21 +478,6 @@ const void * get_earliest_chain_element(const VersionEntry * version_entry, Tabl
     return current;
 }
 
-const void * get_chain_element(const VersionEntry * version_entry, unsigned revision_offset, Table & table, QueryContext & ctx) {
-    const void * latest = get_latest_chain_element(version_entry, table, ctx);
-
-    auto current = latest;
-    auto current_offset = revision_offset;
-    while (current_offset != 0 && current != nullptr) {
-        if (current == version_entry) {
-            current = version_entry->next_in_branch;
-        } else {
-            current = static_cast<const VersionedTupleStorage *>(current)->next_in_branch;
-        }
-    }
-    return current;
-}
-
 std::unique_ptr<Native::Sql::SqlTuple> get_latest_tuple(tid_t tid, Table & table, QueryContext & ctx) {
     branch_id_t branch = ctx.executionContext.branchId;
     if (branch == master_branch_id) {
@@ -665,18 +650,6 @@ uint32_t get_visible_ranges(tid_t tid, Table & table, const BranchSet & set, boo
     }
 #endif
     return parts;
-}
-
-std::unique_ptr<Native::Sql::SqlTuple> get_tuple(tid_t tid, unsigned revision_offset, Table & table, QueryContext & ctx) {
-    const auto version_entry = get_version_entry(tid, table);
-    const void * element = get_chain_element(version_entry, revision_offset, table, ctx);
-    if (element == nullptr) {
-        throw std::runtime_error("no such tuple in the given branch");
-    } else if (element == version_entry) {
-        return get_current_master(tid, table);
-    } else {
-        return load_tuple_data(table, get_tuple_ptr(static_cast<const VersionedTupleStorage *>(element)));
-    }
 }
 
 bool is_visible(tid_t tid, Table & table, QueryContext & ctx) {

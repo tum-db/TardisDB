@@ -490,8 +490,6 @@ class Update : public UnaryOperator {
 public:
     Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, branch_id_t branchId);
 
-    Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table);
-
 
     ~Update() override;
 

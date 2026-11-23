@@ -20,31 +20,10 @@ namespace Algebra {
         Insert::~Insert()
         { }
 
-#if !USE_DATA_VERSIONING
-        tid_t insert_tuple_without_versioning(Native::Sql::SqlTuple & tuple, Table & table, QueryContext & ctx) {
-            tid_t tid;
-
-            // store tuple
-            table.addRow(0);
-            size_t column_idx = 0;
-            for (auto & value : tuple.values) {
-                void * ptr = const_cast<void *>(table.getColumn(column_idx).back());
-                value->store(ptr);
-                column_idx += 1;
-            }
-
-            return tid;
-        }
-#endif
-
         void Insert::produce()
         {
             _context.executionContext.affectedRows = tuples.size();
-#if USE_DATA_VERSIONING
             genInsertCall((void *)&insert_tuple_with_branchId);
-#else
-            genInsertCall((void *)&insert_tuple_without_versioning);
-#endif
         }
 
         void Insert::genInsertCall(void *funcPtr) {

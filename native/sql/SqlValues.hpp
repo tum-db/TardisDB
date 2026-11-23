@@ -159,90 +159,6 @@ public:
     bool compare(const Value & other, ComparisonMode mode) const override;
 };
 
-#if 0
-//-----------------------------------------------------------------------------
-// BasicString
-
-class BasicString : public Value {
-public:
-    std::vector<llvm::Value *> getRawValues() const override;
-
-    llvm::Value * getLength() const
-    {
-        return _length;
-    }
-
-protected:
-    BasicString(SqlType type, llvm::Value * value, llvm::Value * length);
-
-    static llvm::Value * loadStringLength(llvm::Value * ptr, SqlType type);
-
-    static cg_bool_t equalBuffers(const BasicString & str1, const BasicString & str2);
-
-    static cg_int_t compareBuffers(const BasicString & str1, const BasicString & str2);
-
-    llvm::Value * _length = nullptr;
-};
-
-//-----------------------------------------------------------------------------
-// Char
-
-class Char : public BasicString {
-public:
-    static value_op_t castString(const std::string & str, SqlType type);
-
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length, SqlType type);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values, SqlType type);
-
-    static value_op_t load(llvm::Value * ptr, SqlType type);
-
-    value_op_t clone() const override;
-
-    void store(llvm::Value * ptr) const override;
-
-    cg_hash_t hash() const override;
-
-    void accept(ValueVisitor & visitor) override;
-
-    cg_bool_t equals(const Value & other) const override;
-
-    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
-
-protected:
-    Char(SqlType type, llvm::Value * value, llvm::Value * length);
-};
-
-//-----------------------------------------------------------------------------
-// Varchar
-
-class Varchar : public BasicString {
-public:
-    static value_op_t castString(const std::string & str, SqlType type);
-
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length, SqlType type);
-
-    static value_op_t fromRawValues(const std::vector<llvm::Value *> & values, SqlType type);
-
-    static value_op_t load(llvm::Value * ptr, SqlType type);
-
-    value_op_t clone() const override;
-
-    void store(llvm::Value * ptr) const override;
-
-    cg_hash_t hash() const override;
-
-    void accept(ValueVisitor & visitor) override;
-
-    cg_bool_t equals(const Value & other) const override;
-
-    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
-
-protected:
-    Varchar(SqlType type, llvm::Value * value, llvm::Value * length);
-};
-#endif
-
 //-----------------------------------------------------------------------------
 // Text
 
@@ -500,7 +416,6 @@ protected:
 //-----------------------------------------------------------------------------
 // NullableValue
 
-#ifndef USE_INTERNAL_NULL_INDICATOR
 
 /// NullableValue (with external null indicator): stored as the generated code stores it, the value of
 /// the not nullable type followed by the null indicator (one byte, at the offset of the second member
@@ -544,62 +459,6 @@ protected:
     bool _nullIndicator;
 };
 
-#else
-
-/// NullableValue (with internal null indicator)
-class NullableValue : public Value {
-public:
-    static value_op_t getNull(SqlType type);
-
-    static value_op_t create(value_op_t value);
-
-    static value_op_t create(const Value & value);
-
-    static value_op_t load(llvm::Value * ptr, SqlType type);
-
-    std::vector<llvm::Value *> getRawValues() const override;
-
-    value_op_t clone() const override;
-
-    void store(llvm::Value * ptr) const override;
-
-    cg_hash_t hash() const override;
-
-    cg_bool_t isNull() const;
-
-    Value & getValue() const;
-
-    void accept(ValueVisitor & visitor) override;
-
-    cg_bool_t equals(const Value & other) const override;
-
-    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
-
-protected:
-    NullableValue(value_op_t sqlValue);
-
-    value_op_t _sqlValue;
-};
-
-#endif // USE_INTERNAL_NULL_INDICATOR
-
-#if 0
-//-----------------------------------------------------------------------------
-// ValueVisitor
-
-class ValueVisitor {
-public:
-    virtual void visit(Bool & value) = 0;
-    virtual void visit(Char & value) = 0;
-    virtual void visit(Date & value) = 0;
-    virtual void visit(Integer & value) = 0;
-    virtual void visit(Numeric & value) = 0;
-    virtual void visit(Timestamp & value) = 0;
-    virtual void visit(UnknownValue & value) = 0;
-    virtual void visit(Varchar & value) = 0;
-    virtual void visit(NullableValue & value) = 0;
-};
-#endif
 
 //-----------------------------------------------------------------------------
 // utilities
@@ -618,15 +477,8 @@ inline const std::string nullLiteral("\0NULL", 5);
 /// which a column of a type that is not nullable does not take (std::invalid_argument)
 value_op_t castColumnValue(const std::string & str, SqlType type);
 
-/// Checks whether the given Value is an instance of NullableValue or UnknownValue (null constant)
-bool mayBeNull(const Value & value);
-
-bool isUnknown(const Value & value);
-
 /// \returns The Value associated with a NullableValue or the Value itself
 const Value & getAssociatedValue(const Value & value);
-
-bool isNumerical(const Value & value);
 
 std::string toString(const Value & sqlValue);
 

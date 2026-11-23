@@ -26,36 +26,10 @@ Hashtable::Hashtable(size_t sizeHint)
     _table = new Node *[_tableSize](); // initialised to zero
 }
 
-Hashtable::Hashtable(Hashtable::Node * first, size_t len)
-{
-    double sizeHint = static_cast<double>(len) / _loadFactorThreshold;
-    double p = std::ceil( std::log2(sizeHint) ); // find p such that: 2^p >= sizeHint
-    size_t n = static_cast<size_t>(p);
-    _tableSize = 1ul << n;
-    _moduloMask = _tableSize - 1;
-    _uniqueCountThreshold = static_cast<size_t>(_loadFactorThreshold*_tableSize);
-
-    _table = new Node *[_tableSize](); // initialised to zero
-
-    build(first);
-}
-
 Hashtable::~Hashtable()
 {
 //    printf("Hashtable dtor %p\n", this);
     delete[] _table;
-}
-
-Hashtable::Node * Hashtable::first()
-{
-    for (size_t i = 0; i < _tableSize; ++i) {
-        Node * node = _table[i];
-        if (node != nullptr) {
-            return node;
-        }
-    }
-
-    return nullptr;
 }
 
 Hashtable::Node * Hashtable::lookup(hash_code_t h)
@@ -73,51 +47,6 @@ Hashtable::Node * Hashtable::lookup(hash_code_t h)
     }
 //    printf("Hashtable::lookup(h: %lu) -> %p)\n", h, nullptr);
     return nullptr;
-}
-
-Hashtable::Node * Hashtable::next(Hashtable::Node * current)
-{
-    Node * nextNode = current->next;
-    if (nextNode != nullptr) {
-        return nextNode;
-    }
-
-    // start the search in the following bucket
-    size_t i = hash(current->hashCode) + 1;
-    for (; i < _tableSize; ++i) {
-        Node * node = _table[i];
-        if (node != nullptr) {
-            return node;
-        }
-    }
-
-    return nullptr;
-}
-
-Hashtable::Node * Hashtable::next(Hashtable::Node * current, hash_code_t h)
-{
-    assert(current->hashCode == h);
-
-    Node * next = current->next;
-    if (next != nullptr && next->hashCode == h) {
-        return next;
-    } else {
-        return nullptr;
-    }
-}
-
-void Hashtable::build(Hashtable::Node * first)
-{
-    Node * current = first;
-    while (current != nullptr) {
-//        printf("insert node with hash: %lu\n", current->hashCode);
-//        printf("next: %p\n", current->next);
-
-        // remember the next node
-        Node * nextNode = current->next;
-        insert(current);
-        current = nextNode;
-    }
 }
 
 Hashtable::Node * Hashtable::insert(hash_code_t h, size_t size)
@@ -193,11 +122,6 @@ static Hashtable * hashtableCreate()
     return new Hashtable();
 }
 
-static Hashtable * hashtableCreate(Hashtable::Node * first, size_t len)
-{
-    return new Hashtable(first, len);
-}
-
 static void hashtableFree(Hashtable * hashtable)
 {
     delete hashtable;
@@ -232,19 +156,6 @@ cg_voidptr_t genHashtableCreateCall()
     llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (), false>::get(context);
     llvm::CallInst * result = codeGen.CreateCall(
             static_cast<Hashtable * (*)()>(&hashtableCreate), funcTy
-    );
-
-    return cg_voidptr_t( llvm::cast<llvm::Value>(result) );
-}
-
-cg_voidptr_t genHashtableCreateCall(cg_voidptr_t first, cg_size_t len)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & context = codeGen.getLLVMContext();
-
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (void *, size_t), false>::get(context);
-    llvm::CallInst * result = codeGen.CreateCall(
-            static_cast<Hashtable * (*)(Hashtable::Node *, size_t)>(&hashtableCreate), funcTy, {first, len}
     );
 
     return cg_voidptr_t( llvm::cast<llvm::Value>(result) );
@@ -351,71 +262,6 @@ void genHashtableIter(cg_voidptr_t hashtable, std::function<void(cg_voidptr_t)> 
     tableIter.loopDone(next != end, {next});
 }
 
-
-void genHashtableIter(cg_voidptr_t hashtable, cg_hash_t h, std::function<void(cg_voidptr_t)> elementHandler)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & funcGen = codeGen.getCurrentFunctionGen();
-
-    llvm::Type * i8Ptr = LLVMCompat::getInt8PtrTy(codeGen.getLLVMContext() );
-
-//    Functions::genPrintfCall("lookup result: %p\n", first);
-
-    cg_voidptr_t match;
-
-    {
-        cg_voidptr_t first = genHashtableLookupCall(hashtable, h);
-
-        // iterate over the all members of the bucket
-        LoopGen bucketIter(funcGen, !first.isNullPtr(), {{"current", first}});
-        cg_voidptr_t current(bucketIter.getLoopVar(0));
-        {
-            LoopBodyGen bodyGen(bucketIter);
-
-            // the second field of the "Node"-struct contains the hashcode
-            cg_voidptr_t hp = current + sizeof(Hashtable::Node *);
-//        Functions::genPrintfCall("hashcode ptr: %p\n", hp);
-
-            cg_hash_t currentHash(codeGen->CreateLoad(cg_hash_t::getType(), hp));
-//        Functions::genPrintfCall("hashcode: %lu\n", currentHash);
-
-            IfGen compareHash(funcGen, h == currentHash);
-            {
-                // elementHandler is supposed to generate code that handles the current match
-                elementHandler(current);
-                match = current;
-                bucketIter.loopBreak();
-            }
-        }
-        // the first field of the struct represents the "next"-pointer
-        cg_voidptr_t next(codeGen->CreateLoad(i8Ptr, current));
-        bucketIter.loopDone(!next.isNullPtr(), {next});
-    }
-
-    {
-        // iterate over the current sequence
-        LoopGen sequenceIter(funcGen, !match.isNullPtr(), {{"current", match}});
-        cg_voidptr_t current(sequenceIter.getLoopVar(0));
-        {
-            LoopBodyGen bodyGen(sequenceIter);
-
-            cg_voidptr_t hp = current + sizeof(Hashtable::Node *);
-            cg_hash_t currentHash(codeGen->CreateLoad(cg_hash_t::getType(), hp));
-
-            IfGen compareHash(funcGen, h == currentHash);
-            {
-                elementHandler(current);
-            }
-            compareHash.Else();
-            {
-                sequenceIter.loopBreak();
-            }
-        }
-        // the first field of the struct represents the "next"-pointer
-        cg_voidptr_t next(codeGen->CreateLoad(i8Ptr, current));
-        sequenceIter.loopDone(!next.isNullPtr(), {next});
-    }
-}
 
 cg_voidptr_t genHashtableGetUserDataPtr(cg_voidptr_t nodePtr)
 {

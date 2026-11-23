@@ -44,10 +44,6 @@
 #include "sqlParser/Expression.hpp"
 #include "sqlParser/ParserResult.hpp"
 
-#if USE_HYRISE
-    #include "SQLParser.h"
-#endif
-
 namespace QueryCompiler {
 
     Latching latching = Latching::Branch;
@@ -811,17 +807,11 @@ namespace QueryCompiler {
 
         ModuleGen moduleGen("QueryModule");
 
-#if USE_HYRISE
-        hsql::SQLParser::parse(query, &queryContext.hyriseResult);
-        if (!queryContext.hyriseResult.isValid()) throw std::runtime_error("invalid statement");
-        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
-#else
         {
             timing::Phase phase(timing::current.parsing);
             tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
             QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
         }
-#endif
         StatementLatches latches(db, queryContext.analyzingContext.parserResult);
 
         std::unique_ptr<semanticalAnalysis::SemanticAnalyser> analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(queryContext.analyzingContext);
@@ -2155,13 +2145,8 @@ namespace QueryCompiler {
         ModuleGen moduleGen("QueryModule");
 
         const auto parsingStart = std::chrono::high_resolution_clock::now();
-#if USE_HYRISE
-        hsql::SQLParser::parse(query, &queryContext.hyriseResult);
-        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.hyriseResult);
-#else
         tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
         QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult,queryContext.parsingContext);
-#endif
         const auto parsingDuration = std::chrono::high_resolution_clock::now() - parsingStart;
         StatementLatches latches(db, queryContext.analyzingContext.parserResult);
 

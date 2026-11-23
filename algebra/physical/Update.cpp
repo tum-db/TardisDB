@@ -84,7 +84,6 @@ namespace Algebra {
             }
 
 
-#if USE_DATA_VERSIONING
             // SET c = <expression>: computed from the values of the old tuple, in the type of the column
             std::unordered_map<ci_p_t, Sql::Value *> computed;
             for (auto & [iu, expression] : _expressions) {
@@ -141,25 +140,6 @@ namespace Algebra {
 
             // Call the update_tuple function in version_management.hpp
             genUpdateCall(tid,nativetuple);
-
-#else
-
-            for (auto &column : columns) {
-                Sql::Value *sqlValue = std::get<4>(column).get();
-                if (sqlValue == nullptr) continue;
-
-                // calculate the SQL value pointer
-#ifdef __APPLE__
-                llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ull), tid });
-#else
-                llvm::Value * elemPtr = _codeGen->CreateGEP(std::get<1>(column), std::get<2>(column), { cg_size_t(0ul), tid });
-#endif
-                // map the value to the according iu
-
-                // Store the new value at desired position
-                sqlValue->store(elemPtr);
-            }
-#endif
 
             // increment tuple counter
             cg_size_t prevCnt(_codeGen->CreateLoad(cg_size_t::getType(), tupleCountPtr));

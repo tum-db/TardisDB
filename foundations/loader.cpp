@@ -17,7 +17,7 @@ void genLoadValue(cg_ptr8_t str, cg_size_t length, SqlType type, Vector & column
     auto & codeGen = getThreadLocalCodeGen();
 
     // this is fine for both types of null indicators
-    // - there is no space within the Vector in the case of an external null indicator (see NullIndicatorTable)
+    // - there is no space within the Vector in the case of an external null indicator
     // - it wont matter for internal null indicators
     SqlType notNullableType = toNotNullableTy(type);
 

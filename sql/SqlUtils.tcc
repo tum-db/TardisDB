@@ -5,19 +5,11 @@ namespace Utils {
 template<typename T>
 struct PhiNodeSelector;
 
-#ifndef USE_INTERNAL_NULL_INDICATOR
 inline value_op_t createNullValue(value_op_t value)
 {
     assert(!value->type.nullable);
     return NullableValue::create(std::move(value), cg_bool_t(false));
 }
-#else
-inline value_op_t createNullValue(value_op_t value)
-{
-    assert(!value->type.nullable);
-    return NullableValue::create(std::move(value));
-}
-#endif // USE_INTERNAL_NULL_INDICATOR
 
 //#define USE_LLVM_SELECT
 #ifndef USE_LLVM_SELECT

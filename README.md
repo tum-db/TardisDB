@@ -221,8 +221,7 @@ which are kept in `~/.tardisdb_history`. `\?` lists the backslash commands: `\q`
 
 ## TardisDB
 
-The following preprocessor options control the build: `USE_INTERNAL_NULL_INDICATOR`, `USE_LLVM_SELECT`,
-`USE_NEW_EXTRACT`, `LOAD_NULLABLE`. `-DTARDISDB_LLVM_VERSION=<major>` selects the LLVM version; without it,
+The preprocessor option `USE_LLVM_SELECT` controls the build. `-DTARDISDB_LLVM_VERSION=<major>` selects the LLVM version; without it,
 CMake builds against the first installed of LLVM 18 and 7. The REST server (`server`) is built only if the
 Pistache HTTP library is found (`PISTACHE_INCLUDE`, `PISTACHE_LIBRARY_PATH`).
 The `llvm-prototype` executable expects a directory named `tables` with the database data inside the

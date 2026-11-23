@@ -76,14 +76,6 @@ size_t SqlTuple::getSize()
     return size;
 }
 
-uint64_t SqlTuple::getOffset(unsigned elemIdx)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & dataLayout = codeGen.getDefaultDataLayout();
-    auto structLayout = dataLayout.getStructLayout(structTy);
-    return structLayout->getElementOffset(elemIdx);
-}
-
 void SqlTuple::store(void * ptr)
 {
     // https://stackoverflow.com/questions/47949969/llvm-get-the-offset-of-inside-struct
@@ -126,23 +118,6 @@ std::unique_ptr<SqlTuple> SqlTuple::load(const void * ptr, const std::vector<Sql
     }
 
     return std::unique_ptr<SqlTuple>( new SqlTuple( std::move(values) ) );
-}
-
-hash_t SqlTuple::hash()
-{
-    assert(values.size() > 0);
-
-    hash_t seed = values.front()->hash();
-
-    // combine the hashes of all members
-    auto it = std::next(values.begin());
-    for (; it != values.end(); ++it) {
-        auto & sqlValue = *it;
-        hash_t h = sqlValue->hash();
-        HashUtils::hash_combine(seed, h);
-    }
-
-    return seed;
 }
 
 std::string toString(const SqlTuple & tuple)

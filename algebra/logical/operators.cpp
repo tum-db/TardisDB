@@ -573,9 +573,6 @@ void Insert::computeRequired() {
 Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table, branch_id_t branchId) :
 UnaryOperator(std::move(child)), _table(table), branchId(branchId), updateIUValuePairs(std::move(updateIUValuePairs)) { }
 
-Update::Update(std::unique_ptr<Operator> child, std::vector<std::pair<iu_p_t,std::string>> &updateIUValuePairs, Table & table) :
-UnaryOperator(std::move(child)), _table(table), branchId(0), updateIUValuePairs(std::move(updateIUValuePairs)) { }
-
 Update::~Update() { }
 
 void Update::accept(OperatorVisitor & visitor) {
@@ -601,11 +598,7 @@ void Update::computeRequired() {
 // Result operator
 
 
-#if TUPLE_STREAM_REQUIRED
         Result::Type Result::_type = Type::TupleStreamHandler;
-#else
-        Result::Type Result::_type = Type::PrintToStdOut;
-#endif
 
 Result::Result(std::unique_ptr<Operator> child, const std::vector<iu_p_t> & selection) :
         UnaryOperator(std::move(child)),

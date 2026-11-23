@@ -42,9 +42,6 @@ struct ColumnInformation {
     std::string columnName;
     Sql::SqlType type;
 
-    enum class NullIndicatorType { Embedded, Column } nullIndicatorType;
-    unsigned nullColumnIndex;
-
     size_t index = 0; // position in the tuples of the table (Table::getTupleType())
     /// added by ALTER TABLE: only the branches whose schema lists it have it, and versions written
     /// before it was added hold no value for it
@@ -59,25 +56,20 @@ struct ColumnInformation {
 using ci_p_t = const ColumnInformation *;
 
 //-----------------------------------------------------------------------------
-// NullIndicatorColumn
+// BitmapTable
 
+/// Rows of bits, one column per branch (the eager membership)
 class BitmapTable {
 public:
-    BitmapTable();
-
     BitmapTable(size_t columnCountHint);
 
     unsigned addColumn();
 
     unsigned cloneColumn(unsigned original);
 
-    void removeColumn(unsigned column);
-
     unsigned getColumnCount() const { return _columnCount; }
 
     void addRow();
-
-    void removeRow();
 
     /// Makes room for the rows, so that adding up to that many rows does not move them
     void reserve(size_t rows) { _data->reserve(rows); }
@@ -100,9 +92,6 @@ private:
     unsigned _columnCount = 0;
     std::unique_ptr<Vector> _data;
 };
-
-/// \param columnAddr The raw address obtained through NullIndicatorColumn::data()
-cg_bool_t genNullIndicatorLoad(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column);
 
 //-----------------------------------------------------------------------------
 // BranchMembership
@@ -315,8 +304,6 @@ public:
     /// \returns Whether every tuple has a head identifier (rows loaded otherwise have none)
     bool headsKnown();
 
-    void removeRow(tid_t tid);
-
     void removeRowForBranch(tid_t tid, branch_id_t branchId);
 
     void createBranch(branch_id_t branch, branch_id_t parent);
@@ -334,13 +321,11 @@ public:
     const Vector & getColumn(size_t idx) const;
     const Vector & getColumn(const std::string & columnName) const;
 
-    /// The count of SQL columns without any null indicator column, of all branches
+    /// The count of SQL columns of all branches
     size_t getColumnCount() const;
 
     /// \returns The names of the columns of CREATE TABLE
     std::vector<std::string> getColumnNames() const;
-
-    BitmapTable & getNullIndicatorTable() { return _nullIndicatorTable; }
 
     BranchMembership & getMembership() { return _membership; }
 
@@ -367,14 +352,13 @@ private:
         std::pair<std::unique_ptr<ColumnInformation>, std::unique_ptr<Vector>>
         > _columns;
 
-    BitmapTable _nullIndicatorTable;
     BranchMembership _membership;
 
     std::unique_ptr<ColumnInformation> _tidColumn;
 
     size_t _appended = 0; // the rows appended, by the statement that inserts
     std::atomic<size_t> _published{0};
-    /// the columns, the null indicators, the membership, the version entries, the head identifiers and the
+    /// the columns, the membership, the version entries, the head identifiers and the
     /// version maps hold this many rows without moving, so that a statement can insert beside others
     /// that read them through pointers compiled into their code
     size_t _capacity = 0;
@@ -414,8 +398,6 @@ public:
     /// held by the statement that inserts into the table, from before its table latch to its end
     std::mutex _insertLatch;
 };
-
-void genTableAddRowCall(cg_voidptr_t table);
 
 //-----------------------------------------------------------------------------
 // Index

@@ -29,7 +29,6 @@ public:
     ~StaticHashtable();
 
     Node * lookup(hash_code_t h);
-    Node * next(hash_code_t h, Node * start);
 
 private:
     void build(Node * first);

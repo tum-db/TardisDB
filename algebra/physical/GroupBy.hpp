@@ -135,17 +135,6 @@ private:
     Expressions::exp_op_t _expression;
 };
 
-#if 0
-class Count : public Aggregator {
-    Count();
-    Count(ciu_t iu);
-};
-
-class CountDistinct : public Aggregator {
-    std::set<int> seen;
-};
-#endif
-
 } // end namespace Aggregations
 
 /// The "group by" operator

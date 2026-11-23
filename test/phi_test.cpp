@@ -103,34 +103,6 @@ static llvm::Function * phi_3_test()
     return funcGen.getFunction();
 }
 
-static llvm::Function * phi_4_test()
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & context = codeGen.getLLVMContext();
-    auto & moduleGen = codeGen.getCurrentModuleGen();
-
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
-    FunctionGen funcGen(moduleGen, "phi4Test", funcTy);
-
-    {
-        PhiNode<llvm::Value> node( codeGen->getInt32(0), "node" );
-        IfGen check(funcGen, cg_bool_t(false));
-        {
-            node = codeGen->getInt32(7);
-        }
-        check.Else();
-        {
-            node = codeGen->getInt32(42);
-        }
-        check.EndIf();
-
-        cg_i32_t result( node.get() );
-        funcGen.setReturnValue(codeGen->CreateICmpEQ(result, cg_i32_t(42)));
-    }
-
-    return funcGen.getFunction();
-}
-
 static llvm::Function * phi_5_test()
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -191,52 +163,4 @@ TEST(PhiTest, Phi5Test) {
     llvm::Function * phiTest = phi_5_test();
     llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
     ASSERT_NE(resultphiTest.IntVal.getZExtValue(),0);
-}
-
-void executePhi1Test() {
-    ModuleGen moduleGen("Phi1TestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * phiTest = phi_1_test();
-    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    std::cout << "test1: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
-}
-
-void executePhi2Test() {
-    ModuleGen moduleGen("Phi2TestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * phiTest = phi_2_test();
-    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    std::cout << "test2: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
-}
-
-void executePhi3Test() {
-    ModuleGen moduleGen("Phi3TestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * phiTest = phi_3_test();
-    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    std::cout << "test3: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
-}
-
-void executePhi4Test() {
-    ModuleGen moduleGen("Phi4TestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * phiTest = phi_4_test();
-    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    std::cout << "test4: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
-}
-
-void executePhi5Test() {
-    ModuleGen moduleGen("Phi5TestModule");
-    std::vector<llvm::GenericValue> args;
-    llvm::Function * phiTest = phi_5_test();
-    llvm::GenericValue resultphiTest = QueryExecutor::executeFunction(phiTest,args);
-    std::cout << "test5: passed: " << resultphiTest.IntVal.getZExtValue() << "\n";
-}
-
-void phi_test() {
-    executePhi1Test();
-    executePhi2Test();
-    executePhi3Test();
-    executePhi4Test();
-    executePhi5Test();
 }

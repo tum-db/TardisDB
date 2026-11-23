@@ -17,7 +17,6 @@ public:
 
     void produce() override;
 
-#if USE_DATA_VERSIONING
     void produce(cg_tid_t tid, branch_id_t branchId);
 
     /// What the workers of a parallel scan share; owned by the execution context
@@ -41,9 +40,6 @@ public:
         uint64_t keyHash;
         std::vector<tid_t> candidates;
     };
-#else
-    void produce(cg_tid_t tid);
-#endif
 
 private:
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, Sql::value_op_t>;
@@ -51,7 +47,6 @@ private:
     cg_voidptr_t genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId);
     llvm::Value * genChainWalkCall(cg_tid_t tid, branch_id_t branchId);
 
-#if USE_DATA_VERSIONING
     /// The scan runs morsel-driven if only selections lie between it and the result
     bool isParallelPipeline();
     void produceParallel();
@@ -59,7 +54,6 @@ private:
 
     /// Scans the candidates of a branch-local index instead of the whole table
     void produceIndexProbe(const BranchIndex & index, uint64_t keyHash);
-#endif
     cg_bool_t nullPointerCheck(cg_voidptr_t &pointer);
     llvm::Value *tupleToElemPtr(cg_voidptr_t &ptr, column_t &column);
 

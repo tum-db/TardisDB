@@ -25,10 +25,6 @@ public:
 
     size_t getSize();
 
-    uint64_t getOffset(unsigned elemIdx);
-
-    hash_t hash();
-
     std::vector<value_op_t> split() { return std::move(values); }
 
     static std::pair<std::string, llvm::StructType *> constructStructTy(const std::vector<SqlType> & tds);

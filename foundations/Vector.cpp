@@ -40,16 +40,6 @@ void Vector::push_back(void * ptr)
     std::memcpy(elemAddr, ptr, _elementSize);
 }
 
-void Vector::remove_at(size_type index) {
-    if (index < size() - 1) {
-        void *elementPtr = at(index);
-        void *nextElementPtr = at(index + 1);
-        size_type restLength = (size() - index - 1) * _elementSize;
-        std::memcpy(elementPtr,nextElementPtr,restLength);
-    }
-    pop_back();
-}
-
 void * Vector::reserve_back()
 {
     if (_elementCount == _capacity) {
@@ -145,27 +135,9 @@ bool Vector::empty()
     return (_elementCount == 0);
 }
 
-// wrapper functions
-static void * vectorReserveBack(Vector * vector)
-{
-    return vector->reserve_back();
-}
-
 static void * vectorBack(Vector * vector)
 {
     return vector->back();
-}
-
-// generator functions
-cg_voidptr_t genVectorReserveBackCall(cg_voidptr_t vector)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & context = codeGen.getLLVMContext();
-
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (void *), false>::get(context);
-    llvm::CallInst * result = codeGen.CreateCall(&vectorReserveBack, funcTy, vector.llvmValue);
-
-    return cg_voidptr_t( llvm::cast<llvm::Value>(result) );
 }
 
 cg_voidptr_t genVectoBackCall(cg_voidptr_t vector)

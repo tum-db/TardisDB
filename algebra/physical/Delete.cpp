@@ -33,12 +33,6 @@ namespace Algebra {
             Functions::genPrintfCall("Deleted %lu tuples\n", tupleCnt);
         }
 
-#if !USE_DATA_VERSIONING
-        void delete_tuple_without_versioning(tid_t tid, Table & table, QueryContext & ctx) {
-            table.removeRow(tid);
-        }
-#endif
-
         void Delete::consume(const iu_value_mapping_t & values, const Operator & src)
         {
             cg_size_t tid;
@@ -50,11 +44,7 @@ namespace Algebra {
             }
 
             // Call the delete_tuple function in version_management.hpp
-#if USE_DATA_VERSIONING
             genDeleteCall((void *)&delete_tuple_with_branchId, tid);
-#else
-            genDeleteCall((void *)&delete_tuple_without_versioning, tid);
-#endif
 
             // increment tuple counter
             cg_size_t prevCnt(_codeGen->CreateLoad(cg_size_t::getType(), tupleCountPtr));

@@ -19,7 +19,6 @@ using namespace Sql;
 namespace Algebra {
 namespace Physical {
 
-#if USE_DATA_VERSIONING
 static void scan_run(void * state, void * function, void * context)
 {
     auto * s = static_cast<TableScan::ParallelState *>(state);
@@ -54,7 +53,6 @@ static const void * scan_latest_entry(size_t tid, void * state)
     auto * s = static_cast<TableScan::ParallelState *>(state);
     return get_latest_entry_of_reader(tid, *s->table, s->branch, s->label, s->lineage, s->limits.empty() ? nullptr : s->limits.data());
 }
-#endif
 
 TableScan::TableScan(const logical_operator_t & logicalOperator, Table & table, branch_id_t branchId, QueryContext &queryContext) :
         NullaryOperator(std::move(logicalOperator), queryContext),
@@ -90,7 +88,6 @@ void TableScan::produce()
 
     size_t tableSize = table.size();
     if (tableSize < 1) return;  // nothing to produce
-#if USE_DATA_VERSIONING
     prepare_scan(table, branchId);
     auto & logicalScan = static_cast<const Logical::TableScan &>(_logicalOperator);
     if (logicalScan.getIndex() != nullptr) {
@@ -101,7 +98,6 @@ void TableScan::produce()
         produceParallel();
         return;
     }
-#endif
 
     // iterate over all tuples
 #ifdef __APPLE__
@@ -113,22 +109,17 @@ void TableScan::produce()
     {
         LoopBodyGen bodyGen(scanLoop);
 
-#if USE_DATA_VERSIONING
         IfGen visibilityCheck(isVisible(tid, branchId));
         {
             produce(tid, branchId);
         }
         visibilityCheck.EndIf();
-#else
-        produce(tid);
-#endif
     }
     cg_size_t nextIndex = tid + 1ul;
     scanLoop.loopDone(nextIndex < tableSize, {nextIndex});
 }
 
 
-#if USE_DATA_VERSIONING
 void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
     iu_value_mapping_t values;
 
@@ -188,45 +179,6 @@ void TableScan::produce(cg_tid_t tid, branch_id_t branchId) {
         seesVersion->EndIf();
     }
 }
-#else
-void TableScan::produce(cg_tid_t tid) {
-    iu_value_mapping_t values;
-
-    iu_set_t required = getRequired();
-
-
-    size_t i = 0;
-    for (auto iu : required) {
-        // the final value
-        value_op_t sqlValue;
-
-        if (iu->columnInformation->columnName.compare("tid") == 0) {
-            //Add tid to the produced values
-            llvm::Value *tidValue = tid.getValue();
-            tidSqlValue = std::make_unique<LongInteger>(tidValue);
-            values[iu] = tidSqlValue.get();
-        } else {
-            column_t & column = columns[i];
-
-            ci_p_t ci = std::get<0>(column);
-
-            llvm::Value *elemPtr = getMasterElemPtr(tid,column);
-
-            // calculate the SQL value pointer
-
-            // load the SQL value, of a nullable column with its null indicator
-            std::get<4>(column) = Value::load(elemPtr, ci->type);
-
-            // map the value to the according iu
-            values[iu] = std::get<4>(column).get();
-
-            i += 1;
-        }
-    }
-
-    emit(values);
-}
-#endif
 
 llvm::Value *TableScan::getMasterElemPtr(cg_tid_t &tid, column_t &column) {
 #ifdef __APPLE__
@@ -252,7 +204,6 @@ llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voi
     return check.getResult(0);
 }
 
-#if USE_DATA_VERSIONING
 void TableScan::produceIndexProbe(const BranchIndex & index, uint64_t keyHash)
 {
     auto & funcGen = _codeGen.getCurrentFunctionGen();
@@ -349,17 +300,14 @@ void TableScan::produceParallel()
     _codeGen->CreateCall(run, {cg_ptr8_t::fromRawPointer(_parallel).getValue(),
             _codeGen->CreatePointerCast(morsel, LLVMCompat::getInt8PtrTy(context)), _codeGen.getCurrentFunctionGen().getArg(1)});
 }
-#endif
 
 llvm::Value * TableScan::genChainWalkCall(cg_tid_t tid, branch_id_t branchId) {
-#if USE_DATA_VERSIONING
     if (_parallel != nullptr) {
         llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void *), false>::get(_codeGen.getLLVMContext());
         llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "table_scan_latest_entry", funcTy);
         getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func, (void *) &scan_latest_entry);
         return _codeGen->CreateCall(func, {tid.getValue(), cg_ptr8_t::fromRawPointer(_parallel).getValue()});
     }
-#endif
     llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (size_t, void *, branch_id_t, void *), false>::get(_codeGen.getLLVMContext());
     llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "get_latest_entry", funcTy);
     getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&get_latest_entry);
@@ -468,16 +416,8 @@ cg_bool_t TableScan::nullPointerCheck(cg_voidptr_t &ptr) {
 }
 
 llvm::Value *TableScan::tupleToElemPtr(cg_voidptr_t &ptr, column_t &column) {
-#if USE_DATA_VERSIONING
     // a version written before a column was added reads its default
     return genVersionAttributePtr(table, ptr.getValue(), std::get<3>(column));
-#else
-    llvm::Type * tupleTy = Sql::SqlTuple::getType(table.getTupleType());
-    llvm::Type * tuplePtrTy = llvm::PointerType::getUnqual(tupleTy);
-    llvm::Value * tuplePtr = _codeGen->CreatePointerCast(ptr, tuplePtrTy);
-
-    return _codeGen->CreateStructGEP(tupleTy, tuplePtr, std::get<3>(column));
-#endif
 }
 
 cg_bool_t TableScan::isVisible(cg_tid_t tid, cg_branch_id_t branchId)

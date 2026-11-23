@@ -43,22 +43,6 @@ llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType 
     llvm::Value * obit = codeGen->CreateExtractValue(result, 1, "obit");
 
     // the additional overflow check required for internal null indicators
-#ifdef USE_INTERNAL_NULL_INDICATOR
-    llvm::Value * nullIndicator = Sql::getNullIndicator(resultTy);
-    if (nullIndicator == nullptr) {
-        throw InvalidOperationException("type does not provide a null indicator");
-    }
-
-    llvm::Value * isResultNull;
-    if (nullIndicator->getType()->isIntegerTy()) {
-        // result == internal null indicator
-        isResultNull = codeGen->CreateICmpEQ(opResult, nullIndicator);
-    } else {
-        throw NotImplementedException();
-    }
-
-    obit = codeGen->CreateOr(obit, isResultNull);
-#endif // USE_INTERNAL_NULL_INDICATOR
 
     IfGen overflowCheck(obit);
     {
@@ -476,39 +460,6 @@ bool inferCompareTy(SqlType lhs, SqlType rhs, SqlType & result)
 }
 
 //-----------------------------------------------------------------------------
-// equals
-
-value_op_t sqlEquals(const Value & outerLhs, const Value & outerRhs)
-{
-    assert(Sql::equals(outerLhs.type, outerRhs.type, SqlTypeEqualsMode::WithoutNullable));
-
-    SqlType resultType;
-    bool valid = inferEqualsTy(outerLhs.type, outerRhs.type, resultType);
-    assert(valid);
-
-    auto action = [](const Value & lhs, const Value & rhs) {
-        cg_bool_t result = lhs.equals(rhs);
-
-        // convert to a SQL Bool
-        return value_op_t( Bool::fromRawValues({ result }) );
-    };
-    return Utils::nullHandler(action, outerLhs, outerRhs, resultType);
-}
-
-bool inferEqualsTy(SqlType lhs, SqlType rhs, SqlType & result)
-{
-    return inferCompareTy(lhs, rhs, result);
-}
-
-//-----------------------------------------------------------------------------
-// sqlIsNull
-
-std::unique_ptr<Sql::Bool> sqlIsNull(const Value & value)
-{
-    throw NotImplementedException("sqlIsNull");
-}
-
-//-----------------------------------------------------------------------------
 // casts
 
 /// a double rounded to the nearest integer, which must fit into the bits: half to even (as PostgreSQL
@@ -755,15 +706,6 @@ value_op_t sqlNot(const Value & value)
         {
             auto & codeGen = getThreadLocalCodeGen();
             codeGen->CreateStore(codeGen->getInt8(1), overflowFlagPtr());
-        }
-
-        void genOverflowEvaluation()
-        {
-            IfGen overflowCheck(genEvaluateOverflow());
-            {
-                Functions::genPrintfCall("numerical overflow\n");
-            }
-            overflowCheck.EndIf();
         }
 
         cg_bool_t genEvaluateOverflow()

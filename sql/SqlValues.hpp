@@ -113,8 +113,6 @@ public:
 
     static value_op_t castString(const std::string & str);
 
-    static value_op_t castString(cg_ptr8_t str, cg_size_t length);
-
     static value_op_t fromRawValues(const std::vector<llvm::Value *> & values);
 
     static value_op_t load(llvm::Value * ptr);
@@ -477,7 +475,6 @@ protected:
 //-----------------------------------------------------------------------------
 // NullableValue
 
-#ifndef USE_INTERNAL_NULL_INDICATOR
 
 /// NullableValue (with external null indicator)
 class NullableValue : public Value {
@@ -515,44 +512,6 @@ protected:
     cg_bool_t _nullIndicator;
 };
 
-#else
-
-/// NullableValue (with internal null indicator)
-class NullableValue : public Value {
-public:
-    static value_op_t getNull(SqlType type);
-
-    static value_op_t create(value_op_t value);
-
-    static value_op_t create(const Value & value);
-
-    static value_op_t load(llvm::Value * ptr, SqlType type);
-
-    std::vector<llvm::Value *> getRawValues() const override;
-
-    value_op_t clone() const override;
-
-    void store(llvm::Value * ptr) const override;
-
-    cg_hash_t hash() const override;
-
-    cg_bool_t isNull() const;
-
-    Value & getValue() const;
-
-    void accept(ValueVisitor & visitor) override;
-
-    cg_bool_t equals(const Value & other) const override;
-
-    cg_bool_t compare(const Value & other, ComparisonMode mode) const override;
-
-protected:
-    NullableValue(value_op_t sqlValue);
-
-    value_op_t _sqlValue;
-};
-
-#endif // USE_INTERNAL_NULL_INDICATOR
 
 //-----------------------------------------------------------------------------
 // ValueVisitor
@@ -587,10 +546,5 @@ bool isUnknown(const Value & value);
 /// \returns The Value associated with a NullableValue or the Value itself
 const Value & getAssociatedValue(const Value & value);
 
-bool isNumerical(const Value & value);
-
-#ifdef USE_INTERNAL_NULL_INDICATOR
-llvm::Value * getNullIndicator(SqlType type);
-#endif
 
 } // end namespace Sql

@@ -5,7 +5,6 @@
 #include <set>
 #include "gtest/gtest.h"
 
-#if !USE_HYRISE
 #include "sqlParser/SQLParser.hpp"
 
 namespace {
@@ -113,4 +112,3 @@ namespace {
 
 }  // namespace
 
-#endif

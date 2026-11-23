@@ -23,8 +23,6 @@ public:
 
     void push_back(void * ptr);
 
-    void remove_at(size_type index);
-
     void * reserve_back();
 
     /// Makes room for count elements, so that appending up to count elements does not move the array
@@ -57,8 +55,5 @@ private:
     size_type _arraySize;
     uint8_t * _array;
 };
-
-// generator functions
-cg_voidptr_t genVectorReserveBackCall(cg_voidptr_t vector);
 
 cg_voidptr_t genVectoBackCall(cg_voidptr_t vector);

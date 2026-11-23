@@ -1478,11 +1478,6 @@ extern "C" uint64_t tardisArrayHash(const void * a, uint64_t arrayType)
     return hash(loadHandle(a), typeOfBits(arrayType));
 }
 
-extern "C" void tardisArrayPersist(void * handle)
-{
-    storeHandle(handle, persist(loadHandle(handle)));
-}
-
 } // end namespace Arrays
 } // end namespace Sql
 } // end namespace Native

@@ -15,11 +15,7 @@
 #include "foundations/version_management.hpp"
 
 //-----------------------------------------------------------------------------
-// NullIndicatorColumn
-
-BitmapTable::BitmapTable() :
-        BitmapTable(8) // FIXME once resize() is implemented this will no longer be necessary
-{ }
+// BitmapTable
 
 BitmapTable::BitmapTable(size_t columnCountHint)
 {
@@ -98,7 +94,7 @@ bool BitmapTable::isSet(tid_t tid, unsigned column) const
     // calculate section
     uint8_t * sectionPtr = tuple + byte;
     uint8_t section = *sectionPtr;
-    return static_cast<bool>((section >> sectionIndex) & 1); // test null indicator bit
+    return static_cast<bool>((section >> sectionIndex) & 1);
 }
 
 void BitmapTable::resize()
@@ -119,6 +115,7 @@ void BitmapTable::resize()
     _availableCount = newBytes * 8;
 }
 
+#if !LAZY_MEMBERSHIP // the lazy membership tests its states instead
 static cg_bool_t isSet_gen(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
 {
     auto & codeGen = getThreadLocalCodeGen();
@@ -142,11 +139,7 @@ static cg_bool_t isSet_gen(BitmapTable & table, cg_tid_t tid, cg_unsigned_t colu
     cg_bool_t result( codeGen->CreateTrunc(shifted, cg_bool_t::getType()) );
     return result;
 }
-
-cg_bool_t genNullIndicatorLoad(BitmapTable & table, cg_tid_t tid, cg_unsigned_t column)
-{
-    return isSet_gen(table, tid, column);
-}
+#endif
 
 //-----------------------------------------------------------------------------
 // BranchMembership
@@ -483,7 +476,6 @@ void Table::addColumn(const std::string & columnName, Sql::SqlType type)
     if (type.nullable) {
         Native::Sql::NullableValue::getNull(type)->store(ci->defaultValue.data());
     }
-    ci->nullIndicatorType = ColumnInformation::NullIndicatorType::Embedded;
 
 //    _columns.emplace(columnName, std::make_pair(std::move(ci), std::move(column)));
     _columnsByName.emplace(columnName, _columns.size());
@@ -604,10 +596,7 @@ void Table::appendRow(branch_id_t branchId)
     for (auto & [ci, vec] : _columns) {
         vec->reserve_back();
     }
-#if USE_DATA_VERSIONING
-    _nullIndicatorTable.addRow();
     _membership.addRow(branchId);
-#endif
     _appended += 1;
 }
 
@@ -624,7 +613,6 @@ void Table::reserveRows(size_t rows)
     for (auto & [ci, vec] : _columns) {
         vec->reserve(rows);
     }
-    _nullIndicatorTable.reserve(rows);
     _membership.reserve(rows);
     _version_mgmt_column.reserve(rows);
     _head_ident.reserve(rows);
@@ -649,16 +637,6 @@ bool Table::headsKnown()
     // a statement may insert meanwhile
     std::lock_guard<std::mutex> lock(_scanLatch);
     return _head_ident.size() == _version_mgmt_column.size();
-}
-
-void Table::removeRow(tid_t tid) {
-#if !USE_DATA_VERSIONING
-    for (auto & [ci, vec] : _columns) {
-        vec->remove_at(tid);
-    }
-    _appended -= 1;
-    publishRows();
-#endif
 }
 
 void Table::removeRowForBranch(tid_t tid, branch_id_t branchId) {
@@ -747,22 +725,6 @@ BranchIndex * Table::getIndex(size_t column, branch_id_t branch) const
         }
     }
     return nullptr;
-}
-
-// wrapper functions
-static void tableAddRow(Table * table)
-{
-    table->addRow(0);
-}
-
-// generator functions
-void genTableAddRowCall(cg_voidptr_t table)
-{
-    auto & codeGen = getThreadLocalCodeGen();
-    auto & context = codeGen.getLLVMContext();
-
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (void *), false>::get(context);
-    codeGen.CreateCall(&tableAddRow, funcTy, table.getValue());
 }
 
 //-----------------------------------------------------------------------------

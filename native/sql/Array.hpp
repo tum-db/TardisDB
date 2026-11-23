@@ -208,8 +208,6 @@ extern "C" bool tardisArrayCall(uint32_t function, Arena * arena, uint64_t resul
 extern "C" bool tardisArrayEquals(const void * a, const void * b, uint64_t arrayType);
 extern "C" int32_t tardisArrayCompare(const void * a, const void * b, uint64_t arrayType);
 extern "C" uint64_t tardisArrayHash(const void * a, uint64_t arrayType);
-/// Moves a computed array to the string pool, before an UPDATE stores it in a table
-extern "C" void tardisArrayPersist(void * handle);
 
 inline uint64_t typeBits(SqlType type) { uint64_t bits; std::memcpy(&bits, &type, sizeof(bits)); return bits; }
 inline SqlType typeOfBits(uint64_t bits) { SqlType type; std::memcpy(&type, &bits, sizeof(bits)); return type; }

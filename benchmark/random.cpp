@@ -35,45 +35,6 @@ void insert_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table)
     }
 }
 
-void update_tuples_once(branch_id_t branch, size_t cnt, Database & db, Table & table) {
-    QueryContext ctx(db);
-    ctx.executionContext.branchId = branch;
-    db.constructBranchLineage(branch, ctx.executionContext);
-
-    std::vector<tid_t> tids;
-    for (size_t tid = 0; tid < table._version_mgmt_column.size(); ++tid) {
-        tids.push_back(tid);
-    }
-    for (size_t tid = 0; tid < table._dangling_version_mgmt_column.size(); ++tid) {
-        tids.push_back(mark_as_dangling_tid(tid));
-    }
-
-    std::vector<value_op_t> values;
-    values.push_back(std::make_unique<Integer>(1));
-    values.push_back(std::make_unique<Integer>(2));
-    values.push_back(std::make_unique<Integer>(3));
-    SqlTuple tuple(std::move(values));
-
-    std::shuffle(tids.begin(), tids.end(), rd_engine);
-    size_t updated = 0;
-    for (tid_t tid : tids) {
-        VersionEntry * version_entry;
-        if (is_marked_as_dangling_tid(tid)) {
-            tid_t unmarked = unmark_dangling_tid(tid);
-            version_entry = table._dangling_version_mgmt_column[unmarked].get();
-        } else {
-            version_entry = table._version_mgmt_column[tid].get();
-        }
-        if (!has_lineage_intersection(ctx, version_entry)) {
-            continue;
-        }
-
-        update_tuple(tid, tuple, table, ctx);
-        updated += 1;
-    }
-    assert(updated == cnt);
-}
-
 void update_tuples(branch_id_t branch, size_t cnt, Database & db, Table & table) {
     QueryContext ctx(db);
     ctx.executionContext.branchId = branch;
