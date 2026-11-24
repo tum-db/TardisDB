@@ -208,18 +208,6 @@ HashJoin::HashJoin(const logical_operator_t & logicalOperator,
         BinaryOperator(std::move(logicalOperator), std::move(left), std::move(right), queryContext),
         joinPairs(std::move(pairs))
 {
-    // sanity check:
-#ifndef NDEBUG
-    const auto & leftRequired = _leftChild->getRequired();
-    const auto & rightRequired = _rightChild->getRequired();
-    /* TODO (implement Expression::getRequired())
-    for (const auto & p : pairs) {
-        if (leftRequired.count(p.first) != 1 || rightRequired.count(p.second) != 1) {
-            throw std::runtime_error("join pair order");
-        }
-    }
-    */
-#endif
 }
 
 HashJoin::~HashJoin()
@@ -261,10 +249,7 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
     llvm::Value * tuplePtr = codeGen->CreateStructGEP(listNodeTy, nodePtr, 2);
     auto tuple = SqlTuple::load(tuplePtr, storedTypes);
  
-    // check if all related values do also match:
-#if 1
-    // naive first version:
-
+    // do all join attributes match? every comparison is evaluated, without short-circuiting
     iu_value_mapping_t values;
     iu_p_t iu;
     size_t idx;
@@ -299,47 +284,6 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
     }
     check.EndIf();
 
-#else // TODO port and benchmark the following code
-    // this version builds a nested "if" construct in order to avoid unnecessary comparisons
-
-    // "IfGen"s are not copyable (otherwise the BasicBlock structure would get mixed up)
-    std::vector<std::unique_ptr<IfGen>> chain;
-
-    for (auto pairIt = joinPairs.begin(); pairIt != joinPairs.end(); ++pairIt) {
-        auto & joinPair = *pairIt;
-
-        auto tupleIt = tupleMapping.find(joinPair.first);
-        iu_p_t rightIU = joinPair.second;
-        assert(rightProduced->count(rightIU) == 1);
-
-        size_t i = tupleIt->second;
-        Value & left = *(tuple->values[i]);
-        Value & right = *(rightProduced->at(rightIU));
-
-        // extend the nested "if"-chain by one statement
-        cg_bool_t equals = left.equals(right);
-        chain.emplace_back( std::make_unique<IfGen>(funcGen, equals) );
-
-        // at this point all join-attributes are guaranteed to be equal
-        if (std::next(pairIt) == joinPairs.end()) {
-            // merge both sides
-            iu_value_mapping_t values;
-            for (iu_p_t iu : probeSet) {
-                values[iu] = rightProduced->at(iu);
-            }
-            for (auto & pair : tupleMapping) {
-                values[pair.first] = tuple->values[pair.second].get();
-            }
-
-            parent->consume(values, *this);
-        }
-    }
-
-    // close the chain in reverse order
-    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-        it->get()->EndIf();
-    }
-#endif
 }
 
 void HashJoin::consumeLeft(const iu_value_mapping_t & values)

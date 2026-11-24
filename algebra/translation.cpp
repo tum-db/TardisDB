@@ -377,6 +377,17 @@ public:
                 physical_expression_op_t leftExpr = leftExprTranslator.getResult();
                 ExpressionTranslator rightExprTranslator(cmp->getRightChild());
                 physical_expression_op_t rightExpr = rightExprTranslator.getResult();
+#ifndef NDEBUG
+                // the first expression of a pair reads the build side (left), the second the probe side (right)
+                auto within = [](const Logical::Expressions::Expression & exp, const Logical::Operator & side) {
+                    const iu_set_t & produced = side.getProduced();
+                    for (iu_p_t iu : Logical::collectRequired(exp)) if (produced.count(iu) != 1) return false;
+                    return true;
+                };
+                if (!within(cmp->getLeftChild(), op.getLeftChild()) || !within(cmp->getRightChild(), op.getRightChild())) {
+                    throw std::runtime_error("join pair order");
+                }
+#endif
                 joinPairs.push_back(std::make_pair(std::move(leftExpr), std::move(rightExpr)));
             } else {
                 throw NotImplementedException();
