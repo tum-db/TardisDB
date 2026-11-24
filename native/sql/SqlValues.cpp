@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -515,15 +516,31 @@ Double::Double(value_type constantValue) :
     value(constantValue)
 { }
 
+/// \returns The shortest digits of \p value that read back exactly, in scientific notation (e.g. 1.5e+00)
+static std::string shortestScientific(double value)
+{
+    char buffer[64];
+#if defined(__cpp_lib_to_chars)
+    auto result = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::scientific);
+    return std::string(buffer, result.ptr);
+#else
+    // before GCC 11 (e.g. GCC 9 of the container), to_chars has no floating point
+    for (int precision = 0; precision < 17; ++precision) {
+        std::snprintf(buffer, sizeof(buffer), "%.*e", precision, value);
+        if (std::strtod(buffer, nullptr) == value) return buffer;
+    }
+    std::snprintf(buffer, sizeof(buffer), "%.16e", value);
+    return buffer;
+#endif
+}
+
 std::string formatDouble(double value)
 {
     if (std::isnan(value)) return "NaN";
     if (std::isinf(value)) return value > 0 ? "Infinity" : "-Infinity";
     if (value == 0) return std::signbit(value) ? "-0" : "0";
     // the shortest digits that read back exactly, laid out as PostgreSQL does
-    char buffer[64];
-    auto result = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::scientific);
-    std::string scientific(buffer, result.ptr);
+    std::string scientific = shortestScientific(value);
     size_t e = scientific.find('e');
     std::string mantissa = scientific.substr(0, e);
     int exponent = std::stoi(scientific.substr(e + 1));

@@ -182,7 +182,7 @@ set(DB_LIB_SOURCE_FILES
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
-target_link_libraries(dblib semanticalAnalyser LLVM dl)
+target_link_libraries(dblib semanticalAnalyser LLVM dl pthread)
 if(INTERVAL_VISIBILITY)
 	target_compile_definitions(dblib PUBLIC -D INTERVAL_VISIBILITY=1)
 endif(INTERVAL_VISIBILITY)

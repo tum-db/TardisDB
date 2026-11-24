@@ -221,6 +221,13 @@ quotes may hold the delimiter, quotes and line breaks); `FORMAT tbl` is the form
 leaves the table as it was; it holds one record at a time. The server reads and writes the files
 (`test/copy_test.cpp`). `schemas/` holds the schemas of TPC-H and TPC-C.
 
+`pgserver` answers psql's `\d`, `\dt`, `\d table` (the columns of the session's branch), `\l` and
+`\dn`, which query `pg_catalog`; TardisDB has no `pg_catalog`, so other backslash commands of psql
+fail. `SHOW TABLES`, `SHOW COLUMNS FROM table`, `SHOW BRANCHES` and `SHOW DATABASES` list the catalog
+in any client. The `Dockerfile` at the top builds `pgserver` with LLVM 18 and starts it on port 5432
+(`docker build -t tardisdb .`, `docker run --rm -p 127.0.0.1:5432:5432 tardisdb`); it has no
+authentication.
+
 ## SQL shell
 
 `sql` starts an empty in-memory database with an interactive prompt; `sql FILE...` executes the files and quits.

@@ -196,6 +196,26 @@ with psycopg.connect(dsn, autocommit=True) as c3:
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types
+# psql's \d, \dt, \d table, \l and \dn query pg_catalog; pgserver answers them (if psql is installed)
+import shutil, subprocess
+if shutil.which("psql"):
+    def psql(command, branch="master"):
+        done = subprocess.run(["psql", "-X", "-A", "-t", "-h", "127.0.0.1", "-p", str(port), "-U", "test", "-d", "drivers",
+                               "-c", f"set branch = {branch}", "-c", command],
+                              capture_output=True, text=True, timeout=30, env={"PGCONNECT_TIMEOUT": "10", "PATH": "/usr/bin:/bin"})
+        return done.stdout.splitlines()[1:], done.stderr.strip()
+    rows, _ = psql("\\dt")
+    assert "public|k|table|test" in rows and "public|ag|table|test" in rows, rows
+    assert psql("\\dt a*")[0] == ["public|ag|table|test", "public|ar|table|test"], psql("\\dt a*")
+    assert psql("\\d k")[0] == ["id|integer||not null|", "name|character varying(20)||not null|",
+                                 "amount|numeric(10,2)||not null|", "at|timestamp without time zone||not null|"], psql("\\d k")
+    cur.execute("alter table ag version dev add column extra integer")
+    assert psql("\\d ag", "dev")[0][-1] == "extra|integer|||" and len(psql("\\d ag")[0]) == 2  # the columns of the branch
+    assert psql("\\d nosuch")[1] == 'Did not find any relation named "nosuch".'
+    assert "drivers|test|UTF8|libc|C|C|||" in psql("\\l")[0]
+    assert psql("\\dn")[0] == ["public|test"]
+    assert "TardisDB has no pg_catalog" in psql("\\df")[1]
+    print("psql: \\d, \\dt, \\l and \\dn")
 c.close()
 c2.close()
 with admin.cursor() as cur:

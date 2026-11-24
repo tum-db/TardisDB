@@ -551,6 +551,7 @@ private:
             }
             _db = _dbHandle.get();
             _database = database;
+            _user = parameters["user"];
             // options: -c name=value ...
             std::string options = parameters["options"];
             for (size_t pos = 0; (pos = options.find("-c", pos)) != std::string::npos;) {
@@ -821,6 +822,220 @@ private:
         outcome.tag = "SHOW";
     }
 
+    // the catalog of PostgreSQL, for psql -----------------------------------
+    // psql's \d, \dt, \d table, \l and \dn query pg_catalog, which TardisDB does not have. These queries are
+    // recognized by their shape and answered from TardisDB's catalog: one schema public, the tables (of kind
+    // 'r') with the columns of the session's branch, without indexes (the primary key has none) and without
+    // constraints, rules, triggers or policies. Other queries of pg_catalog are an error.
+
+    /// The items of the select list of \p statement, split at the commas outside of parentheses and quotes
+    static std::vector<std::string> selectItems(const std::string & statement)
+    {
+        const std::string s = lower(statement);
+        std::vector<std::string> items;
+        size_t pos = s.find("select");
+        if (pos == std::string::npos) return items;
+        pos += 6;
+        auto isSpace = [](char c) { return std::isspace(static_cast<unsigned char>(c)) != 0; };
+        int depth = 0;
+        char quote = 0;
+        size_t start = pos, i = pos;
+        for (; i < s.size(); ++i) {
+            const char c = s[i];
+            if (quote) {
+                if (c == quote) quote = 0;
+                continue;
+            }
+            if (c == '\'' || c == '"') quote = c;
+            else if (c == '(') ++depth;
+            else if (c == ')') --depth;
+            else if (depth > 0) continue;
+            else if (c == ';') break;
+            else if (c == ',') {
+                items.push_back(trim(statement.substr(start, i - start)));
+                start = i + 1;
+            } else if (isSpace(c) && s.compare(i + 1, 4, "from") == 0 && (i + 5 == s.size() || isSpace(s[i + 5]))) {
+                break;
+            }
+        }
+        items.push_back(trim(statement.substr(start, i - start)));
+        if (items.back().empty()) items.pop_back();
+        return items;
+    }
+
+    /// The name of the column of an item of a select list: its alias, else its last identifier
+    static std::string itemName(const std::string & item)
+    {
+        static const std::regex quoted(R"re(\s+as\s+"([^"]*)"\s*$)re", std::regex::icase);
+        static const std::regex plain(R"(\s+as\s+(\w+)\s*$)", std::regex::icase);
+        std::smatch match;
+        if (std::regex_search(item, match, quoted) || std::regex_search(item, match, plain)) return match[1].str();
+        std::string head = item.substr(0, item.find('('));
+        size_t end = head.find_last_not_of(" \t\r\n");
+        if (end == std::string::npos) return "?column?";
+        size_t begin = head.find_last_of(". \t\r\n", end);
+        return lower(head.substr(begin == std::string::npos ? 0 : begin + 1, end - (begin == std::string::npos ? 0 : begin + 1) + 1));
+    }
+
+    /// psql's patterns (\d foo*): the regular expressions that \p column (e.g. "relname") must match
+    static std::vector<std::regex> namePatterns(const std::string & statement, const std::string & column)
+    {
+        static const std::regex pattern(R"(\w+\.(\w+)\s+OPERATOR\(pg_catalog\.~\)\s+'((?:[^']|'')*)')", std::regex::icase);
+        std::vector<std::regex> patterns;
+        for (auto it = std::sregex_iterator(statement.begin(), statement.end(), pattern); it != std::sregex_iterator(); ++it) {
+            if (lower((*it)[1].str()) != column) continue;
+            std::string expression = std::regex_replace((*it)[2].str(), std::regex("''"), "'");
+            try {
+                patterns.emplace_back(expression);
+            } catch (const std::regex_error &) {
+                throw SqlError("2201B", "invalid regular expression: " + expression);
+            }
+        }
+        return patterns;
+    }
+
+    static bool matches(const std::vector<std::regex> & patterns, const std::string & name)
+    {
+        for (auto & p : patterns) if (!std::regex_match(name, p)) return false;
+        return true;
+    }
+
+    /// The OID of a table for psql's queries, stable within the session
+    std::string relationOid(const std::string & table)
+    {
+        auto it = _oidOf.find(table);
+        if (it == _oidOf.end()) {
+            it = _oidOf.emplace(table, std::to_string(16384 + _oidOf.size())).first;
+            _tableOf[it->second] = table;
+        }
+        return it->second;
+    }
+
+    /// \returns The table of an OID that the statement compares with (c.oid = '16384'), nullptr without one
+    Table * relationOfOid(const std::string & statement, std::string * name = nullptr)
+    {
+        static const std::regex oid(R"('(\d+)')");
+        for (auto it = std::sregex_iterator(statement.begin(), statement.end(), oid); it != std::sregex_iterator(); ++it) {
+            auto table = _tableOf.find((*it)[1].str());
+            if (table == _tableOf.end()) continue;
+            if (name) *name = table->second;
+            return _db->getTable(table->second);
+        }
+        return nullptr;
+    }
+
+    std::optional<Outcome> pgCatalog(const std::string & statement)
+    {
+        const std::string s = lower(statement);
+        if (s.find("pg_catalog.") == std::string::npos) return std::nullopt;
+        const std::vector<std::string> items = selectItems(statement);
+        Outcome outcome;
+        outcome.returnsRows = true;
+        for (auto & item : items) {
+            outcome.columnNames.push_back(itemName(item));
+            outcome.columnTypes.push_back(Sql::getTextTy(true));
+        }
+        using Value = std::optional<std::string>;
+        auto has = [&](const char * text) { return s.find(text) != std::string::npos; };
+        // a row: the value of each item from the first keyword of \p values that it contains
+        auto row = [&](const std::vector<std::pair<const char *, Value>> & values) {
+            std::vector<Value> r;
+            for (auto & item : items) {
+                std::string i = lower(item);
+                Value value;
+                for (auto & [keyword, v] : values) {
+                    if (i.find(keyword) != std::string::npos) { value = v; break; }
+                }
+                r.push_back(value);
+            }
+            outcome.rows.push_back(std::move(r));
+        };
+        auto finish = [&]() {
+            outcome.tag = "SELECT " + std::to_string(outcome.rows.size());
+            return outcome;
+        };
+
+        std::shared_lock<SharedLatch> latch(_db->_catalogLatch);
+        std::vector<std::string> tables;
+        for (auto & [name, table] : _db->getTables()) tables.push_back(name);
+        std::sort(tables.begin(), tables.end());
+        const bool inPublic = matches(namePatterns(statement, "nspname"), "public");
+        const auto relationPatterns = namePatterns(statement, "relname");
+        const branch_id_t branch = _db->_branchMapping.at(_transaction ? _transaction->snapshot : _branch);
+
+        static const std::regex relkinds(R"(c\.relkind\s+in\s*\(([^)]*)\))");
+        std::smatch kinds;
+        const bool listsTables = !std::regex_search(s, kinds, relkinds) || kinds[1].str().find("'r'") != std::string::npos;
+
+        if (has("from pg_catalog.pg_class c") && has("c.relname as \"name\"")) {
+            // \d, \dt, ...: the list of relations
+            if (listsTables && inPublic) {
+                for (auto & name : tables) {
+                    if (!matches(relationPatterns, name)) continue;
+                    row({{"c2.relname", std::nullopt}, {"nspname", std::string("public")}, {"relname", name},
+                         {"relkind", std::string("table")}, {"pg_get_userbyid", _user}, {"relpersistence", std::string("permanent")},
+                         {"amname", std::string("heap")}});
+                }
+            }
+            return finish();
+        }
+        if (has("from pg_catalog.pg_class c") && std::regex_search(s, std::regex(R"(^\s*select\s+c\.oid\s*,\s*n\.nspname\s*,\s*c\.relname\s)"))) {
+            // \d name: the relations to describe
+            if (inPublic) {
+                for (auto & name : tables) {
+                    if (matches(relationPatterns, name)) row({{"oid", relationOid(name)}, {"nspname", std::string("public")}, {"relname", name}});
+                }
+            }
+            return finish();
+        }
+        std::string tableName;
+        Table * table = relationOfOid(statement, &tableName);
+        if (table && has("c.relchecks")) {
+            row({{"relchecks", std::string("0")}, {"relkind", std::string("r")}, {"relpersistence", std::string("p")},
+                 {"relreplident", std::string("d")}, {"amname", std::string("heap")}, {"reltablespace", std::string("0")},
+                 {"reloftype", std::string("")}, {"reloptions", std::string("")}, {"''", std::string("")}, {"", std::string("f")}});
+            return finish();
+        }
+        if (table && has("from pg_catalog.pg_attribute a")) {
+            // the columns of \d name
+            using T = Sql::SqlType::TypeID;
+            for (auto & column : table->getColumnNames(branch)) {
+                const auto & type = table->findColumn(column, branch)->type;
+                bool extended = type.typeID == T::TextID || type.typeID == T::VarcharID || type.typeID == T::ArrayID;
+                row({{"adbin", std::nullopt}, {"collname", std::nullopt}, {"format_type", typeName(type)},
+                     {"attnotnull", std::string(type.nullable ? "f" : "t")}, {"attidentity", std::string("")},
+                     {"attgenerated", std::string("")}, {"attstorage", std::string(extended ? "x" : "p")},
+                     {"attcompression", std::string("")}, {"attstattarget", std::nullopt}, {"col_description", std::nullopt},
+                     {"attname", column}});
+            }
+            return finish();
+        }
+        if (table) {
+            // the other parts of \d name (indexes, constraints, triggers, ...): none
+            return finish();
+        }
+        if (has("from pg_catalog.pg_database d")) {
+            // \l
+            auto patterns = namePatterns(statement, "datname");
+            for (auto & name : databases.names()) {
+                if (!matches(patterns, name)) continue;
+                row({{"pg_database_size", std::nullopt}, {"shobj_description", std::nullopt}, {"datname", name}, {"pg_get_userbyid", _user}, {"pg_encoding_to_char", std::string("UTF8")},
+                     {"libc", std::string("libc")}, {"datcollate", std::string("C")}, {"datctype", std::string("C")},
+                     {"spcname", std::string("pg_default")}});
+            }
+            return finish();
+        }
+        if (has("from pg_catalog.pg_namespace n") && std::regex_search(s, std::regex(R"(^\s*select\s+n\.nspname\s+as\s)"))) {
+            // \dn
+            if (inPublic) row({{"nspname", std::string("public")}, {"pg_get_userbyid", _user},
+                               {"obj_description", std::string("standard public schema")}});
+            return finish();
+        }
+        if (has("from pg_catalog.pg_publication p")) return finish(); // \dn name: no publications
+        throw SqlError("0A000", "TardisDB has no pg_catalog: psql's \\d, \\dt, \\d table, \\l and \\dn work, other "
+                                "commands do not; SHOW TABLES, SHOW COLUMNS FROM table and SHOW BRANCHES list the catalog");
+    }
+
     Outcome execute(const std::string & statement)
     {
         if (trim(statement).empty()) {
@@ -835,6 +1050,7 @@ private:
             }
         }
         if (auto outcome = sessionStatement(statement)) return *outcome;
+        if (auto outcome = pgCatalog(statement)) return *outcome;
 
         Outcome outcome;
         QueryCompiler::StatementResult result;
@@ -1058,6 +1274,8 @@ private:
     std::shared_ptr<Database> _dbHandle;
     Database * _db = nullptr;
     std::string _database;
+    std::string _user;
+    std::map<std::string, std::string> _oidOf, _tableOf; // tables and their OIDs in psql's queries
     std::string _branch = "master";
     bool _inBlock = false;     // between BEGIN and COMMIT
     bool _failedBlock = false; // a statement of the block failed

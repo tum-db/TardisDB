@@ -1,0 +1,6 @@
+# build directories and sample data are not part of the image's source
+build*/
+cmake-build-*/
+tables/
+benchmarkResults/
+.idea/
