@@ -212,6 +212,15 @@ read joins and common table expressions, group by columns, and `HAVING` filters 
 operator, and `\timing` in the `sql` shell splits the time into compilation and execution
 (`test/explain_test.cpp`).
 
+`COPY t [VERSION b] FROM 'file'` loads a file into a branch and `COPY t [VERSION b] TO 'file'` writes
+one, with the options of PostgreSQL, `WITH (FORMAT csv, HEADER, DELIMITER ';', NULL 'NA', QUOTE '"',
+ESCAPE '\')` or the older `CSV HEADER DELIMITER ';'`. `FORMAT csv` is PostgreSQL's CSV (fields in
+quotes may hold the delimiter, quotes and line breaks); `FORMAT tbl` is the format of the TPC-H tools
+(`|` without quotes; a line may end with `|`). An unquoted empty field, or the text given as `NULL`, is
+`NULL` in a nullable column. `COPY FROM` checks every record before it inserts one, so that an error
+leaves the table as it was; it holds one record at a time. The server reads and writes the files
+(`test/copy_test.cpp`). `schemas/` holds the schemas of TPC-H and TPC-C.
+
 ## SQL shell
 
 `sql` starts an empty in-memory database with an interactive prompt; `sql FILE...` executes the files and quits.
@@ -224,6 +233,3 @@ which are kept in `~/.tardisdb_history`. `\?` lists the backslash commands: `\q`
 The preprocessor option `USE_LLVM_SELECT` controls the build. `-DTARDISDB_LLVM_VERSION=<major>` selects the LLVM version; without it,
 CMake builds against the first installed of LLVM 18 and 7. The REST server (`server`) is built only if the
 Pistache HTTP library is found (`PISTACHE_INCLUDE`, `PISTACHE_LIBRARY_PATH`).
-The `llvm-prototype` executable expects a directory named `tables` with the database data inside the
-build directory. The default SQL schema, `schemas/schema.sql`, is compiled in like any other source
-file, so a rebuild reflects any change to it.

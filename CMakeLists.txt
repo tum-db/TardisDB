@@ -165,8 +165,6 @@ file(GLOB_RECURSE CODEGEN_FILES "codegen/*.cpp" "codegen/*.hpp" "codegen/*.tcc")
 file(GLOB_RECURSE FOUNDATIONS_FILES "foundations/*.cpp" "foundations/*.hpp" "foundations/*.tcc")
 file(GLOB_RECURSE NATIVE_FILES "native/*.cpp" "native/*.hpp" "native/*.tcc")
 file(GLOB_RECURSE SQL_FILES "sql/*.cpp" "sql/*.hpp" "sql/*.tcc")
-file(GLOB_RECURSE QUERIES_FILES "queries/*.cpp" "queries/*.hpp" "queries/*.tcc")
-#file(GLOB_RECURSE TESTS_FILES "tests/*.cpp" "tests/*.hpp" "tests/*.tcc")
 file(GLOB_RECURSE UTILS_FILES "utils/*.cpp" "utils/*.hpp" "utils/*.tcc")
 
 set(THIRD_PARTY_FILES third_party/hexdump.cpp third_party/hexdump.hpp)
@@ -177,40 +175,10 @@ set(DB_LIB_SOURCE_FILES
 	${FOUNDATIONS_FILES}
 	${NATIVE_FILES}
 	${SQL_FILES}
-	${QUERIES_FILES}
 	${QUERY_COMPILER_FILES}
 	${UTILS_FILES}
 	${THIRD_PARTY_FILES}
 )
-
-set(TEST_SOURCE_FILES
-	tests/types_test.cpp
-	tests/groupby_test.cpp
-	tests/tests.cpp
-	tests/tests.hpp
-)
-
-### default schema file
-get_filename_component(SCHEMA_FILE schemas/schema.sql ABSOLUTE)
-
-### database loader generation
-set(LOADER_FILE loader_generated.cpp)
-
-add_custom_command(
-	OUTPUT ${LOADER_FILE}
-	COMMAND schema_parser ${SCHEMA_FILE} > ${LOADER_FILE}
-	DEPENDS ${SCHEMA_FILE} schema_parser
-	COMMENT "Generating database loader"
-	VERBATIM
-)
-
-add_custom_target(
-	GenerateLoader ALL
-	DEPENDS ${LOADER_FILE}
-)
-
-### all generated files
-set(GENERATED_SOURCE_FILES ${LOADER_FILE})
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
@@ -228,17 +196,6 @@ if(LAZY_MEMBERSHIP)
 	target_compile_definitions(dblib PUBLIC -D LAZY_MEMBERSHIP=1)
 endif(LAZY_MEMBERSHIP)
 target_link_libraries(dblib sqlparser)
-
-### main application
-add_executable(protodb main.cpp ${GENERATED_SOURCE_FILES} ${TEST_SOURCE_FILES})
-target_link_libraries(protodb dblib queryCompiler queryExecutor)
-
-### set up dependencies
-add_dependencies(GenerateLoader schema_parser)
-add_dependencies(protodb GenerateLoader)
-
-### sub projects
-add_subdirectory(schema_parser)
 
 ### benchmarks
 set(RD_BENCH_SOURCE_FILES
@@ -261,4 +218,4 @@ file(GLOB_RECURSE HS RELATIVE ${CMAKE_SOURCE_DIR} "*.hpp" "*.tcc")
 
 INSTALL_HEADERS_WITH_DIRECTORY(HS)
 install(TARGETS dblib DESTINATION lib)
-install(TARGETS sql protodb rd_bench DESTINATION bin)
+install(TARGETS sql pgserver rd_bench DESTINATION bin)

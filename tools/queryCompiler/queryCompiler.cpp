@@ -3,6 +3,7 @@
 //
 
 #include "queryCompiler/queryCompiler.hpp"
+#include "semanticAnalyser/CopyFormat.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -34,7 +35,6 @@
 #include "algebra/physical/operators.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
-#include "foundations/loader.hpp"
 #include "foundations/version_management.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 
@@ -823,7 +823,20 @@ namespace QueryCompiler {
         auto &queryTree = queryContext.analyzingContext.joinedTree;
         if (queryTree == nullptr) return;
         latches.latchReadBranches(db, queryContext.analyzingContext.branchIds);
-        if (callbackFunction == nullptr) callbackFunction = (queryContext.analyzingContext.callback != nullptr) ? queryContext.analyzingContext.callback : (void*)&printFunction;
+        if (callbackFunction == nullptr) callbackFunction = (void*)&printFunction;
+        // COPY ... TO writes the tuples into its file (an exception must not leave the generated code)
+        auto & copyWriter = queryContext.analyzingContext.copyWriter;
+        std::exception_ptr failure;
+        if (copyWriter) {
+            queryContext.tupleSink = [&copyWriter, &failure](Native::Sql::SqlTuple * tuple) {
+                if (failure) return;
+                try {
+                    copyWriter->write(*tuple);
+                } catch (...) {
+                    failure = std::current_exception();
+                }
+            };
+        }
 
         auto queryFunc = compileQuery(query, queryTree,queryContext);
         if (queryFunc == nullptr) return;
@@ -835,6 +848,8 @@ namespace QueryCompiler {
         args[1].PointerVal = (void *) &queryContext;
 
         QueryExecutor::executeFunction(queryFunc, args, callbackFunction);
+        if (failure) std::rethrow_exception(failure);
+        if (copyWriter) copyWriter->finish();
     }
 
     static const char * statementTag(semanticalAnalysis::SQLParserResult::OpType type) {
@@ -2033,6 +2048,13 @@ namespace QueryCompiler {
         if (auto * root = dynamic_cast<Algebra::Logical::Result *>(queryTree->getRoot())) {
             describeResult(*root, parserResult, result);
         }
+        // COPY ... TO writes the tuples into its file: the client receives only their number
+        auto & copyWriter = queryContext.analyzingContext.copyWriter;
+        if (copyWriter) {
+            result.returnsRows = false;
+            result.columnNames.clear();
+            result.columnTypes.clear();
+        }
 
         if (described) described(result);
 
@@ -2046,14 +2068,17 @@ namespace QueryCompiler {
         args[1].PointerVal = (void *) &queryContext;
         uint64_t rows = 0;
         std::exception_ptr failure;
-        if (result.returnsRows) {
+        const bool counting = result.returnsRows || copyWriter;
+        std::function<void(Native::Sql::SqlTuple *)> target = sink;
+        if (copyWriter) target = [&copyWriter](Native::Sql::SqlTuple * tuple) { copyWriter->write(*tuple); };
+        if (counting) {
             // count the tuples on their way to the sink; an exception of the sink must not leave the result
             // latch of a parallel scan, so the first one ends the statement after the scan
-            queryContext.tupleSink = [&rows, &sink, &failure](Native::Sql::SqlTuple * tuple) {
+            queryContext.tupleSink = [&rows, &target, &failure](Native::Sql::SqlTuple * tuple) {
                 if (failure) return;
                 try {
                     ++rows;
-                    sink(tuple);
+                    target(tuple);
                 } catch (...) {
                     failure = std::current_exception();
                 }
@@ -2061,7 +2086,8 @@ namespace QueryCompiler {
         }
         QueryExecutor::executeFunction(queryFunc, args, (void *) &printFunction);
         if (failure) std::rethrow_exception(failure);
-        result.rows = result.returnsRows ? rows : queryContext.executionContext.affectedRows;
+        if (copyWriter) copyWriter->finish();
+        result.rows = counting ? rows : queryContext.executionContext.affectedRows;
         return result;
     }
 

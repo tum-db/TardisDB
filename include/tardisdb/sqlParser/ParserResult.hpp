@@ -5,7 +5,6 @@
 #ifndef PROTODB_PARSINGCONTEXT_HPP
 #define PROTODB_PARSINGCONTEXT_HPP
 
-#include <deque>
 
 #include "sqlParser/Expression.hpp"
 #include <vector>
@@ -114,9 +113,6 @@ namespace tardisParser {
         CopyTag,
         CopyDirection,
         CopyPath,
-        CopyWith,
-        CopyFormat,
-        CopyType,
 
         // SET c = c - 5: an arithmetic operator between two terms
         UpdateSetExprArith,
@@ -254,13 +250,17 @@ namespace tardisParser {
         std::vector<std::pair<Column,std::string>> selections;
         std::vector<Predicate> predicates;
     };
+    /// (as semanticalAnalysis::CopyStatement, which this struct is cast to)
     struct CopyStatement {
         Table relation;
         std::string filePath;
-        std::string format;
+        std::string format;      // csv or tbl
         bool directionFrom;
-        /// the fields read by COPY FROM (as semanticalAnalysis::CopyStatement, which this struct is cast to)
-        std::deque<std::vector<std::string>> rows;
+        bool header = false;     // the first line names the columns
+        std::string delimiter;   // the options; empty for the default of the format
+        std::string quote;
+        std::string escape;
+        std::string null;        // the text of NULL (an empty field by default)
     };
 
     struct CreateIndexStatement {
@@ -375,7 +375,7 @@ namespace tardisParser {
                                             State::CreateTableColumnsEnd,
                                             State::CreateBranchParent,
                                             State::Branch,
-                                            State::CopyType,
+                                            State::CopyPath,
                                             State::CreateIndexColumnsEnd,
                                             State::CreateIndexTag,
                                             State::DropBranchName,

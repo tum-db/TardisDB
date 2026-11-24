@@ -683,6 +683,87 @@ namespace tardisParser {
         stmt.columns.back().nullable = false;
     }
 
+    /// \returns The format of COPY named by \p token: csv or tbl
+    static std::string copyFormat(const Token & token) {
+        if (isWord(token, "csv") || isWord(token, "tbl")) {
+            std::string format = token.value;
+            std::transform(format.begin(), format.end(), format.begin(), ::tolower);
+            return format;
+        }
+        if (isWord(token, "text") || isWord(token, "binary")) {
+            throw syntactical_error("COPY reads and writes the formats csv and tbl, not " + token.value);
+        }
+        throw syntactical_error("Expected format name, found '" + token.value + "'");
+    }
+
+    /// Sets an option of COPY that takes a string (DELIMITER, NULL, QUOTE, ESCAPE)
+    static void setCopyOption(CopyStatement & stmt, const Token & option, const Token & value) {
+        if (!value.hasType(Type::literal) || !value.quoted) {
+            throw syntactical_error("Expected a string after " + option.value + ", found '" + value.value + "'");
+        }
+        if (isWord(option, "delimiter")) stmt.delimiter = value.value;
+        else if (isWord(option, "null")) stmt.null = value.value;
+        else if (isWord(option, "quote")) stmt.quote = value.value;
+        else stmt.escape = value.value;
+    }
+
+    static bool isCopyOption(const Token & token) {
+        return isWord(token, "delimiter") || isWord(token, "null") || isWord(token, "quote") || isWord(token, "escape");
+    }
+
+    /// Reads the options of COPY after the file and the end of the statement, as PostgreSQL either
+    ///   [ WITH ] ( FORMAT csv|tbl [, HEADER [ boolean ] ] [, DELIMITER 'c' ] [, NULL 'text' ] [, QUOTE 'c' ] [, ESCAPE 'c' ] )
+    /// or in the older form
+    ///   [ WITH ] [ FORMAT ] csv|tbl [ HEADER ] [ DELIMITER [ AS ] 'c' ] [ NULL [ AS ] 'text' ] [ QUOTE [ AS ] 'c' ] [ ESCAPE [ AS ] 'c' ]
+    static void copyOptions(Tokenizer & tokenizer, CopyStatement & stmt, Token token) {
+        if (token.equalsKeyword(Keyword::With)) token = tokenizer.next();
+        if (token.equalsControlSymbol(controlSymbols::openBracket)) {
+            for (;;) {
+                const Token option = tokenizer.next();
+                Token next = tokenizer.next();
+                if (isWord(option, "format")) {
+                    stmt.format = copyFormat(next);
+                    next = tokenizer.next();
+                } else if (isWord(option, "header")) {
+                    // HEADER alone is HEADER true
+                    stmt.header = true;
+                    if (!next.equalsControlSymbol(controlSymbols::separator) && !next.equalsControlSymbol(controlSymbols::closeBracket)) {
+                        std::string value = next.value; // a word, a constant or a string
+                        std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+                        if (value == "false" || value == "off" || value == "0") stmt.header = false;
+                        else if (value != "true" && value != "on" && value != "1") {
+                            throw syntactical_error("HEADER takes a boolean, found '" + next.value + "'");
+                        }
+                        next = tokenizer.next();
+                    }
+                } else if (isCopyOption(option)) {
+                    setCopyOption(stmt, option, next);
+                    next = tokenizer.next();
+                } else {
+                    throw syntactical_error("COPY has no option '" + option.value + "'");
+                }
+                if (next.equalsControlSymbol(controlSymbols::closeBracket)) break;
+                if (!next.equalsControlSymbol(controlSymbols::separator)) {
+                    throw syntactical_error("Expected ',' or ')', found '" + next.value + "'");
+                }
+            }
+            token = tokenizer.next();
+        } else {
+            if (isWord(token, "format")) token = tokenizer.next();
+            stmt.format = copyFormat(token);
+            for (token = tokenizer.next(); !token.hasType(Type::delimiter); token = tokenizer.next()) {
+                if (isWord(token, "header")) stmt.header = true;
+                else if (isCopyOption(token)) {
+                    Token value = tokenizer.next();
+                    if (isWord(value, "as")) value = tokenizer.next();
+                    setCopyOption(stmt, token, value);
+                }
+                else throw syntactical_error("COPY has no option '" + token.value + "'");
+            }
+        }
+        if (!token.hasType(Type::delimiter)) throw syntactical_error("Expected ';', found '" + token.value + "'");
+    }
+
     void SQLParser::parseToken(Tokenizer &tokenizer, ParsingContext &context) {
         const Token next = tokenizer.next(); // a copy: later calls of next() may move the tokens
         // NULL where a value is expected is a constant like the others
@@ -1015,15 +1096,15 @@ namespace tardisParser {
                 }
                 break;
             case State::CopyTag:
-                if (token.equalsKeyword(Keyword::To)) {
-                    context.copyStmt->directionFrom = false;
+                if (token.equalsKeyword(Keyword::To) || token.equalsKeyword(Keyword::From)) {
+                    context.copyStmt->directionFrom = token.equalsKeyword(Keyword::From);
                     context.state = State::CopyDirection;
                 } else {
-                    throw syntactical_error("Expected 'TO', found '" + token.value + "'");
+                    throw syntactical_error("Expected 'FROM' or 'TO', found '" + token.value + "'");
                 }
                 break;
             case State::CopyDirection:
-                if (token.hasType(Type::literal)) {
+                if (token.hasType(Type::literal) && token.quoted) {
                     context.copyStmt->filePath = token.value;
                     context.state = State::CopyPath;
                 } else {
@@ -1031,29 +1112,8 @@ namespace tardisParser {
                 }
                 break;
             case State::CopyPath:
-                if (token.equalsKeyword(Keyword::With)) {
-                    context.state = State::CopyWith;
-                } else {
-                    throw syntactical_error("Expected 'WITH', found '" + token.value + "'");
-                }
-                break;
-            case State::CopyWith:
-                if (token.equalsKeyword(Keyword::Format)) {
-                    context.state = State::CopyFormat;
-                } else {
-                    throw syntactical_error("Expected 'FORMAT', found '" + token.value + "'");
-                }
-                break;
-            case State::CopyFormat:
-                if (token.equalsKeyword(Keyword::CSV)) {
-                    context.copyStmt->format = "csv";
-                    context.state = State::CopyType;
-                } else if (token.equalsKeyword(Keyword::TBL)) {
-                    context.copyStmt->format = "tbl";
-                    context.state = State::CopyType;
-                } else {
-                    throw syntactical_error("Expected format name, found '" + token.value + "'");
-                }
+                copyOptions(tokenizer, *context.copyStmt, token);
+                context.state = State::Done;
                 break;
 
                 //

@@ -23,7 +23,6 @@
 #include "algebra/translation.hpp"
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
-#include "foundations/loader.hpp"
 #include "foundations/version_management.hpp"
 
 #include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"

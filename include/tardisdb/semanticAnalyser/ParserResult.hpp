@@ -5,7 +5,6 @@
 #ifndef PROTODB_PARSERRESULT_HPP
 #define PROTODB_PARSERRESULT_HPP
 
-#include <deque>
 
 #include "sqlParser/Expression.hpp"
 #include <vector>
@@ -95,10 +94,13 @@ namespace semanticalAnalysis {
     struct CopyStatement {
         Relation relation;
         std::string filePath;
-        std::string format;
+        std::string format;      // csv or tbl
         bool directionFrom;
-        /// the fields read by COPY FROM, which varchars point into, as into the text of an INSERT
-        std::deque<std::vector<std::string>> rows;
+        bool header = false;     // the first line names the columns
+        std::string delimiter;   // the options; empty for the default of the format
+        std::string quote;
+        std::string escape;
+        std::string null;        // the text of NULL (an empty field by default)
     };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute

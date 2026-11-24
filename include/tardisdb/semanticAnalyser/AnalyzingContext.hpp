@@ -11,7 +11,11 @@
 #include "semanticAnalyser/JoinGraph.hpp"
 #include "algebra/logical/operators.hpp"
 
+#include <memory>
+
 namespace semanticalAnalysis {
+    class CopyWriter;
+
     struct AnalyzingContext {
         SQLParserResult parserResult;
         Database & db;
@@ -20,7 +24,8 @@ namespace semanticalAnalysis {
         using scope_op_t = std::unique_ptr<std::unordered_map<std::string, iu_p_t>>;
         std::unordered_map<std::string, iu_p_t> scope;
 
-        void* callback = nullptr;
+        /// COPY ... TO: writes the result tuples into the file instead of returning them
+        std::shared_ptr<CopyWriter> copyWriter;
 
         JoinGraph graph;
         std::set<branch_id_t> branchIds;
@@ -41,9 +46,6 @@ namespace semanticalAnalysis {
         std::string notice;
 
         AnalyzingContext(Database &db) : db(db) {}
-        ~AnalyzingContext() {
-            callback = nullptr;
-        }
 
         iu_p_t getUniqueColumnIU(std::string columnName) {
             for (auto& production : ius) {

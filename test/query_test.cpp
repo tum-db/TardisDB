@@ -1,7 +1,6 @@
 #include "codegen/LLVMCompat.hpp"
 
 #include "codegen/CodeGen.hpp"
-#include "foundations/loader.hpp"
 #include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
 #include "algebra/translation.hpp"
 #include "queryExecutor/queryExecutor.hpp"
