@@ -42,8 +42,6 @@ llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType 
     llvm::Value * opResult = codeGen->CreateExtractValue(result, 0, "opResult");
     llvm::Value * obit = codeGen->CreateExtractValue(result, 1, "obit");
 
-    // the additional overflow check required for internal null indicators
-
     IfGen overflowCheck(obit);
     {
         handler();
@@ -55,11 +53,8 @@ llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType 
 }
 
 auto const CreateOverflowSAdd = &CreateOverflowBinOp<llvm::Intrinsic::sadd_with_overflow>;
-//auto const CreateOverflowUAdd = &CreateOverflowBinOp<llvm::Intrinsic::uadd_with_overflow>;
 auto const CreateOverflowSSub = &CreateOverflowBinOp<llvm::Intrinsic::ssub_with_overflow>;
-//auto const CreateOverflowUSub = &CreateOverflowBinOp<llvm::Intrinsic::usub_with_overflow>;
 auto const CreateOverflowSMul = &CreateOverflowBinOp<llvm::Intrinsic::smul_with_overflow>;
-//auto const CreateOverflowUMul = &CreateOverflowBinOp<llvm::Intrinsic::umul_with_overflow>;
 
 //-----------------------------------------------------------------------------
 // add
