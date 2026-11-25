@@ -196,6 +196,11 @@ with psycopg.connect(dsn, autocommit=True) as c3:
 cur.execute("show columns from ar")
 types = {r[0]: r[1] for r in cur.fetchall()}
 assert types["v"] == "integer[]" and types["d"] == "double precision", types
+# ORDER BY, with a parameter in both drivers (psycopg 3 describes the statement before it runs)
+cur.execute("select id, name from k where id > %s order by name desc", (2,))
+assert cur.fetchall() == [(5, "n'5"), (4, "n'4"), (3, "left")] and [d.name for d in cur.description] == ["id", "name"]
+with psycopg.connect(dsn, autocommit=True) as c3:
+    assert c3.execute("select id from k where id < %s order by amount desc, id", (4,)).fetchall() == [(2,), (3,), (1,)]
 # psql's \d, \dt, \d table, \l and \dn query pg_catalog; pgserver answers them (if psql is installed)
 import shutil, subprocess
 if shutil.which("psql"):

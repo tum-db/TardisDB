@@ -482,5 +482,14 @@ const Value & getAssociatedValue(const Value & value);
 
 std::string toString(const Value & sqlValue);
 
+/// \returns The order of two values of one type that are not NULL, as ORDER BY and the merge join sort
+/// them: < 0, 0 or > 0. Strings by their bytes (collation C; char(n) without trailing spaces), NaN after
+/// all other doubles and equal to NaN, -0 equal to 0, as in PostgreSQL.
+/// \throws std::invalid_argument for types without an order (arrays)
+int compareValues(const Value & a, const Value & b);
+
+/// \returns Whether compareValues() orders the values of \p type
+bool hasOrder(SqlType type);
+
 } // end namespace Sql
 } // end namespace Native

@@ -1321,5 +1321,52 @@ std::string toString(const Value & sqlValue)
     }
 }
 
+bool hasOrder(SqlType type)
+{
+    using T = SqlType::TypeID;
+    switch (type.typeID) {
+        case T::BoolID: case T::IntegerID: case T::LongIntegerID: case T::NumericID: case T::DateID:
+        case T::TimestampID: case T::DoubleID: case T::TextID: case T::CharID: case T::VarcharID:
+            return true;
+        default:
+            return false;
+    }
+}
+
+int compareValues(const Value & a, const Value & b)
+{
+    using T = SqlType::TypeID;
+    auto three = [](auto x, auto y) { return x < y ? -1 : (y < x ? 1 : 0); };
+    switch (a.type.typeID) {
+        case T::BoolID: return three(static_cast<const Bool &>(a).value, static_cast<const Bool &>(b).value);
+        case T::IntegerID: return three(static_cast<const Integer &>(a).value, static_cast<const Integer &>(b).value);
+        case T::LongIntegerID: // held by a Numeric
+        case T::NumericID: return three(static_cast<const Numeric &>(a).value, static_cast<const Numeric &>(b).value);
+        case T::DateID: return three(static_cast<const Date &>(a).value, static_cast<const Date &>(b).value);
+        case T::TimestampID: return three(static_cast<const Timestamp &>(a).value, static_cast<const Timestamp &>(b).value);
+        case T::DoubleID: {
+            const double x = static_cast<const Double &>(a).value, y = static_cast<const Double &>(b).value;
+            if (std::isnan(x) || std::isnan(y)) return three(std::isnan(x), std::isnan(y));
+            return three(x, y);
+        }
+        case T::TextID: {
+            const int c = static_cast<const Text &>(a).getView().compare(static_cast<const Text &>(b).getView());
+            return three(c, 0);
+        }
+        case T::CharID: case T::VarcharID: {
+            auto view = [](const Value & v) {
+                auto & varchar = static_cast<const Varchar &>(v);
+                std::string_view s(varchar.value, varchar.len);
+                s = s.substr(0, std::min(s.size(), s.find('\0')));
+                if (v.type.typeID == T::CharID) s = s.substr(0, s.find_last_not_of(' ') + 1);
+                return s;
+            };
+            return three(view(a).compare(view(b)), 0);
+        }
+        default:
+            throw std::invalid_argument("values of type " + ::Sql::getName(a.type) + " have no order");
+    }
+}
+
 } // end namespace Sql
 } // end namespace Native

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <deque>
 #include <cstdio>
 #include <mutex>
 #include <exception>
@@ -796,7 +797,7 @@ namespace QueryCompiler {
             size_t first = lower.find_first_not_of(" \t\r\n");
             if (first != std::string::npos && (lower.compare(first, 4, "with") == 0 || lower.compare(first, 6, "values") == 0 ||
                 lower.compare(first, 1, "(") == 0 || (lower.compare(first, 6, "select") == 0 &&
-                (lower.find("union") != std::string::npos || lower.find("intersect") != std::string::npos ||
+                (lower.find("union") != std::string::npos || lower.find("intersect") != std::string::npos || lower.find("order") != std::string::npos ||
                  lower.find("except") != std::string::npos || lower.find(" from ") == std::string::npos)))) {
                 auto print = (callbackFunction != nullptr) ? reinterpret_cast<void (*)(Native::Sql::SqlTuple *)>(callbackFunction) : &printFunction;
                 execute(query, db, "master", [print](Native::Sql::SqlTuple * tuple) { print(tuple); });
@@ -2091,16 +2092,192 @@ namespace QueryCompiler {
         return result;
     }
 
+    /// ORDER BY of a query (SELECT, WITH, VALUES, set operations): the statement runs without it, and its
+    /// rows are sorted before they reach the sink. A key is a position in the select list, the name of a
+    /// column of the result, or (of a single SELECT) any expression, which the statement computes as a
+    /// hidden column at the end of its select list; ASC or DESC, NULLS FIRST or LAST (NULLs are greater than
+    /// all values by default, as in PostgreSQL). Strings sort by their bytes (collation C).
+    namespace order {
+
+    using with::Lexeme;
+
+    struct Key {
+        size_t position = 0;  // 1 ... the columns of the result; 0 for a name or a hidden column
+        std::string name;     // a column of the result by its name
+        size_t hidden = SIZE_MAX; // the hidden column (counted from the first)
+        bool descending = false;
+        bool nullsFirst = false;
+        size_t column = 0;    // resolved: of the rows
+    };
+
+    struct OrderBy {
+        std::string query;    // without ORDER BY, with the hidden columns
+        std::vector<Key> keys;
+        size_t hidden = 0;    // the hidden columns at the end of each row
+    };
+
+    /// \returns Whether the lexemes are one name (a word, in lower case, or a quoted identifier)
+    static bool isName(const std::vector<Lexeme> & lexemes) {
+        return lexemes.size() == 1 && (lexemes[0].kind == Lexeme::Word || lexemes[0].kind == Lexeme::Quoted);
+    }
+
+    /// \returns Whether \p sql is a query with ORDER BY; then \p order
+    static bool parse(const std::string & sql, OrderBy & order) {
+        size_t first = sql.find_first_not_of(" \t\r\n(");
+        if (first == std::string::npos) return false;
+        std::string head;
+        for (size_t i = first; i < sql.size() && std::isalpha(static_cast<unsigned char>(sql[i])); ++i) {
+            head += static_cast<char>(std::tolower(static_cast<unsigned char>(sql[i])));
+        }
+        if (head != "select" && head != "with" && head != "values") return false;
+        {
+            std::string lower;
+            std::transform(sql.begin(), sql.end(), std::back_inserter(lower), ::tolower);
+            if (lower.find("order") == std::string::npos) return false;
+        }
+        auto lexemes = with::lex(sql);
+        while (!lexemes.empty() && lexemes.back().kind == Lexeme::Semicolon) lexemes.pop_back();
+        const size_t n = lexemes.size();
+
+        // the ORDER BY outside parentheses, and what the query is
+        size_t orderAt = SIZE_MAX, lastSelect = SIZE_MAX, depth = 0;
+        bool setQuery = false;
+        for (size_t i = 0; i < n; ++i) {
+            const Lexeme & l = lexemes[i];
+            if (l.kind == Lexeme::Open) { ++depth; continue; }
+            if (l.kind == Lexeme::Close) { if (depth > 0) --depth; continue; }
+            if (depth > 0 || l.kind != Lexeme::Word) continue;
+            if (with::isWord(lexemes, i, "order") && with::isWord(lexemes, i + 1, "by")) {
+                if (orderAt != SIZE_MAX) throw with::syntaxError("a query has one ORDER BY");
+                orderAt = i;
+            } else if (orderAt == SIZE_MAX) {
+                if (l.word == "select") lastSelect = i;
+                else if (with::isSetOperator(l)) setQuery = true;
+            }
+        }
+        if (orderAt == SIZE_MAX) return false;
+        if (orderAt + 2 >= n) throw with::syntaxError("Expected the keys of ORDER BY");
+        // a query in parentheses before ORDER BY ( (SELECT ...) ORDER BY 1 ) is one of a set query
+        if (lexemes[0].kind == Lexeme::Open) setQuery = true;
+        const bool single = !setQuery && lastSelect != SIZE_MAX; // VALUES without SELECT is a set query
+
+        // the aliases of the select list of a single SELECT: a name that is one of them is the result's column
+        std::set<std::string> aliases;
+        bool star = false;        // SELECT *, which takes no further columns: names are of the result
+        size_t listEnd = orderAt; // the end of the select list
+        if (single) {
+            depth = 0;
+            for (size_t i = lastSelect + 1; i < orderAt; ++i) {
+                if (lexemes[i].kind == Lexeme::Open) ++depth;
+                else if (lexemes[i].kind == Lexeme::Close) --depth;
+                else if (depth == 0 && (with::isWord(lexemes, i, "from") || with::isWord(lexemes, i, "where") ||
+                                        with::isWord(lexemes, i, "group") || with::isWord(lexemes, i, "having"))) {
+                    listEnd = i;
+                    break;
+                }
+            }
+            for (size_t i = lastSelect + 1; i < listEnd; ++i) {
+                if (lexemes[i].kind == Lexeme::Other && sql[lexemes[i].begin] == '*' &&
+                    (i == lastSelect + 1 || lexemes[i - 1].kind == Lexeme::Comma)) star = true;
+            }
+            depth = 0;
+            for (size_t i = lastSelect + 1; i < listEnd; ++i) {
+                if (lexemes[i].kind == Lexeme::Open) ++depth;
+                else if (lexemes[i].kind == Lexeme::Close) --depth;
+                const bool itemEnd = depth == 0 && (i + 1 == listEnd || lexemes[i + 1].kind == Lexeme::Comma);
+                if (!itemEnd || i == lastSelect + 1) continue;
+                const Lexeme & last = lexemes[i], & before = lexemes[i - 1];
+                if (last.kind != Lexeme::Word && last.kind != Lexeme::Quoted) continue;
+                // expr AS name, or expr name after a word, a parenthesis or a quoted name (not a.b)
+                if (with::isWord(lexemes, i - 1, "as") || (before.kind == Lexeme::Word && before.word != "select" &&
+                    before.word != "distinct") || before.kind == Lexeme::Close || before.kind == Lexeme::Quoted ||
+                    before.kind == Lexeme::String) {
+                    aliases.insert(last.word);
+                }
+            }
+        }
+
+        std::string hiddenColumns;
+        for (const std::string & item : with::splitItems(sql, lexemes, orderAt + 2, n)) {
+            auto keyLexemes = with::lex(item);
+            Key key;
+            size_t end = keyLexemes.size();
+            // [ ASC | DESC ] [ NULLS { FIRST | LAST } ]
+            bool nullsGiven = false;
+            if (end >= 2 && with::isWord(keyLexemes, end - 2, "nulls") &&
+                (with::isWord(keyLexemes, end - 1, "first") || with::isWord(keyLexemes, end - 1, "last"))) {
+                key.nullsFirst = keyLexemes[end - 1].word == "first";
+                nullsGiven = true;
+                end -= 2;
+            }
+            if (end >= 1 && (with::isWord(keyLexemes, end - 1, "asc") || with::isWord(keyLexemes, end - 1, "desc"))) {
+                key.descending = keyLexemes[end - 1].word == "desc";
+                --end;
+            }
+            if (!nullsGiven) key.nullsFirst = key.descending;
+            if (end == 0) throw with::syntaxError("Expected an expression in ORDER BY");
+            keyLexemes.resize(end);
+            const std::string expression = item.substr(0, keyLexemes.back().end);
+            if (std::all_of(expression.begin(), expression.end(), ::isdigit)) {
+                key.position = std::stoul(expression);
+                if (key.position == 0) throw semanticalAnalysis::semantic_sql_error("ORDER BY position 0 is not in select list");
+            } else if (isName(keyLexemes) && (!single || star || aliases.count(keyLexemes[0].word) > 0)) {
+                key.name = keyLexemes[0].word; // a column of the result
+            } else if (single && star) {
+                throw semanticalAnalysis::semantic_sql_error("ORDER BY of SELECT * takes the positions or names of the result's columns, not '" + expression + "'");
+            } else if (single) {
+                key.hidden = order.hidden++;
+                hiddenColumns += ", " + expression;
+            } else {
+                throw semanticalAnalysis::semantic_sql_error("ORDER BY of UNION, INTERSECT, EXCEPT or VALUES takes the positions or names of the result's columns, not '" + expression + "'");
+            }
+            order.keys.push_back(std::move(key));
+        }
+
+        // the hidden columns after the last item of the select list
+        const size_t queryEnd = lexemes[orderAt - 1].end;
+        if (listEnd < orderAt) {
+            order.query = sql.substr(0, lexemes[listEnd - 1].end) + hiddenColumns + " " +
+                          sql.substr(lexemes[listEnd].begin, queryEnd - lexemes[listEnd].begin);
+        } else {
+            order.query = sql.substr(0, queryEnd) + hiddenColumns;
+        }
+        order.query += ";";
+        return true;
+    }
+
+    /// A copy of a value of a tuple of the sink, which stays valid after the query; a varchar or char points
+    /// to its characters, which \p strings keeps
+    static Native::Sql::value_op_t copy(const Native::Sql::Value & value, std::deque<std::string> & strings) {
+        if (Native::Sql::isNullable(value) && static_cast<const Native::Sql::NullableValue &>(value).isNull()) {
+            return Native::Sql::NullableValue::getNull(value.type);
+        }
+        const Native::Sql::Value & plain = Native::Sql::getAssociatedValue(value);
+        strings.push_back(Native::Sql::toString(plain));
+        return Native::Sql::toColumnValue(Native::Sql::Value::castString(strings.back(), plain.type), value.type);
+    }
+
+    } // end namespace order
+
+    static StatementResult executeOrdered(const order::OrderBy & order, Database & db, const std::string & branch,
+                                          const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                          const std::function<void(const StatementResult &)> & described,
+                                          const Transaction * transaction);
+
     static StatementResult executeAny(const std::string & query, Database & db, const std::string & branch,
                                       const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                       const std::function<void(const StatementResult &)> & described,
                                       const Transaction * transaction) {
+        order::OrderBy order;
+        bool ordered;
         with::WithStatement setStatement;
-        bool isSet;
+        bool isSet = false;
         {
             timing::Phase phase(timing::current.parsing);
-            isSet = with::parseSetStatement(query, setStatement);
+            ordered = order::parse(query, order);
+            if (!ordered) isSet = with::parseSetStatement(query, setStatement);
         }
+        if (ordered) return executeOrdered(order, db, branch, sink, described, transaction);
         if (isSet) {
             return executeSetStatement(setStatement, db, branch, sink, described, transaction);
         }
@@ -2113,6 +2290,76 @@ namespace QueryCompiler {
             statement.query = with::makeTerm(withoutEnd(query));
             return executeSetStatement(statement, db, branch, sink, described, transaction);
         }
+    }
+
+    static StatementResult executeOrdered(const order::OrderBy & order, Database & db, const std::string & branch,
+                                          const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                          const std::function<void(const StatementResult &)> & described,
+                                          const Transaction * transaction) {
+        // the rows of the statement, copied (the sink may run in several threads at once)
+        std::vector<std::vector<Native::Sql::value_op_t>> rows;
+        std::deque<std::string> strings; // the characters of the copied varchar and char values
+        std::mutex mutex;
+        StatementResult result = executeAny(order.query, db, branch, [&](Native::Sql::SqlTuple * tuple) {
+            std::lock_guard<std::mutex> lock(mutex);
+            std::vector<Native::Sql::value_op_t> row;
+            row.reserve(tuple->values.size());
+            for (auto & value : tuple->values) row.push_back(order::copy(*value, strings));
+            rows.push_back(std::move(row));
+        }, nullptr, transaction);
+        if (!result.returnsRows) throw semanticalAnalysis::semantic_sql_error("ORDER BY needs a query");
+
+        // the keys as columns of the rows
+        const size_t visible = result.columnNames.size() - order.hidden;
+        std::vector<order::Key> keys = order.keys;
+        for (auto & key : keys) {
+            if (key.hidden != SIZE_MAX) {
+                key.column = visible + key.hidden;
+            } else if (key.position > 0) {
+                if (key.position > visible) {
+                    throw semanticalAnalysis::semantic_sql_error("ORDER BY position " + std::to_string(key.position) + " is not in select list");
+                }
+                key.column = key.position - 1;
+            } else {
+                size_t found = SIZE_MAX;
+                for (size_t c = 0; c < visible; ++c) {
+                    if (result.columnNames[c] != key.name) continue;
+                    if (found != SIZE_MAX) throw semanticalAnalysis::semantic_sql_error("ORDER BY \"" + key.name + "\" is ambiguous");
+                    found = c;
+                }
+                if (found == SIZE_MAX) throw semanticalAnalysis::semantic_sql_error("column \"" + key.name + "\" does not exist");
+                key.column = found;
+            }
+            if (!Native::Sql::hasOrder(result.columnTypes[key.column])) {
+                throw semanticalAnalysis::semantic_sql_error("ORDER BY of a column of type " + Sql::getName(result.columnTypes[key.column]) + " is not supported");
+            }
+        }
+        auto isNull = [](const Native::Sql::Value & v) {
+            return Native::Sql::isNullable(v) && static_cast<const Native::Sql::NullableValue &>(v).isNull();
+        };
+        std::stable_sort(rows.begin(), rows.end(), [&](const auto & x, const auto & y) {
+            for (auto & key : keys) {
+                const Native::Sql::Value & a = *x[key.column], & b = *y[key.column];
+                const bool aNull = isNull(a), bNull = isNull(b);
+                if (aNull || bNull) {
+                    if (aNull == bNull) continue;
+                    return aNull == key.nullsFirst;
+                }
+                const int c = Native::Sql::compareValues(Native::Sql::getAssociatedValue(a), Native::Sql::getAssociatedValue(b));
+                if (c != 0) return key.descending ? c > 0 : c < 0;
+            }
+            return false;
+        });
+
+        result.columnNames.resize(visible);
+        result.columnTypes.resize(visible);
+        if (described) described(result);
+        for (auto & row : rows) {
+            row.resize(visible);
+            Native::Sql::SqlTuple tuple(std::move(row));
+            sink(&tuple);
+        }
+        return result;
     }
 
     /// EXPLAIN [ANALYZE] of \p statement: one row, the plan in JSON
