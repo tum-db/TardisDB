@@ -203,7 +203,11 @@ treat two `NULL`s as equal (`test/null_test.cpp`). Columns may be arrays of Post
 `double precision`; the select list, `WHERE` and `SET` take expressions (`test/array_test.cpp`).
 Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION`, `INTERSECT` and
 `EXCEPT` (each also with `ALL`); `VALUES` and
-`SELECT` without `FROM` are queries too (`test/cte_test.cpp`).
+`SELECT` without `FROM` are queries too (`test/cte_test.cpp`). Table functions return tables in `FROM`
+(the alias names a single column, `AS f(a, b)` the columns) and, of one column, in the select list of a
+query without `FROM`; their arguments are constant expressions, and `TableFunctions::add` registers more
+(`test/table_function_test.cpp`). `generate_series(start, stop [, step])` of integers, bigints and
+numerics is one (`test/series_test.cpp`).
 Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
 `kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`);
 `sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,

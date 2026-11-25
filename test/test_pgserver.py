@@ -212,6 +212,11 @@ assert "Merge Join" in cur.fetchone()[0]
 cur.execute("select a.id, b.id from k a, k b where a.id = b.id - 1")
 assert sorted(cur.fetchall()) == hashed == [(1, 2), (2, 3), (3, 4), (4, 5)], hashed
 cur.execute("set enable_hashjoin = on")
+# generate_series, with parameters in both drivers
+cur.execute("select g from generate_series(1, %s) g order by g desc", (3,))
+assert cur.fetchall() == [(3,), (2,), (1,)] and [d.name for d in cur.description] == ["g"]
+with psycopg.connect(dsn, autocommit=True) as c3:
+    assert sorted(c3.execute("select * from generate_series(%s, 2)", (1,)).fetchall()) == [(1,), (2,)]
 # psql's \d, \dt, \d table, \l and \dn query pg_catalog; pgserver answers them (if psql is installed)
 import shutil, subprocess
 if shutil.which("psql"):

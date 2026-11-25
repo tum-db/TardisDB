@@ -3,9 +3,11 @@
 //
 
 #include "queryCompiler/queryCompiler.hpp"
+#include "queryCompiler/TableFunctions.hpp"
 #include "semanticAnalyser/CopyFormat.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <deque>
 #include <cstdio>
@@ -43,6 +45,7 @@
 #include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
 #include "native/sql/SqlTuple.hpp"
 #include "native/sql/SqlValues.hpp"
+#include "sql/SqlCasts.hpp"
 #include "sqlParser/Expression.hpp"
 #include "sqlParser/ParserResult.hpp"
 
@@ -831,13 +834,16 @@ namespace QueryCompiler {
         return clock.finish();
     }
 
+    namespace tablefunctions { static bool mentioned(const std::string & lower); }
+
     static void compileAndExecuteStatement(const std::string &query, Database &db, void *callbackFunction) {
         {
-            // WITH, UNION, VALUES and SELECT without FROM run as the statements of a session
+            // WITH, UNION, VALUES, table functions and SELECT without FROM run as the statements of a session
             std::string lower;
             std::transform(query.begin(), query.end(), std::back_inserter(lower), ::tolower);
             size_t first = lower.find_first_not_of(" \t\r\n");
             if (first != std::string::npos && (lower.compare(first, 4, "with") == 0 || lower.compare(first, 6, "values") == 0 ||
+                (lower.compare(first, 6, "select") == 0 && tablefunctions::mentioned(lower)) ||
                 lower.compare(first, 1, "(") == 0 || (lower.compare(first, 6, "select") == 0 &&
                 (lower.find("union") != std::string::npos || lower.find("intersect") != std::string::npos || lower.find("order") != std::string::npos ||
                  lower.find("except") != std::string::npos || lower.find(" from ") == std::string::npos)))) {
@@ -2301,6 +2307,202 @@ namespace QueryCompiler {
 
     } // end namespace order
 
+    static StatementResult executeAny(const std::string & query, Database & db, const std::string & branch,
+                                      const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                      const std::function<void(const StatementResult &)> & described,
+                                      const Transaction * transaction);
+
+    /// Calls of table functions (TableFunctions.hpp) in FROM and in the select list of a query without FROM
+    namespace tablefunctions {
+
+    using with::Lexeme;
+    using semanticalAnalysis::semantic_sql_error;
+
+    struct Edit {
+        size_t begin, end; // replaced in the statement
+        std::string text;
+    };
+
+    struct Call {
+        const TableFunctions::TableFunction * function;
+        std::vector<std::string> arguments;
+        std::string alias;                // of the table, if any
+        std::vector<std::string> columns; // the names of the columns, if given
+        std::string table;                // the temporary table
+        bool selectList = false;          // called in the select list
+    };
+
+    static bool isWordIn(const Lexeme & lexeme, std::initializer_list<const char *> words) {
+        if (lexeme.kind != Lexeme::Word) return false;
+        for (const char * word : words) if (lexeme.word == word) return true;
+        return false;
+    }
+
+    /// The words that begin a clause (a FROM item and a select list end before them)
+    static bool endsList(const Lexeme & lexeme) {
+        return isWordIn(lexeme, {"where", "group", "having", "order", "limit", "offset", "union", "intersect", "except", "window", "fetch", "for"});
+    }
+
+    /// \returns Whether the statement (in lower case) may call a table function
+    static bool mentioned(const std::string & lower) {
+        for (const std::string & name : TableFunctions::names()) if (lower.find(name) != std::string::npos) return true;
+        return false;
+    }
+
+    /// \returns The statement with each call of a table function replaced by a temporary table, listed in \p calls
+    static std::string rewrite(const std::string & sql, std::vector<Call> & calls) {
+        static std::atomic<uint64_t> counter{0};
+        const std::vector<Lexeme> lexemes = with::lex(sql);
+        const size_t n = lexemes.size();
+        std::vector<Edit> edits;
+        for (size_t i = 0; i + 1 < n; ++i) {
+            if (lexemes[i].kind != Lexeme::Word || lexemes[i + 1].kind != Lexeme::Open) continue;
+            const TableFunctions::TableFunction * function = TableFunctions::find(lexemes[i].word);
+            if (function == nullptr) continue;
+            const std::string name = function->name();
+            const size_t close = with::matching(lexemes, i + 1, n);
+            Call call;
+            call.function = function;
+            call.arguments = (close > i + 2) ? with::splitItems(sql, lexemes, i + 2, close) : std::vector<std::string>();
+            call.table = "tardisdb_function_" + std::to_string(++counter);
+
+            // the clause of the call: the nearest clause word before it in its parentheses
+            std::string clause;
+            for (size_t k = i, depth = 0; k-- > 0;) {
+                if (lexemes[k].kind == Lexeme::Close) { ++depth; continue; }
+                if (lexemes[k].kind == Lexeme::Open) { if (depth-- == 0) break; continue; }
+                if (depth == 0 && (isWordIn(lexemes[k], {"select", "from", "join"}) || endsList(lexemes[k]) || isWordIn(lexemes[k], {"on", "set", "values"}))) {
+                    clause = lexemes[k].word;
+                    break;
+                }
+            }
+            if (clause == "from" || clause == "join") {
+                // [AS] alias [( column, ... )]
+                size_t k = close + 1;
+                const bool as = isWord(lexemes, k, "as");
+                if (as) ++k;
+                if (k < n && (lexemes[k].kind == Lexeme::Quoted || (lexemes[k].kind == Lexeme::Word && !endsList(lexemes[k]) &&
+                        !isWordIn(lexemes[k], {"join", "inner", "left", "right", "full", "cross", "natural", "on", "using", "version", "lateral"})))) {
+                    call.alias = sql.substr(lexemes[k].begin, lexemes[k].end - lexemes[k].begin);
+                    ++k;
+                } else if (as) {
+                    throw with::syntaxError("Expected an alias of " + name + " after AS");
+                }
+                if (!call.alias.empty() && k < n && lexemes[k].kind == Lexeme::Open) {
+                    const size_t end = with::matching(lexemes, k, n);
+                    call.columns = with::splitItems(sql, lexemes, k + 1, end);
+                    k = end + 1;
+                }
+                const size_t end = (k > close + 1) ? lexemes[k - 1].end : lexemes[close].end;
+                edits.push_back({lexemes[i].begin, end, call.table + " " + (call.alias.empty() ? name : call.alias)});
+            } else if (clause == "select") {
+                // the select list of a query without FROM: the call becomes the column, the table its FROM
+                size_t k = close + 1, depth = 0;
+                for (; k < n; ++k) {
+                    if (lexemes[k].kind == Lexeme::Open) { ++depth; continue; }
+                    if (lexemes[k].kind == Lexeme::Close) { if (depth-- == 0) break; continue; }
+                    if (depth > 0) continue;
+                    if (lexemes[k].kind == Lexeme::Semicolon || endsList(lexemes[k])) break;
+                    if (isWord(lexemes, k, "from")) {
+                        throw semantic_sql_error(name + " in the select list of a query with FROM: call it in FROM instead");
+                    }
+                    if (lexemes[k].kind == Lexeme::Word && k + 1 < n && lexemes[k + 1].kind == Lexeme::Open && TableFunctions::find(lexemes[k].word)) {
+                        throw semantic_sql_error("one table function per select list");
+                    }
+                }
+                call.alias = name;
+                call.selectList = true;
+                edits.push_back({lexemes[i].begin, lexemes[close].end, name});
+                const size_t at = (k < n) ? lexemes[k].begin : sql.size();
+                edits.push_back({at, at, " FROM " + call.table + " " + name + " "});
+            } else {
+                throw semantic_sql_error(name + " returns a table: call it in FROM or in a select list");
+            }
+            calls.push_back(std::move(call));
+            i = close; // calls in the arguments are evaluated with them
+        }
+        if (edits.empty()) return sql;
+        std::sort(edits.begin(), edits.end(), [](const Edit & a, const Edit & b) { return a.begin < b.begin || (a.begin == b.begin && a.end < b.end); });
+        std::string out;
+        size_t at = 0;
+        for (const Edit & edit : edits) {
+            if (edit.begin < at) throw semantic_sql_error("a table function cannot be rewritten here");
+            out += sql.substr(at, edit.begin - at) + edit.text;
+            at = edit.end;
+        }
+        return out + sql.substr(at);
+    }
+
+    /// Evaluates the arguments of a call (constant expressions; NULL literals stay unevaluated)
+    static std::vector<TableFunctions::Argument> evaluate(const Call & call, Database & db, const std::string & branch, const Transaction * transaction) {
+        std::vector<TableFunctions::Argument> arguments(call.arguments.size());
+        std::vector<size_t> evaluated;
+        std::string query = "SELECT ";
+        for (size_t a = 0; a < call.arguments.size(); ++a) {
+            arguments[a].text = call.arguments[a];
+            std::string lower;
+            std::transform(call.arguments[a].begin(), call.arguments[a].end(), std::back_inserter(lower), ::tolower);
+            if (lower == "null") {
+                arguments[a].null = true;
+                continue;
+            }
+            query += std::string(evaluated.empty() ? "" : ", ") + call.arguments[a];
+            evaluated.push_back(a);
+        }
+        if (evaluated.empty()) return arguments;
+        explain::State * explaining = explain::active; // the arguments are no part of the plan
+        explain::active = nullptr;
+        struct Restore { explain::State * state; ~Restore() { explain::active = state; } } restore{explaining};
+        try {
+            executeAny(query + ";", db, branch, [&](Native::Sql::SqlTuple * tuple) {
+                for (size_t v = 0; v < tuple->values.size() && v < evaluated.size(); ++v) {
+                    auto & value = tuple->values[v];
+                    TableFunctions::Argument & argument = arguments[evaluated[v]];
+                    if (Native::Sql::isNullable(*value) && static_cast<const Native::Sql::NullableValue &>(*value).isNull()) argument.null = true;
+                    else argument.value = Native::Sql::toString(Native::Sql::getAssociatedValue(*value));
+                }
+            }, [&](const StatementResult & result) {
+                for (size_t v = 0; v < result.columnTypes.size() && v < evaluated.size(); ++v) arguments[evaluated[v]].type = result.columnTypes[v];
+            }, transaction);
+        } catch (const std::exception & e) {
+            throw semantic_sql_error("the arguments of " + call.function->name() + " are constants: " + e.what());
+        }
+        return arguments;
+    }
+
+    /// Computes the rows of a call into a new temporary table, named by the call
+    static void materialize(const Call & call, Database & db, const std::string & branch, const Transaction * transaction,
+                            TemporaryTables & temporaries) {
+        std::vector<TableFunctions::Argument> arguments = evaluate(call, db, branch, transaction);
+        std::vector<TableFunctions::Column> columns = call.function->columns(arguments);
+        if (call.selectList && columns.size() != 1) throw semantic_sql_error(call.function->name() + " returns several columns: call it in FROM");
+        // the names: the alias names the column of a function of one column, a list of the alias the first columns
+        if (columns.size() == 1 && !call.alias.empty()) columns.front().name = call.alias;
+        if (call.columns.size() > columns.size()) {
+            throw semantic_sql_error(call.function->name() + " returns " + std::to_string(columns.size()) + " columns, not " + std::to_string(call.columns.size()));
+        }
+        for (size_t c = 0; c < call.columns.size(); ++c) columns[c].name = call.columns[c];
+
+        // the table, under the latch that keeps the branches of the catalog as they are
+        std::unique_lock<std::mutex> serial;
+        std::shared_lock<SharedLatch> catalog;
+        if (latching == Latching::Serial) serial = std::unique_lock<std::mutex>(serialLatch);
+        else catalog = std::shared_lock<SharedLatch>(db._catalogLatch);
+        ModuleGen moduleGen("TemporaryTable"); // the sizes of the columns take the data layout
+        std::vector<std::pair<std::string, Sql::SqlType>> schema;
+        for (const auto & column : columns) schema.emplace_back(column.name, column.type);
+        Table & table = temporaries.create(schema);
+        temporaries.bind(call.table, &table);
+        QueryContext context(db);
+        context.executionContext.branchId = master_branch_id;
+        call.function->rows(arguments, columns, [&](std::vector<Native::Sql::value_op_t> values) {
+            Native::Sql::SqlTuple tuple(std::move(values));
+            insert_tuple(tuple, table, context);
+        });
+    }
+
+    } // end namespace tablefunctions
+
     static StatementResult executeOrdered(const order::OrderBy & order, Database & db, const std::string & branch,
                                           const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                           const std::function<void(const StatementResult &)> & described,
@@ -2310,6 +2512,20 @@ namespace QueryCompiler {
                                       const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                       const std::function<void(const StatementResult &)> & described,
                                       const Transaction * transaction) {
+        {
+            // table functions: their rows first, in temporary tables that the rewritten statement reads
+            std::vector<tablefunctions::Call> calls;
+            std::string rewritten;
+            {
+                timing::Phase phase(timing::current.parsing);
+                rewritten = tablefunctions::rewrite(query, calls);
+            }
+            if (!calls.empty()) {
+                TemporaryTables temporaries(db);
+                for (const tablefunctions::Call & call : calls) tablefunctions::materialize(call, db, branch, transaction, temporaries);
+                return executeAny(rewritten, db, branch, sink, described, transaction);
+            }
+        }
         order::OrderBy order;
         bool ordered;
         with::WithStatement setStatement;
