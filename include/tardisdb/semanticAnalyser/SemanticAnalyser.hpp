@@ -92,6 +92,7 @@ namespace semanticalAnalysis {
         static void construct_joins(AnalyzingContext & context);
         static void construct_join_graph(AnalyzingContext & context, SelectStatement *stmt);
         static void construct_join(AnalyzingContext &context, std::string &vertexName);
+        static void addJoinCondition(JoinGraph & graph, std::string leftTable, std::string rightTable, Expressions::exp_op_t condition);
     };
 
     class InsertAnalyser : public SemanticAnalyser {

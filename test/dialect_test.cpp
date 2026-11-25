@@ -189,6 +189,41 @@ namespace {
         EXPECT_EQ(query("SELECT count(*) FROM d;", "main"), (std::vector<std::string>{"(2)"}));
     }
 
+    // join conditions in either direction, in a cycle, and over expressions of one table on each side
+    TEST_F(DialectTest, JoinConditions) {
+        using rows_t = std::vector<std::string>;
+        exec("CREATE TABLE ja ( id integer not null, k integer not null, name varchar(10) not null );");
+        exec("CREATE TABLE jb ( id integer not null, k integer not null, y integer not null );");
+        exec("CREATE TABLE jc ( id integer not null, k integer not null, z integer not null );");
+        exec("CREATE TABLE jn ( id integer, v integer );");
+        exec("CREATE TABLE jm ( m numeric(6, 2) not null );");
+        exec("INSERT INTO ja VALUES (1, 1, 'one'), (2, 1, 'two'), (2, 2, 'twotwo'), (3, 1, 'three');");
+        exec("INSERT INTO jb VALUES (1, 1, 100), (2, 1, 200), (2, 2, 220), (2, 2, 221), (4, 1, 400);");
+        exec("INSERT INTO jc VALUES (1, 1, 1000), (2, 9, 2000), (2, 2, 2200);");
+        exec("INSERT INTO jn VALUES (1, 5), (NULL, 6), (2, NULL);");
+        exec("INSERT INTO jm VALUES (2.00), (4.50);");
+        // the second condition names the tables the other way round
+        EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id = jb.id AND jb.k = ja.k;"),
+                  (rows_t{"(one, 100)", "(two, 200)", "(twotwo, 220)", "(twotwo, 221)"}));
+        // a cycle: the last condition is over two tables that are joined already
+        EXPECT_EQ(query("SELECT ja.name, jb.y, jc.z FROM ja, jb, jc WHERE ja.id = jb.id AND jb.id = jc.id AND ja.k = jc.k;"),
+                  (rows_t{"(one, 100, 1000)", "(twotwo, 200, 2200)", "(twotwo, 220, 2200)", "(twotwo, 221, 2200)"}));
+        // expressions, in both directions and with a condition on columns
+        const rows_t plusTwo{"(two, 400)", "(twotwo, 400)"};
+        EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE ja.id + 2 = jb.id;"), plusTwo);
+        EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE jb.id = ja.id + 2;"), plusTwo);
+        EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE jb.id - 1 = ja.id AND ja.k = jb.k;"), (rows_t{"(one, 200)", "(three, 400)"}));
+        EXPECT_EQ(query("SELECT ja.name, jn.v FROM ja, jn WHERE ja.id = jn.id + 0;"), (rows_t{"(one, 5)", "(two, NULL)", "(twotwo, NULL)"}));
+        // sides of different types stay a condition above the join
+        EXPECT_EQ(query("SELECT ja.name FROM ja, jm WHERE ja.id + 0 = jm.m + 0;"), (rows_t{"(two)", "(twotwo)"}));
+        // the hash join applies the condition over expressions: no filter above it
+        std::string plan;
+        QueryCompiler::execute("EXPLAIN SELECT ja.name, jb.y FROM ja, jb WHERE ja.id + 2 = jb.id;", *db, "master",
+                               [&](Native::Sql::SqlTuple * tuple) { plan = Native::Sql::toString(*tuple); });
+        EXPECT_NE(plan.find("Hash Join"), std::string::npos) << plan;
+        EXPECT_EQ(plan.find("Filter"), std::string::npos) << plan;
+    }
+
     TEST_F(DialectTest, JoinsOfTables) {
         exec("CREATE TABLE ja ( id integer not null, k integer not null, name varchar(10) not null );");
         exec("CREATE TABLE jb ( id integer not null, k integer not null, y integer not null );");

@@ -496,27 +496,56 @@ namespace semanticalAnalysis {
                 }
             }
 
-            //If edge does not already exist add it
-            if (!graph.hasEdge(vNode.table,uNode.table)) {
-                std::vector<Expressions::exp_op_t> expressions;
-                JoinGraph::Edge edge = JoinGraph::Edge(vNode.table,uNode.table,expressions);
-                graph.addEdge(edge);
-            }
-
-            //Get InformationUnits for both attributes
             iu_p_t iuV = context.ius[vNode.table][vNode.name];
             iu_p_t iuU = context.ius[uNode.table][uNode.name];
-
-            //Create new compare expression as join condition
-            std::vector<Expressions::exp_op_t> joinExprVec;
-            auto joinExpr = std::make_unique<Expressions::Comparison>(
+            addJoinCondition(graph, vNode.table, uNode.table, std::make_unique<Expressions::Comparison>(
                     Expressions::ComparisonMode::eq, // equijoin
                     std::make_unique<Expressions::Identifier>(iuV),
-                    std::make_unique<Expressions::Identifier>(iuU)
-            );
-            //Add join condition to edge
-            graph.getEdge(vNode.table,uNode.table)->expressions.push_back(std::move(joinExpr));
+                    std::make_unique<Expressions::Identifier>(iuU)));
         }
+
+        // the conditions left = right of WHERE whose sides read one table each, as k.id = up.id - 1, join too
+        // (sides of different types stay conditions above the join: their values would hash differently)
+        std::unordered_map<iu_p_t, std::string> productionOf;
+        for (auto & [production, columns] : context.ius) {
+            for (auto & [name, iu] : columns) productionOf[iu] = production;
+        }
+        auto tableOf = [&](const Expressions::Expression & side) { // the one table that a side reads, else ""
+            std::string table;
+            for (iu_p_t iu : collectRequired(side)) {
+                auto it = productionOf.find(iu);
+                if (it == productionOf.end() || (!table.empty() && table != it->second)) return std::string();
+                table = it->second;
+            }
+            return table;
+        };
+        std::vector<Expressions::exp_op_t> remaining;
+        for (auto & exp : context.joinedPredicates) {
+            auto * cmp = dynamic_cast<Expressions::Comparison *>(exp.get());
+            if (cmp != nullptr && cmp->_mode == Expressions::ComparisonMode::eq &&
+                Sql::equals(cmp->getLeftChild().getType(), cmp->getRightChild().getType(), Sql::SqlTypeEqualsMode::WithoutNullable)) {
+                std::string left = tableOf(cmp->getLeftChild()), right = tableOf(cmp->getRightChild());
+                if (!left.empty() && !right.empty() && left != right) {
+                    addJoinCondition(graph, left, right, std::move(exp));
+                    continue;
+                }
+            }
+            remaining.push_back(std::move(exp));
+        }
+        context.joinedPredicates = std::move(remaining);
+    }
+
+    /// Adds the condition left = right (\p leftTable = \p rightTable) to the edge of both tables, with the side
+    /// of the edge's first table (vID) on the left, as construct_join builds the join
+    void SelectAnalyser::addJoinCondition(JoinGraph & graph, std::string leftTable, std::string rightTable, Expressions::exp_op_t condition) {
+        if (!graph.hasEdge(leftTable, rightTable)) {
+            std::vector<Expressions::exp_op_t> none;
+            JoinGraph::Edge edge(leftTable, rightTable, none);
+            graph.addEdge(edge);
+        }
+        JoinGraph::Edge * edge = graph.getEdge(leftTable, rightTable);
+        if (edge->vID != leftTable) dynamic_cast<Expressions::Comparison &>(*condition).swapSides();
+        edge->expressions.push_back(std::move(condition));
     }
 
     void SelectAnalyser::construct_join(AnalyzingContext &context, std::string &vertexName) {
@@ -544,8 +573,12 @@ namespace semanticalAnalysis {
             }
             JoinGraph::Vertex *neighboringVertex = context.graph.getVertex(neighboringVertexName);
 
-            // If neighboring vertex has already been visited => discard edge
-            if (neighboringVertex->visited) continue;
+            // a neighbor joined already (a cycle of conditions): the conditions of the edge apply above the joins
+            if (neighboringVertex->visited) {
+                for (auto & exp : edge->expressions) context.joinedPredicates.push_back(std::move(exp));
+                edge->expressions.clear();
+                continue;
+            }
 
             // If the edge is directed from the neighboring node to the current node also change the order of the join leafs
             if (vertexName.compare(edge->vID) != 0) {

@@ -360,6 +360,13 @@ public:
 
     ~Comparison() override { }
 
+    /// a = b becomes b = a; only for an equality, whose sides may swap
+    void swapSides()
+    {
+        assert(_mode == ComparisonMode::eq);
+        std::swap(_left, _right);
+    }
+
     void accept(ExpressionVisitor & visitor) override;
 
     Sql::SqlType getType() const override

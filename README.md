@@ -210,7 +210,8 @@ Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
 read joins and common table expressions, group by columns, and `HAVING` filters the groups
 (`test/aggregate_test.cpp`). `EXPLAIN [ANALYZE]` returns the plan as JSON, with the rows of each
 operator, and `\timing` in the `sql` shell splits the time into compilation and execution
-(`test/explain_test.cpp`).
+(`test/explain_test.cpp`). A join takes each condition `=` whose sides read one table each, also over
+expressions (`a.x + 1 = b.y`), as a key of its hash join (`test/dialect_test.cpp`).
 
 `COPY t [VERSION b] FROM 'file'` loads a file into a branch and `COPY t [VERSION b] TO 'file'` writes
 one, with the options of PostgreSQL, `WITH (FORMAT csv, HEADER, DELIMITER ';', NULL 'NA', QUOTE '"',
