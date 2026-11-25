@@ -15,6 +15,7 @@
 #include "sql/SqlUtils.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
+#include "sql/SqlCasts.hpp"
 #include "sql/SqlOperators.hpp"
 
 namespace Algebra {
@@ -56,8 +57,11 @@ protected:
 
 class Cast : public UnaryOperator {
 public:
-    Cast(exp_op_t child, Sql::SqlType destType) :
-            UnaryOperator(destType, std::move(child))
+    Sql::Casts::Context _context;
+
+    Cast(exp_op_t child, Sql::SqlType destType, Sql::Casts::Context context = Sql::Casts::Context::Explicit) :
+            UnaryOperator(destType, std::move(child)),
+            _context(context)
     { }
 
     ~Cast() override { }
@@ -65,7 +69,7 @@ public:
     Sql::value_op_t evaluate(const iu_value_mapping_t & values) override
     {
         auto value = _child->evaluate(values);
-        return Sql::Operators::sqlCast(*value, getType());
+        return Sql::Casts::cast(*value, getType(), _context);
     }
 };
 

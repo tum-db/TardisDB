@@ -172,6 +172,9 @@ value_op_t Value::fromRawValues(const std::vector<llvm::Value *> & values, SqlTy
         case SqlType::TypeID::IntegerID:
             sqlValue = Integer::fromRawValues(values);
             break;
+        case SqlType::TypeID::LongIntegerID:
+            sqlValue = LongInteger::fromRawValues(values);
+            break;
         case SqlType::TypeID::VarcharID:
             sqlValue = Varchar::fromRawValues(values, notNullType);
             break;

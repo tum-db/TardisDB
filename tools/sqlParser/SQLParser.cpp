@@ -1521,13 +1521,17 @@ namespace tardisParser {
                 }
                 break;
             case State::UpdateSetExprOp: {
-                // the terms of + - * / of constants and columns, or any expression
+                // a constant (in the type of the column), or any expression (constants of their own types, as
+                // id * 1.5 is a numeric, which the update casts to the column)
                 const std::string target = tokenizer.prev(2).value;
                 ExpressionParser parser(tokenizer, token);
                 Node e = parser.parse();
                 auto & stmt = *context.updateStmt;
                 std::vector<UpdateTerm> terms;
-                const bool simple = toTerms(e, terms);
+                const Node & leaf = uncast(e);
+                const bool decimal = leaf.kind == Node::Kind::Literal && !leaf.quoted &&
+                                     leaf.value.find_first_of(".eE") != std::string::npos; // rounded by the cast
+                const bool simple = toTerms(e, terms) && terms.size() == 1 && terms[0].column.name.empty() && !decimal;
                 stmt.updates.push_back(std::make_pair(Column(), simple && terms.size() == 1 && terms[0].column.name.empty() ? terms[0].value : ""));
                 stmt.updates.back().first.name = target;
                 stmt.expressions.push_back(simple ? terms : std::vector<UpdateTerm>());

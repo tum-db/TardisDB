@@ -234,7 +234,7 @@ namespace {
         EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE jb.id = ja.id + 2;"), plusTwo);
         EXPECT_EQ(query("SELECT ja.name, jb.y FROM ja, jb WHERE jb.id - 1 = ja.id AND ja.k = jb.k;"), (rows_t{"(one, 200)", "(three, 400)"}));
         EXPECT_EQ(query("SELECT ja.name, jn.v FROM ja, jn WHERE ja.id = jn.id + 0;"), (rows_t{"(one, 5)", "(two, NULL)", "(twotwo, NULL)"}));
-        // sides of different types stay a condition above the join
+        // sides of different types: keys in their common type (numeric)
         EXPECT_EQ(query("SELECT ja.name FROM ja, jm WHERE ja.id + 0 = jm.m + 0;"), (rows_t{"(two)", "(twotwo)"}));
         // the hash join applies the condition over expressions: no filter above it
         std::string plan;

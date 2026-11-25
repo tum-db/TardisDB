@@ -313,6 +313,13 @@ protected:
     Text(llvm::Value * value);
 };
 
+/// The 16 bytes of a text at \p dest: inline (the length and up to 15 bytes) or of the string pool
+void storeTextGen(char * dest, const uint8_t * bytes, size_t len);
+
+/// The first byte and the length of the text whose 16 bytes are at \p stringPtr
+void * textBegin(char * stringPtr);
+uint64_t getLengthText(char * stringPtr);
+
 //-----------------------------------------------------------------------------
 // Date
 

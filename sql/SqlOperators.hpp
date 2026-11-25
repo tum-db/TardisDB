@@ -7,7 +7,11 @@
 namespace Sql {
 namespace Operators {
 
+/// An explicit cast (see Casts::cast)
 value_op_t sqlCast(const Value & value, SqlType newType);
+
+/// lhs * rhs of two integers of the same width; an overflow sets the overflow flag
+llvm::Value * genOverflowMul(llvm::Value * lhs, llvm::Value * rhs);
 
 /// \returns A boolean SQL Value
 value_op_t sqlCompare(const Value & lhs, const Value & rhs, ComparisonMode mode);

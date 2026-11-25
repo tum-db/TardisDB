@@ -13,6 +13,7 @@
 #include "native/sql/Array.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
+#include "sql/SqlCasts.hpp"
 #include "sql/SqlOperators.hpp"
 #include "utils/general.hpp"
 
@@ -63,10 +64,12 @@ protected:
 class Cast : public UnaryOperator {
 public:
     Sql::SqlType _destType;
+    Sql::Casts::Context _context;
 
-    Cast(exp_op_t child, Sql::SqlType destType) :
+    Cast(exp_op_t child, Sql::SqlType destType, Sql::Casts::Context context = Sql::Casts::Context::Explicit) :
             UnaryOperator(std::move(child)),
-            _destType(destType)
+            _destType(destType),
+            _context(context)
     { }
 
     ~Cast() override { }
@@ -78,6 +81,32 @@ public:
         return _destType;
     }
 };
+
+/// The expression in the destination type (nullable as the expression): itself if it is of that type,
+/// else a cast of the cast table of its type. Throws if its type does not cast to the destination in
+/// the context. An expression of no type (NULL) stays as it is.
+inline exp_op_t castIfNeeded(exp_op_t expression, Sql::SqlType destination, Sql::Casts::Context context = Sql::Casts::Context::Implicit)
+{
+    Sql::SqlType type = expression->getType();
+    if (type.typeID == Sql::SqlType::TypeID::UnknownID || Sql::equals(type, destination, Sql::SqlTypeEqualsMode::WithoutNullable)) {
+        return expression;
+    }
+    if (!Sql::Casts::canCast(type, destination, context)) {
+        throw ArithmeticException("cannot cast type " + Sql::Casts::typeName(type) + " to " + Sql::Casts::typeName(destination));
+    }
+    return std::make_unique<Cast>(std::move(expression), withNullability(destination, type), context);
+}
+
+/// Both operands in their common type (see Sql::Casts::commonType), if they have one; two numerics
+/// keep their scales for the arithmetic
+inline void castToCommonType(exp_op_t & left, exp_op_t & right, bool keepNumerics = false)
+{
+    Sql::SqlType l = left->getType(), r = right->getType(), common;
+    if (keepNumerics && l.typeID == Sql::SqlType::TypeID::NumericID && r.typeID == Sql::SqlType::TypeID::NumericID) return;
+    if (!Sql::Casts::commonType(l, r, common)) return;
+    left = castIfNeeded(std::move(left), common);
+    right = castIfNeeded(std::move(right), common);
+}
 
 class Not : public UnaryOperator {
 public:
@@ -190,24 +219,10 @@ public:
     Addition(exp_op_t left, exp_op_t right) :
             BinaryOperator(std::move(left), std::move(right))
     {
+        castToCommonType(_left, _right, true);
         bool valid = Sql::Operators::inferAddTy(_left->getType(), _right->getType(), _type);
         if (!valid) {
             throw ArithmeticException("'+' requires numerical arguments");
-        }
-
-        // cast if necessary
-        if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
-            _left = std::move(newLeft);
-
-            valid = Sql::Operators::inferAddTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
-        } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
-            _right = std::move(newRight);
-
-            valid = Sql::Operators::inferAddTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
         }
     }
 
@@ -229,24 +244,10 @@ public:
     Subtraction(exp_op_t left, exp_op_t right) :
             BinaryOperator(std::move(left), std::move(right))
     {
+        castToCommonType(_left, _right, true);
         bool valid = Sql::Operators::inferSubTy(_left->getType(), _right->getType(), _type);
         if (!valid) {
             throw ArithmeticException("'-' requires numerical arguments");
-        }
-
-        // cast if necessary
-        if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
-            _left = std::move(newLeft);
-
-            valid = Sql::Operators::inferSubTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
-        } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
-            _right = std::move(newRight);
-
-            valid = Sql::Operators::inferSubTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
         }
     }
 
@@ -268,24 +269,10 @@ public:
     Multiplication(exp_op_t left, exp_op_t right) :
             BinaryOperator(std::move(left), std::move(right))
     {
+        castToCommonType(_left, _right, true);
         bool valid = Sql::Operators::inferMulTy(_left->getType(), _right->getType(), _type);
         if (!valid) {
             throw ArithmeticException("'*' requires numerical arguments");
-        }
-
-        // cast if necessary
-        if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
-            _left = std::move(newLeft);
-
-            valid = Sql::Operators::inferMulTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
-        } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
-            _right = std::move(newRight);
-
-            valid = Sql::Operators::inferMulTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
         }
     }
 
@@ -307,24 +294,10 @@ public:
     Division(exp_op_t left, exp_op_t right) :
             BinaryOperator(std::move(left), std::move(right))
     {
+        castToCommonType(_left, _right, true);
         bool valid = Sql::Operators::inferDivTy(_left->getType(), _right->getType(), _type);
         if (!valid) {
             throw ArithmeticException("'/' requires numerical arguments");
-        }
-
-        // cast if necessary
-        if (!Sql::sameTypeID(_type, _left->getType())) {
-            auto newLeft = std::make_unique<Cast>(std::move(_left), Sql::SqlType(withNullability(_right->getType(), _left->getType())));
-            _left = std::move(newLeft);
-
-            valid = Sql::Operators::inferDivTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
-        } else if (!Sql::sameTypeID(_type, _right->getType())) {
-            auto newRight = std::make_unique<Cast>(std::move(_right), Sql::SqlType(withNullability(_left->getType(), _right->getType())));
-            _right = std::move(newRight);
-
-            valid = Sql::Operators::inferDivTy(_left->getType(), _right->getType(), _type);
-            assert(valid);
         }
     }
 
@@ -351,6 +324,7 @@ public:
             BinaryOperator(std::move(left), std::move(right)),
             _mode(mode)
     {
+        castToCommonType(_left, _right);
         bool valid = Sql::Operators::inferCompareTy(_left->getType(), _right->getType(), _type);
         if (!valid) {
             throw ArithmeticException("cannot compare '" + Sql::getName(_left->getType()) +

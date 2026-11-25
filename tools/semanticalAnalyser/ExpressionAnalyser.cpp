@@ -6,6 +6,7 @@
 #include <climits>
 
 #include "native/sql/SqlValues.hpp"
+#include "sql/SqlCasts.hpp"
 
 namespace semanticalAnalysis {
 
@@ -90,61 +91,19 @@ SqlType literalType(const Node & n)
     }
 }
 
-int numberRank(SqlType t)
-{
-    switch (t.typeID) {
-        case TypeID::IntegerID: return 1;
-        case TypeID::LongIntegerID: return 2;
-        case TypeID::NumericID: return 3;
-        case TypeID::DoubleID: return 4;
-        default: return 0;
-    }
-}
-
-/// The type two numbers are computed in (not nullable)
-SqlType commonNumber(SqlType a, SqlType b)
-{
-    a.nullable = b.nullable = false;
-    if (a.typeID == TypeID::NumericID && b.typeID == TypeID::NumericID) {
-        uint8_t scale = std::max(a.numericLayout.precision, b.numericLayout.precision);
-        uint8_t integers = std::max(a.numericLayout.length - a.numericLayout.precision, b.numericLayout.length - b.numericLayout.precision);
-        return Sql::getNumericTy(static_cast<uint8_t>(std::min(18, integers + scale)), scale);
-    }
-    return numberRank(a) >= numberRank(b) ? a : b;
-}
-
-/// The common type of the elements of an array constructor or of the arguments of a comparison
+/// The common type of the elements of an array constructor or of the arguments of a comparison: that of
+/// the cast tables (see Sql::Casts::commonType); NULL takes the type of the other side
 bool commonType(SqlType a, SqlType b, SqlType & result)
 {
     if (a.typeID == TypeID::UnknownID) { result = Sql::toNotNullableTy(b); return true; }
     if (b.typeID == TypeID::UnknownID) { result = Sql::toNotNullableTy(a); return true; }
-    if (isNumber(a) && isNumber(b)) { result = commonNumber(a, b); return true; }
-    if (isString(a) && isString(b)) {
-        result = Sql::equals(a, b, Sql::SqlTypeEqualsMode::WithoutNullable) ? Sql::toNotNullableTy(a) : Sql::getTextTy();
-        return true;
-    }
-    if (Sql::equals(a, b, Sql::SqlTypeEqualsMode::WithoutNullable)) { result = Sql::toNotNullableTy(a); return true; }
-    return false;
+    return Sql::Casts::commonType(a, b, result);
 }
 
 /// the name of PostgreSQL
 std::string typeText(SqlType t)
 {
-    switch (t.typeID) {
-        case TypeID::BoolID: return "boolean";
-        case TypeID::IntegerID: return "integer";
-        case TypeID::LongIntegerID: return "bigint";
-        case TypeID::NumericID: return "numeric(" + std::to_string(t.numericLayout.length) + "," + std::to_string(t.numericLayout.precision) + ")";
-        case TypeID::CharID: return "character(" + std::to_string(t.length) + ")";
-        case TypeID::VarcharID: return "character varying(" + std::to_string(t.length) + ")";
-        case TypeID::TextID: return "text";
-        case TypeID::DateID: return "date";
-        case TypeID::TimestampID: return "timestamp";
-        case TypeID::DoubleID: return "double precision";
-        case TypeID::ArrayID: return typeText(Sql::getElementTy(t)) + "[]";
-        case TypeID::UnknownID: return "unknown";
-    }
-    return "unknown";
+    return Sql::Casts::typeName(t);
 }
 
 } // namespace
@@ -175,10 +134,7 @@ exp_op_t ExpressionAnalyser::coerce(exp_op_t e, SqlType target, const std::strin
     if (type.typeID == TypeID::UnknownID) {
         return std::make_unique<Expressions::Constant>(Native::Sql::nullLiteral, Sql::toNullableTy(target));
     }
-    if (Sql::equals(type, target, Sql::SqlTypeEqualsMode::WithoutNullable)) return e;
-    if (isNumber(type) && isNumber(target)) {
-        return std::make_unique<Expressions::Cast>(std::move(e), Expressions::withNullability(target, type));
-    }
+    if (Sql::Casts::canCast(type, target, Sql::Casts::Context::Implicit)) return Expressions::castIfNeeded(std::move(e), target);
     if (isString(type) && isString(target)) return e; // the runtime of arrays reads any string
     throw semantic_sql_error(what + " takes " + typeText(target) + ", not " + typeText(type));
 }
@@ -274,8 +230,9 @@ exp_op_t ExpressionAnalyser::analyse(const Node & n, const SqlType * expected)
             exp_op_t e = analyse(value);
             SqlType type = e->getType();
             if (type.typeID == TypeID::UnknownID) return coerce(std::move(e), target, "a cast");
-            if (Sql::equals(type, target, Sql::SqlTypeEqualsMode::WithoutNullable)) return e;
-            if (isNumber(type) && isNumber(target)) return coerce(std::move(e), target, "a cast");
+            if (Sql::Casts::canCast(type, target, Sql::Casts::Context::Explicit)) {
+                return Expressions::castIfNeeded(std::move(e), target, Sql::Casts::Context::Explicit);
+            }
             throw semantic_sql_error("cannot cast type " + typeText(type) + " to " + typeText(target));
         }
         case Kind::Row:
@@ -311,12 +268,8 @@ std::pair<exp_op_t, exp_op_t> ExpressionAnalyser::typedPair(const Node & l, cons
     if (!commonType(a, b, common)) {
         throw semantic_sql_error(what + " cannot compare " + typeText(a) + " with " + typeText(b));
     }
-    if (isNumber(common) || a.typeID == TypeID::UnknownID || b.typeID == TypeID::UnknownID) {
-        left = coerce(std::move(left), common, what);
-        right = coerce(std::move(right), common, what);
-    } else if (!Sql::equals(a, b, Sql::SqlTypeEqualsMode::WithoutNullable)) {
-        throw semantic_sql_error(what + " cannot compare " + typeText(a) + " with " + typeText(b));
-    }
+    left = coerce(std::move(left), common, what);
+    right = coerce(std::move(right), common, what);
     return {std::move(left), std::move(right)};
 }
 
@@ -787,10 +740,15 @@ exp_op_t ExpressionAnalyser::analyseCondition(const Node & n)
 
 exp_op_t ExpressionAnalyser::analyseValue(const Node & n, SqlType target, const std::string & column)
 {
-    exp_op_t e = analyse(n, isLiteral(n) || n.kind == Kind::Array ? &target : nullptr);
+    // a constant in the type of the column; a decimal one for a number in its own, which the cast rounds
+    SqlType own = isLiteral(n) ? literalType(n) : Sql::getUnknownTy();
+    bool decimal = isLiteral(n) && !n.quoted && (own.typeID == TypeID::NumericID || own.typeID == TypeID::DoubleID) && isNumber(target);
+    exp_op_t e = analyse(n, (isLiteral(n) && !decimal) || n.kind == Kind::Array ? &target : nullptr);
     SqlType type = e->getType();
     if (type.typeID == TypeID::UnknownID) return coerce(std::move(e), target, "column '" + column + "'");
-    if (isNumber(type) && isNumber(target)) return e; // the update casts
+    if (Sql::Casts::canCast(type, target, Sql::Casts::Context::Assignment)) {
+        return Expressions::castIfNeeded(std::move(e), target, Sql::Casts::Context::Assignment);
+    }
     if (!Sql::equals(type, target, Sql::SqlTypeEqualsMode::WithoutNullable)) {
         throw semantic_sql_error("column '" + column + "' is of type " + typeText(target) + ", but the expression is of type " + typeText(type));
     }

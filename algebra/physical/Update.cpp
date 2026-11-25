@@ -2,6 +2,7 @@
 // Created by josef on 03.01.17.
 //
 
+#include "sql/SqlCasts.hpp"
 #include "codegen/LLVMCompat.hpp"
 
 #include "algebra/physical/Update.hpp"
@@ -92,7 +93,7 @@ namespace Algebra {
                 if (!Sql::equals(value->type, columnType, SqlTypeEqualsMode::WithoutNullable)) {
                     SqlType castType = columnType;
                     castType.nullable = value->type.nullable;
-                    value = Sql::Operators::sqlCast(*value, castType);
+                    value = Sql::Casts::cast(*value, castType, Sql::Casts::Context::Assignment);
                 }
                 // the analyser refuses values that may be NULL for columns without nulls
                 if (columnType.nullable && !value->type.nullable) {

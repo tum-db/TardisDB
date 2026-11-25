@@ -56,7 +56,7 @@ public:
 
         auto child = std::move( _translated.top() );
         _translated.pop();
-        _translated.push( std::make_unique<Physical::Expressions::Cast>( std::move(child), exp.getType() ) );
+        _translated.push( std::make_unique<Physical::Expressions::Cast>( std::move(child), exp.getType(), exp._context ) );
     }
 
     void visit(Logical::Expressions::Not & exp)

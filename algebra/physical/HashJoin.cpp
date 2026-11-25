@@ -221,6 +221,12 @@ void HashJoin::produce()
 
     _leftChild->produce();
 
+    // no tuple of the left side was generated (a scan of an empty table): nothing joins
+    if (listNodeTy == nullptr) {
+        genMemoryPoolFreeCall(memoryPool);
+        return;
+    }
+
     // build hashtable
     auto headerData = genListGetHeaderData(listHeaderPtr);
 
