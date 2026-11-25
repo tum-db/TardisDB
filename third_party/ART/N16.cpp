@@ -1,7 +1,9 @@
 #include <assert.h>
 #include <algorithm>
 #include "N.h"
+#if defined(__SSE2__)
 #include <emmintrin.h> // x86 SSE intrinsics
+#endif
 
 namespace ART_unsynchronized {
     const uint8_t N16_shrink = 3;
@@ -11,9 +13,17 @@ namespace ART_unsynchronized {
             return false;
         }
         uint8_t keyByteFlipped = flipSign(key);
+#if defined(__SSE2__)
         __m128i cmp = _mm_cmplt_epi8(_mm_set1_epi8(keyByteFlipped), _mm_loadu_si128(reinterpret_cast<__m128i *>(keys)));
         uint16_t bitfield = _mm_movemask_epi8(cmp) & (0xFFFF >> (16 - count));
         unsigned pos = bitfield ? ctz(bitfield) : count;
+#else
+        // portable version (e.g. ARM): first key that is greater, compared as signed bytes
+        unsigned pos = count;
+        for (unsigned i = 0; i < count; i++) {
+            if (static_cast<int8_t>(keyByteFlipped) < static_cast<int8_t>(keys[i])) { pos = i; break; }
+        }
+#endif
         memmove(keys + pos + 1, keys + pos, count - pos);
         memmove(children + pos + 1, children + pos, (count - pos) * sizeof(uintptr_t));
         keys[pos] = keyByteFlipped;
@@ -45,6 +55,7 @@ namespace ART_unsynchronized {
     }
 
     N *const *N16::getChildPos(const uint8_t k) const {
+#if defined(__SSE2__)
         __m128i cmp = _mm_cmpeq_epi8(_mm_set1_epi8(flipSign(k)),
                                      _mm_loadu_si128(reinterpret_cast<const __m128i *>(keys)));
         unsigned bitfield = _mm_movemask_epi8(cmp) & ((1 << count) - 1);
@@ -53,6 +64,14 @@ namespace ART_unsynchronized {
         } else {
             return nullptr;
         }
+#else
+        // portable version (e.g. ARM)
+        const uint8_t flipped = flipSign(k);
+        for (unsigned i = 0; i < count; i++) {
+            if (keys[i] == flipped) return &children[i];
+        }
+        return nullptr;
+#endif
     }
 
     N *N16::getChild(const uint8_t k) const {

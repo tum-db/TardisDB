@@ -3,7 +3,15 @@
 #include <atomic>
 #include <tuple>
 #include <cstdint>
+// _mm_pause() only exists on x86; ARM (e.g. Apple Silicon) uses "yield"
+#if defined(__x86_64__) || defined(__i386__)
 #include <immintrin.h>
+#define TARDIS_CPU_RELAX() _mm_pause()
+#elif defined(__aarch64__)
+#define TARDIS_CPU_RELAX() asm volatile("yield" ::: "memory")
+#else
+#define TARDIS_CPU_RELAX() ((void)0)
+#endif
 
 namespace opt_lock {
 
@@ -34,7 +42,7 @@ template<class T>
 uint64_t awaitNodeUnlocked(T * node) {
     uint64_t version = node->lock.load();
     while (isLocked(version)) {
-        _mm_pause();
+        TARDIS_CPU_RELAX();
         version = node->lock.load();
     }
     return version;
