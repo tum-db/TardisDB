@@ -467,8 +467,8 @@ namespace semanticalAnalysis {
 
         // create and add vertices to join graph
         for (auto & rel : stmt->relations) {
-            std::string &tableAlias = rel.alias;
-            if (rel.alias.length() == 0) tableAlias = rel.name;
+            // a copy: addVertex moves from it, and SELECT * reads the alias of the relation afterwards
+            std::string tableAlias = rel.alias.empty() ? rel.name : rel.alias;
             JoinGraph::Vertex v = JoinGraph::Vertex(context.dangling_productions[tableAlias]);
             graph.addVertex(tableAlias,v);
         }

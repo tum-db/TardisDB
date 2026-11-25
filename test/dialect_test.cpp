@@ -244,6 +244,16 @@ namespace {
         EXPECT_EQ(plan.find("Filter"), std::string::npos) << plan;
     }
 
+    // SELECT * of tables under aliases
+    TEST_F(DialectTest, StarWithAlias) {
+        using rows_t = std::vector<std::string>;
+        exec("CREATE TABLE st ( id integer not null, name varchar(10) not null );");
+        exec("INSERT INTO st VALUES (1, 'one'), (2, 'two'), (3, 'three');");
+        EXPECT_EQ(query("SELECT * FROM st x;"), (rows_t{"(1, one)", "(2, two)", "(3, three)"}));
+        EXPECT_EQ(query("SELECT * FROM st x, st y WHERE x.id = y.id AND x.id = 1;"), (rows_t{"(1, one, 1, one)"}));
+        EXPECT_EQ(query("WITH s AS (SELECT 1 AS a) SELECT * FROM s q;"), (rows_t{"(1)"}));
+    }
+
     TEST_F(DialectTest, JoinsOfTables) {
         exec("CREATE TABLE ja ( id integer not null, k integer not null, name varchar(10) not null );");
         exec("CREATE TABLE jb ( id integer not null, k integer not null, y integer not null );");
