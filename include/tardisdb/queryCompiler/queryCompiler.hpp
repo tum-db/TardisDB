@@ -64,6 +64,14 @@ namespace QueryCompiler {
         double compilation() const { return parsing + analysis + translation + llvm; }
     };
 
+    /// SET enable_hashjoin | enable_mergejoin = on | off, as in PostgreSQL, for the statements of the current
+    /// thread: with the hash join off and the merge join on, joins sort and merge (Algebra::JoinMethod)
+    /// \returns false for another setting; \throws std::invalid_argument for a value other than on or off
+    bool setSetting(const std::string & name, const std::string & value);
+
+    /// \returns The value of a setting of setSetting() ("on" or "off"), "" for another
+    std::string getSetting(const std::string & name);
+
     /// Executes a statement and prints its rows (EXPLAIN [ANALYZE]: the plan as JSON)
     /// \returns Its times
     Timing compileAndExecute(const std::string & query, Database &db, void *callbackFunction = nullptr);

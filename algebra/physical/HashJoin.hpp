@@ -3,6 +3,14 @@
 
 #include "algebra/physical/Operator.hpp"
 #include "algebra/physical/expressions.hpp"
+#include "sql/SqlTuple.hpp"
+
+/// The tuples of a side of a join in a list in a memory pool (HashJoin.cpp): a node holds the next node, a
+/// hash and the tuple
+llvm::Value * genCreateListHeader(cg_voidptr_t memoryPool);
+llvm::Type * getListNodeTy(llvm::Type * dataTy);
+void genAppendEntryToList(cg_voidptr_t memoryPool, llvm::Value * headerPtr, llvm::Type * nodeTy, cg_hash_t hash, Sql::SqlTuple & tuple);
+std::pair<cg_voidptr_t, cg_size_t> genListGetHeaderData(llvm::Value * headerPtr);
 
 namespace Algebra {
 namespace Physical {

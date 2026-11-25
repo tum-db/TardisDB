@@ -943,27 +943,22 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
         }
     }
 
-    void* textBegin(char *stringPtr) {
-        uint8_t len = stringPtr[0];
-        if (len > 15) {
-            uintptr_t *uintptr = reinterpret_cast<uintptr_t *>(stringPtr);
-            return (void*) uintptr[0];
-        }
+    // the 16 bytes of a text: inline, the length and up to 15 bytes; else (the leftmost bit of the first
+    // word set) the address of the first byte, tagged, and of the end (as Native::Sql::Text)
+    static const uintptr_t textTag = static_cast<uintptr_t>(1) << (8 * sizeof(uintptr_t) - 1);
 
-        return (void*) &stringPtr[1];
+    void* textBegin(char *stringPtr) {
+        uintptr_t words[2];
+        std::memcpy(words, stringPtr, sizeof(words));
+        if (words[0] & textTag) return reinterpret_cast<void *>(words[0] ^ textTag);
+        return &stringPtr[1];
     }
 
     uint64_t getLengthText(char *stringPtr) {
-        uint8_t len = stringPtr[0];
-        if (len > 15) {
-            uintptr_t *uintptr = reinterpret_cast<uintptr_t *>(stringPtr);
-            uintptr_t first_value = uintptr[0];
-            uintptr_t second_value = uintptr[1];
-
-            len = second_value - first_value;
-        }
-
-        return len;
+        uintptr_t words[2];
+        std::memcpy(words, stringPtr, sizeof(words));
+        if (words[0] & textTag) return words[1] - (words[0] ^ textTag);
+        return static_cast<uint8_t>(stringPtr[0]);
     }
 
     value_op_t Text::castString(const std::string & str, SqlType type)
@@ -1044,22 +1039,30 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
 #endif
     }
 
+    /// The length and the first byte of a text value (a pointer to its 16 bytes), as generated calls
+    static cg_size_t genTextLength(llvm::Value * text)
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<size_t (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(codeGen.getCurrentModuleGen().getModule(), "getLengthText", funcTy);
+        codeGen.getCurrentModuleGen().addFunctionMapping(func, (void *) &getLengthText);
+        return cg_size_t(llvm::cast<llvm::Value>(codeGen->CreateCall(func, {text})));
+    }
+
+    static cg_voidptr_t genTextBegin(llvm::Value * text)
+    {
+        auto & codeGen = getThreadLocalCodeGen();
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<void * (void *), false>::get(codeGen.getLLVMContext());
+        llvm::Function * func = LLVMCompat::getOrInsertFunction(codeGen.getCurrentModuleGen().getModule(), "textBegin", funcTy);
+        codeGen.getCurrentModuleGen().addFunctionMapping(func, (void *) &textBegin);
+        return cg_voidptr_t(llvm::cast<llvm::Value>(codeGen->CreateCall(func, {text})));
+    }
+
     cg_hash_t Text::hash() const
     {
         auto & codeGen = getThreadLocalCodeGen();
-
-        llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "getLengthText", funcTy);
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
-        llvm::CallInst * result = codeGen->CreateCall(func, { _llvmValue });
-        cg_u64_t length = cg_u64_t( llvm::cast<llvm::Value>(result) );
-
-        llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * funcBegin = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "textBegin", funcTyBegin);
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
-        llvm::CallInst * resultBegin = codeGen->CreateCall(funcBegin, { _llvmValue });
-        cg_voidptr_t begin = cg_voidptr_t( llvm::cast<llvm::Value>(resultBegin) );
-
+        cg_size_t length = genTextLength(_llvmValue);
+        cg_voidptr_t begin = genTextBegin(_llvmValue);
         return genStringHash(codeGen, begin, length);
     }
 
@@ -1080,41 +1083,36 @@ cg_bool_t Char::compare(const Value & other, ComparisonMode mode) const
             return other.equals(*this);
         }
 
-        llvm::FunctionType * funcTy = llvm::TypeBuilder<int (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * func = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "getLengthText", funcTy);
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(func,(void *)&getLengthText);
+        llvm::Value * otherText = static_cast<const Text &>(other).getLLVMValue();
+        cg_size_t thisLength = genTextLength(_llvmValue);
+        cg_bool_t isLengthEqual = genTextLength(otherText) == thisLength;
 
-        llvm::CallInst * _otherLength = codeGen->CreateCall(func, { static_cast<const Text &>(other).getLLVMValue() });
-        cg_u64_t otherlength = cg_u64_t( llvm::cast<llvm::Value>(_otherLength) );
-        llvm::CallInst * _thisLength = codeGen->CreateCall(func, { _llvmValue });
-        cg_u64_t thisLength = cg_u64_t( llvm::cast<llvm::Value>(_thisLength) );
-
-        cg_bool_t isLengthEqual = otherlength == thisLength;
-
-        llvm::FunctionType * funcTyBegin = llvm::TypeBuilder<void* (void *), false>::get(codeGen.getLLVMContext());
-        llvm::Function * funcBegin = LLVMCompat::getOrInsertFunction(getThreadLocalCodeGen().getCurrentModuleGen().getModule(), "textBegin", funcTyBegin);
-        getThreadLocalCodeGen().getCurrentModuleGen().addFunctionMapping(funcBegin,(void *)&textBegin);
-
-        IfGen check( codeGen.getCurrentFunctionGen(), isLengthEqual, {{"isEqual", cg_bool_t(true)}} );
+        IfGen check( codeGen.getCurrentFunctionGen(), isLengthEqual, {{"isEqual", cg_bool_t(false)}} );
         {
-            llvm::CallInst * _otherBegin = codeGen->CreateCall(funcBegin, { static_cast<const Text &>(other).getLLVMValue() });
-            cg_voidptr_t otherBegin = cg_voidptr_t( llvm::cast<llvm::Value>(_otherBegin) );
-            llvm::CallInst * _thisBegin = codeGen->CreateCall(funcBegin, { _llvmValue });
-            cg_voidptr_t thisBegin = cg_voidptr_t( llvm::cast<llvm::Value>(_thisBegin) );
-            cg_int_t compareResult = Functions::genMemcmpCall(otherBegin,thisBegin,thisLength);
-
+            cg_int_t compareResult = Functions::genMemcmpCall(genTextBegin(otherText), genTextBegin(_llvmValue), thisLength);
             check.setVar(0, cg_bool_t(compareResult == cg_int_t(0)));
         }
         check.EndIf();
-        cg_bool_t result(check.getResult(0));
-        cg_bool_t _result = isLengthEqual && result;
-
-        return _result;
+        return cg_bool_t(check.getResult(0));
     }
 
+    /// as ORDER BY: by the bytes (collation C); with a NULL, false
     cg_bool_t Text::compare(const Value & other, ComparisonMode mode) const
     {
-        throw NotImplementedException("Text::compare");
+        if (isNullable(other)) {
+            // the nullable side compares, the other way round
+            ComparisonMode turned = mode == ComparisonMode::less ? ComparisonMode::gtr : mode == ComparisonMode::gtr ? ComparisonMode::less :
+                                    mode == ComparisonMode::leq ? ComparisonMode::geq : mode == ComparisonMode::geq ? ComparisonMode::leq : mode;
+            return other.compare(*this, turned);
+        }
+        if (other.type.typeID != SqlType::TypeID::TextID) throw NotImplementedException("Text::compare with " + getName(other.type));
+        if (mode == ComparisonMode::eq) return equals(other);
+        auto & codeGen = getThreadLocalCodeGen();
+        llvm::Value * otherText = static_cast<const Text &>(other).getLLVMValue();
+        llvm::FunctionType * funcTy = llvm::TypeBuilder<int32_t (const char *, size_t, const char *, size_t), false>::get(codeGen.getLLVMContext());
+        llvm::CallInst * result = codeGen.CreateCall(&compareStringBytes, funcTy, {
+                genTextBegin(_llvmValue), genTextLength(_llvmValue), genTextBegin(otherText), genTextLength(otherText)});
+        return compareResult(cg_int_t(llvm::cast<llvm::Value>(result)), mode);
     }
 
 //-----------------------------------------------------------------------------

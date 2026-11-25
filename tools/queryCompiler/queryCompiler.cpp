@@ -12,6 +12,7 @@
 #include <mutex>
 #include <exception>
 #include <optional>
+#include <regex>
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
@@ -482,11 +483,12 @@ namespace QueryCompiler {
             std::vector<std::string> outputs;
             for (auto & mapping : dynamic_cast<const L::Map &>(logical)._mappings) outputs.push_back(expression(*mapping.exp));
             field("Output", list(outputs));
-        } else if (dynamic_cast<P::HashJoin *>(&op)) {
-            type("Hash Join");
+        } else if (dynamic_cast<P::HashJoin *>(&op) || dynamic_cast<P::MergeJoin *>(&op)) {
+            const bool merge = dynamic_cast<P::MergeJoin *>(&op) != nullptr;
+            type(merge ? "Merge Join" : "Hash Join");
             std::string condition;
             for (auto & e : dynamic_cast<const L::Join &>(logical)._joinExprVec) condition += (condition.empty() ? "" : " AND ") + expression(*e);
-            if (!condition.empty()) field("Join Cond", quote(condition));
+            if (!condition.empty()) field(merge ? "Merge Cond" : "Join Cond", quote(condition));
         } else if (dynamic_cast<P::GroupBy *>(&op)) {
             type("Aggregate");
             std::vector<std::string> aggregates;
@@ -767,8 +769,48 @@ namespace QueryCompiler {
                                           const std::function<void(const StatementResult &)> & described,
                                           const Transaction * transaction);
 
+    namespace settings {
+        thread_local bool hashJoin = true, mergeJoin = true;
+
+        static void apply() {
+            Algebra::joinMethod() = (!hashJoin && mergeJoin) ? Algebra::JoinMethod::Merge : Algebra::JoinMethod::Hash;
+        }
+    }
+
+    bool setSetting(const std::string & name, const std::string & value) {
+        std::string n, v;
+        std::transform(name.begin(), name.end(), std::back_inserter(n), ::tolower);
+        std::transform(value.begin(), value.end(), std::back_inserter(v), ::tolower);
+        if (v.size() >= 2 && v.front() == '\'' && v.back() == '\'') v = v.substr(1, v.size() - 2);
+        if (n != "enable_hashjoin" && n != "enable_mergejoin") return false;
+        bool on;
+        if (v == "on" || v == "true" || v == "1" || v == "default") on = true;
+        else if (v == "off" || v == "false" || v == "0") on = false;
+        else throw std::invalid_argument("parameter \"" + n + "\" requires a Boolean value");
+        (n == "enable_hashjoin" ? settings::hashJoin : settings::mergeJoin) = on;
+        settings::apply();
+        return true;
+    }
+
+    std::string getSetting(const std::string & name) {
+        std::string n;
+        std::transform(name.begin(), name.end(), std::back_inserter(n), ::tolower);
+        if (n == "enable_hashjoin") return settings::hashJoin ? "on" : "off";
+        if (n == "enable_mergejoin") return settings::mergeJoin ? "on" : "off";
+        return "";
+    }
+
     Timing compileAndExecute(const std::string &query, Database &db, void *callbackFunction) {
         timing::Statement clock;
+        {
+            // SET enable_hashjoin | enable_mergejoin = on | off (pgserver handles SET itself)
+            static const std::regex set(R"(^\s*set\s+(?:session\s+)?(enable_hashjoin|enable_mergejoin)\s*(?:=|\s+to\s+)\s*('?\w+'?)\s*;?\s*$)", std::regex::icase);
+            std::smatch match;
+            if (std::regex_match(query, match, set)) {
+                setSetting(match[1].str(), match[2].str());
+                return clock.finish();
+            }
+        }
         bool analyze = false;
         std::string explained;
         if (explain::parse(query, analyze, explained)) {

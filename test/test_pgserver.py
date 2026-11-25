@@ -201,6 +201,17 @@ cur.execute("select id, name from k where id > %s order by name desc", (2,))
 assert cur.fetchall() == [(5, "n'5"), (4, "n'4"), (3, "left")] and [d.name for d in cur.description] == ["id", "name"]
 with psycopg.connect(dsn, autocommit=True) as c3:
     assert c3.execute("select id from k where id < %s order by amount desc, id", (4,)).fetchall() == [(2,), (3,), (1,)]
+# the sort-merge join of the session (SET enable_hashjoin = off), with the rows of the hash join
+cur.execute("select a.id, b.id from k a, k b where a.id = b.id - 1")
+hashed = sorted(cur.fetchall())
+cur.execute("set enable_hashjoin = off")
+cur.execute("show enable_hashjoin")
+assert cur.fetchone() == ("off",)
+cur.execute("explain select a.id, b.id from k a, k b where a.id = b.id - 1")
+assert "Merge Join" in cur.fetchone()[0]
+cur.execute("select a.id, b.id from k a, k b where a.id = b.id - 1")
+assert sorted(cur.fetchall()) == hashed == [(1, 2), (2, 3), (3, 4), (4, 5)], hashed
+cur.execute("set enable_hashjoin = on")
 # psql's \d, \dt, \d table, \l and \dn query pg_catalog; pgserver answers them (if psql is installed)
 import shutil, subprocess
 if shutil.which("psql"):

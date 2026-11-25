@@ -215,7 +215,9 @@ its columns and by expressions, also of columns that are not selected and of agg
 `DESC`, `NULLS FIRST` and `LAST` (as in PostgreSQL, `NULL` sorts after all values ascending); strings
 sort by their bytes, as in collation C (`test/order_test.cpp`). A join takes each condition `=` whose
 sides read one table each, also over expressions (`a.x + 1 = b.y`), as a key of its hash join
-(`test/dialect_test.cpp`).
+(`test/dialect_test.cpp`). `SET enable_hashjoin = off` (in `pgserver` for the session, as in
+PostgreSQL, and in the `sql` shell) joins by sorting both sides and merging them instead, if the keys
+of each pair have one type with an order; `EXPLAIN` shows a `Merge Join` (`test/merge_join_test.cpp`).
 
 `COPY t [VERSION b] FROM 'file'` loads a file into a branch and `COPY t [VERSION b] TO 'file'` writes
 one, with the options of PostgreSQL, `WITH (FORMAT csv, HEADER, DELIMITER ';', NULL 'NA', QUOTE '"',

@@ -714,11 +714,19 @@ private:
             if (isBranchSetting(match[1].str())) {
                 if (_inBlock) throw SqlError("25001", "SET branch cannot run inside a transaction block");
                 setBranch(match[2].str());
+            } else {
+                // enable_hashjoin and enable_mergejoin: for the session, whose statements run in its thread
+                try {
+                    QueryCompiler::setSetting(match[1].str(), match[2].str());
+                } catch (const std::invalid_argument & e) {
+                    throw SqlError("22023", e.what());
+                }
             }
             outcome.tag = "SET"; // other settings are accepted and have no effect
         } else if (first == "show" && words.size() == 2 && words[1] != "databases" && words[1] != "tables" && words[1] != "branches") {
             std::string name = words[1];
             std::string value = isBranchSetting(name) ? _branch
+                    : !QueryCompiler::getSetting(name).empty() ? QueryCompiler::getSetting(name)
                     : name == "server_version" ? "16.0 (TardisDB)"
                     : name == "transaction_isolation" || name == "default_transaction_isolation" ? "repeatable read"
                     : name == "standard_conforming_strings" ? "on"
@@ -742,6 +750,8 @@ private:
         } else if (first == "discard" || (first == "reset" && words.size() > 1 && words[1] == "all")) {
             if (_inBlock) throw SqlError("25001", lower(trim(statement)) + " cannot run inside a transaction block");
             _branch = "master";
+            QueryCompiler::setSetting("enable_hashjoin", "on");
+            QueryCompiler::setSetting("enable_mergejoin", "on");
             outcome.tag = first == "discard" ? "DISCARD ALL" : "RESET";
         } else if (s == "select version()" || s == "select current_database()" || s == "select current_schema()") {
             outcome.returnsRows = true;

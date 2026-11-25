@@ -12,6 +12,12 @@ using namespace Algebra;
 
 namespace Algebra {
 
+JoinMethod & joinMethod()
+{
+    thread_local JoinMethod method = JoinMethod::Hash;
+    return method;
+}
+
 using physical_aggregator_op_t = std::unique_ptr<Physical::Aggregations::Aggregator>;
 using physical_expression_op_t = std::unique_ptr<Physical::Expressions::Expression>;
 using physical_operator_op_t = std::unique_ptr<Physical::Operator>;
@@ -397,6 +403,11 @@ public:
 
         switch (op._method) {
             case Logical::Join::Method::Hash: {
+                if (joinMethod() == JoinMethod::Merge && Physical::MergeJoin::canJoin(joinPairs)) {
+                    _translated.push(std::make_unique<Physical::MergeJoin>(op, std::move(leftChild), std::move(rightChild),
+                                                                           std::move(joinPairs), _queryContext));
+                    break;
+                }
                 _translated.push( std::make_unique<Physical::HashJoin>(
                     op,
                     std::move(leftChild),

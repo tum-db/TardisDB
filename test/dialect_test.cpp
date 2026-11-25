@@ -189,6 +189,26 @@ namespace {
         EXPECT_EQ(query("SELECT count(*) FROM d;", "main"), (std::vector<std::string>{"(2)"}));
     }
 
+    // text: = <> < <= > >= by the bytes, inline (up to 15 bytes) and in the string pool, nullable, and as keys of joins
+    TEST_F(DialectTest, TextComparisons) {
+        using rows_t = std::vector<std::string>;
+        exec("CREATE TABLE tn ( t text not null, k integer not null );");
+        exec("CREATE TABLE tu ( t text, k integer not null );");
+        exec("INSERT INTO tn VALUES ('b', 1), ('a long text of the key', 2), ('c', 3), ('', 4);");
+        exec("INSERT INTO tu VALUES ('b', 1), (NULL, 2), ('a long text of the key', 3);");
+        EXPECT_EQ(query("SELECT k FROM tn WHERE t = 'b';"), (rows_t{"(1)"}));
+        EXPECT_EQ(query("SELECT k FROM tn WHERE t = 'a long text of the key';"), (rows_t{"(2)"}));
+        EXPECT_EQ(query("SELECT k FROM tn WHERE t = '';"), (rows_t{"(4)"}));
+        EXPECT_EQ(query("SELECT k FROM tn WHERE t < 'b';"), (rows_t{"(2)", "(4)"}));
+        EXPECT_EQ(query("SELECT k FROM tn WHERE t >= 'b';"), (rows_t{"(1)", "(3)"}));
+        EXPECT_EQ(query("SELECT k FROM tn WHERE t > 'a long text';"), (rows_t{"(1)", "(2)", "(3)"}));
+        EXPECT_EQ(query("SELECT k FROM tu WHERE t = 'b';"), (rows_t{"(1)"}));
+        EXPECT_EQ(query("SELECT k FROM tu WHERE t <> 'b';"), (rows_t{"(3)"}));
+        EXPECT_EQ(query("SELECT k FROM tu WHERE t > 'a';"), (rows_t{"(1)", "(3)"}));
+        EXPECT_EQ(query("SELECT k FROM tu WHERE 'c' > t;"), (rows_t{"(1)", "(3)"}));
+        EXPECT_EQ(query("SELECT tn.k, tu.k FROM tn, tu WHERE tn.t = tu.t;"), (rows_t{"(1, 1)", "(2, 3)"}));
+    }
+
     // join conditions in either direction, in a cycle, and over expressions of one table on each side
     TEST_F(DialectTest, JoinConditions) {
         using rows_t = std::vector<std::string>;

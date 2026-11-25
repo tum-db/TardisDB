@@ -6,6 +6,7 @@
 #include "BranchDiff.hpp"
 #include "GroupBy.hpp"
 #include "HashJoin.hpp"
+#include "MergeJoin.hpp"
 #include "Map.hpp"
 #include "Print.hpp"
 #include "Select.hpp"
