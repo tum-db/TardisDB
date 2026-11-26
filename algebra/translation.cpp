@@ -234,6 +234,11 @@ public:
         _translated.push( std::make_unique<Physical::Expressions::ArrayFunction>(exp._function, exp.getType(), std::move(arguments)) );
     }
 
+    void visit(Logical::Expressions::Random & exp)
+    {
+        _translated.push( std::make_unique<Physical::Expressions::Random>() );
+    }
+
 private:
     std::stack<physical_expression_op_t> _translated;
 };
@@ -351,6 +356,23 @@ public:
         return std::move(_translated.top());
     }
 
+    void visit(Logical::Fixpoint & op) override
+    {
+        auto step = std::move(_translated.top());
+        _translated.pop();
+        auto initial = std::move(_translated.top());
+        _translated.pop();
+        auto & state = *static_cast<Physical::FixpointState *>(_queryContext.workingTables.at(&op._workingTable));
+        _translated.push(std::make_unique<Physical::Fixpoint>(op, std::move(initial), std::move(step), state, _queryContext));
+    }
+
+    void visit(Logical::Aggregation & op) override
+    {
+        auto child = std::move(_translated.top());
+        _translated.pop();
+        _translated.push(std::make_unique<Physical::Aggregation>(op, std::move(child), _queryContext));
+    }
+
     void visit(Logical::GroupBy & op) override
     {
         auto child = std::move(_translated.top());
@@ -464,6 +486,14 @@ public:
                 if (joinMethod() == JoinMethod::Merge && Physical::MergeJoin::canJoin(joinPairs)) {
                     _translated.push(std::make_unique<Physical::MergeJoin>(op, std::move(leftChild), std::move(rightChild),
                                                                            std::move(joinPairs), _queryContext));
+                    break;
+                }
+                // the hash table of the side with fewer tuples, if both scan tables (a working table counts as small)
+                const Logical::TableScan * left = scanOf(op.getLeftChild()), * right = scanOf(op.getRightChild());
+                if (left != nullptr && right != nullptr && left->getTable().size() > right->getTable().size()) {
+                    for (auto & pair : joinPairs) std::swap(pair.first, pair.second);
+                    _translated.push(std::make_unique<Physical::HashJoin>(op, std::move(rightChild), std::move(leftChild), std::move(joinPairs),
+                                                                          _queryContext, true));
                     break;
                 }
                 _translated.push( std::make_unique<Physical::HashJoin>(
@@ -586,6 +616,11 @@ public:
 
     void visit(Logical::TableScan & op) override
     {
+        auto working = _queryContext.workingTables.find(&op.getTable());
+        if (working != _queryContext.workingTables.end()) {
+            _translated.push(std::make_unique<Physical::WorkingTableScan>(op, *static_cast<Physical::FixpointState *>(working->second), _queryContext));
+            return;
+        }
         _translated.push( std::make_unique<Physical::TableScan>(
             op,
             op.getTable(),

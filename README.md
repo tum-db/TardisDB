@@ -207,12 +207,22 @@ Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION`, `I
 (the alias names a single column, `AS f(a, b)` the columns) and, of one column, in the select list of a
 query without `FROM`; their arguments are constant expressions, and `TableFunctions::add` registers more
 (`test/table_function_test.cpp`). `generate_series(start, stop [, step])` of integers, bigints and
-numerics is one (`test/series_test.cpp`).
+numerics is one (`test/series_test.cpp`). Subqueries in `FROM` (`(SELECT ...) [AS] s [(a, b)]`, also
+without an alias and nested) are parts of the plan of the query that reads them (those of aggregates of
+`char` or `varchar` run before it, into tables); `LIMIT` and `OFFSET` end any query, `INSERT INTO t [(columns)] SELECT ...` inserts its rows, `*` may
+stand among other items of the select list, `random()` gives a number in [0, 1) per row, and `CREATE
+TABLE IF NOT EXISTS` leaves an existing table (`test/script_syntax_test.cpp`).
 Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
 `kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`);
 `sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,
 read joins and common table expressions, group by columns, and `HAVING` filters the groups
-(`test/aggregate_test.cpp`). `EXPLAIN [ANALYZE]` returns the plan as JSON, with the rows of each
+(`test/aggregate_test.cpp`); they run in a hash aggregation of the plan (`HashAggregate` in `EXPLAIN`),
+those of `char` and `varchar` as several queries. A recursive query (non-recursive query `UNION ALL`
+recursive query) runs in one plan: its `Recursive Union` runs the step in a loop of the generated code
+over the rows the last step added (`WorkTable Scan`), until a step adds none; `UNION` without `ALL`
+runs a query per step. Hash joins build their table of the smaller of two scanned tables. The
+generated code keeps values in registers and is simplified before it is compiled; the machine code of
+recursive queries, which runs many times, is optimised too (`test/compiled_query_test.cpp`). `EXPLAIN [ANALYZE]` returns the plan as JSON, with the rows of each
 operator, and `\timing` in the `sql` shell splits the time into compilation and execution
 (`test/explain_test.cpp`). `ORDER BY` sorts the result of any query by positions, names or aliases of
 its columns and by expressions, also of columns that are not selected and of aggregates, with `ASC`,
@@ -238,10 +248,11 @@ a string too long for its column) prints a message, but does not yet abort the s
 
 `COPY t [VERSION b] FROM 'file'` loads a file into a branch and `COPY t [VERSION b] TO 'file'` writes
 one, with the options of PostgreSQL, `WITH (FORMAT csv, HEADER, DELIMITER ';', NULL 'NA', QUOTE '"',
-ESCAPE '\')` or the older `CSV HEADER DELIMITER ';'`. `FORMAT csv` is PostgreSQL's CSV (fields in
-quotes may hold the delimiter, quotes and line breaks); `FORMAT tbl` is the format of the TPC-H tools
-(`|` without quotes; a line may end with `|`). An unquoted empty field, or the text given as `NULL`, is
-`NULL` in a nullable column. `COPY FROM` checks every record before it inserts one, so that an error
+ESCAPE '\')` or the older `CSV HEADER DELIMITER ';'`. `FORMAT text`, the default, is PostgreSQL's text
+format (tabs between fields, backslash escapes, `\N` for `NULL`); `FORMAT csv` is PostgreSQL's CSV
+(fields in quotes may hold the delimiter, quotes and line breaks); `FORMAT tbl` is the format of the
+TPC-H tools (`|` without quotes; a line may end with `|`). An unquoted empty field of csv and tbl, or
+the text given as `NULL`, is `NULL` in a nullable column. `COPY FROM` checks every record before it inserts one, so that an error
 leaves the table as it was; it holds one record at a time. The server reads and writes the files
 (`test/copy_test.cpp`). `schemas/` holds the schemas of TPC-H and TPC-C.
 

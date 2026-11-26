@@ -169,8 +169,8 @@ namespace {
     TEST_F(CopyTest, RejectsInvalidOptions) {
         write("1,a,b,1\n");
         const std::string from = "copy c from '" + path + "' ";
-        EXPECT_THROW(exec(from + ";"), semanticalAnalysis::semantic_sql_error); // no format
-        EXPECT_THROW(exec(from + "with format text;"), tardisParser::syntactical_error);
+        EXPECT_THROW(exec(from + ";"), semanticalAnalysis::semantic_sql_error); // text: one field of tabs
+        EXPECT_THROW(exec(from + "with format binary;"), tardisParser::syntactical_error);
         EXPECT_THROW(exec(from + "with ( format csv , freeze );"), tardisParser::syntactical_error);
         EXPECT_THROW(exec(from + "with ( format csv , delimiter ',,' );"), semanticalAnalysis::semantic_sql_error);
         EXPECT_THROW(exec(from + "with ( format csv , delimiter '\"' );"), semanticalAnalysis::semantic_sql_error);

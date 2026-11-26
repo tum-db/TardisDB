@@ -51,6 +51,9 @@ public:
 
     uint32_t getUID() const { return _uid; }
 
+    /// Computes the produced and required sets of the whole tree again (after operators moved)
+    void refreshSets();
+
     // TODO
 //    virtual void swap(Operator & other) = 0;
 
@@ -84,6 +87,8 @@ private:
 // OperatorVisitor
 
 class GroupBy;
+class Aggregation;
+class Fixpoint;
 class Join;
 class Map;
 class Update;
@@ -102,6 +107,8 @@ struct OperatorVisitor {
     }
 
     virtual void visit(GroupBy & op) = 0;
+    virtual void visit(Aggregation & op) = 0;
+    virtual void visit(Fixpoint & op) = 0;
     virtual void visit(Join & op) = 0;
     virtual void visit(Map & op) = 0;
     virtual void visit(Update & op) = 0;
@@ -143,8 +150,8 @@ public:
 
     Operator & getChild() const { return *child; }
 
-    // see swap()
-//    std::unique_ptr<Operator> takeChild();
+    /// \returns The child, without this operator as its parent; this operator is to be discarded
+    std::unique_ptr<Operator> takeChild();
 
 protected:
     void updateProducedSetsTraverser() final;
@@ -430,6 +437,74 @@ protected:
     void computeProduced() override;
     void computeRequired() override;
 
+};
+
+//-----------------------------------------------------------------------------
+// Aggregation operator
+
+/// GROUP BY: a group per value of the keys (NULLs are one group), each with aggregates of its tuples, which
+/// skip NULLs; without keys one group, also of no tuples
+class Aggregation : public UnaryOperator {
+public:
+    enum class Function { CountAll, Count, Sum, Avg, Min, Max };
+
+    struct Key {
+        iu_p_t input;
+        iu_p_t output;
+    };
+
+    struct Aggregate {
+        Function function;
+        iu_p_t input;  // nullptr for count(*)
+        iu_p_t output; // of the result type (see aggregateType())
+    };
+
+    Aggregation(std::unique_ptr<Operator> input, std::vector<Key> keys, std::vector<Aggregate> aggregates) :
+            UnaryOperator(std::move(input)),
+            _keys(std::move(keys)),
+            _aggregates(std::move(aggregates))
+    { }
+
+    std::vector<Key> _keys;
+    std::vector<Aggregate> _aggregates;
+
+    /// \returns The type of the aggregate of an input type, or false if it is not computed here (as runAggregation types it)
+    static bool aggregateType(Function function, Sql::SqlType input, Sql::SqlType & result);
+
+    void accept(OperatorVisitor & visitor) override;
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
+};
+
+//-----------------------------------------------------------------------------
+// Fixpoint operator
+
+/// WITH RECURSIVE ... UNION ALL: the rows of the initial query (left), then the rows of the step (right) over
+/// the rows the last step added (its scan of the working table), until a step adds none; the outputs are the
+/// columns of the common table expression, in the order of the queries' columns
+class Fixpoint : public BinaryOperator {
+public:
+    Fixpoint(std::unique_ptr<Operator> initial, std::unique_ptr<Operator> step, std::vector<iu_p_t> initialColumns,
+             std::vector<iu_p_t> stepColumns, std::vector<iu_p_t> outputs, Table & workingTable) :
+            BinaryOperator(std::move(initial), std::move(step)),
+            _initialColumns(std::move(initialColumns)),
+            _stepColumns(std::move(stepColumns)),
+            _outputs(std::move(outputs)),
+            _workingTable(workingTable)
+    { }
+
+    std::vector<iu_p_t> _initialColumns;
+    std::vector<iu_p_t> _stepColumns;
+    std::vector<iu_p_t> _outputs;
+    Table & _workingTable; // whose scans in the step read the working table
+
+    void accept(OperatorVisitor & visitor) override;
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
 };
 
 //-----------------------------------------------------------------------------

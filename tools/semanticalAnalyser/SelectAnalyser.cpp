@@ -6,16 +6,102 @@
 
 namespace semanticalAnalysis {
 
+    /// Plans the subqueries of FROM (into context.derivedTables), with the names of their columns
+    static void analyseSubqueries(AnalyzingContext & context, SelectStatement & stmt) {
+        for (auto & relation : stmt.relations) {
+            if (!relation.subquery || context.derivedTables.count(relation.name) > 0) continue;
+            auto nested = std::make_unique<AnalyzingContext>(context.db);
+            nested->parserResult.opType = SQLParserResult::OpType::Select;
+            nested->parserResult.selectStmt = new SelectStatement(*relation.subquery);
+            SelectStatement & sub = *nested->parserResult.selectStmt;
+            SelectAnalyser analyser(*nested);
+            try {
+                analyser.verify();
+                analyser.constructTree();
+            } catch (const general_aggregation_required &) {
+                throw derived_table_required();
+            }
+            auto * root = dynamic_cast<Result *>(nested->joinedTree.get());
+            if (root == nullptr) throw derived_table_required();
+            AnalyzingContext::DerivedTable derived;
+            derived.ius = root->selection;
+            // the names: aliases, names of columns and aggregates, else of the columns the IUs read
+            for (size_t c = 0; c < derived.ius.size(); ++c) {
+                std::string name = "?column?";
+                if (sub.projections.size() == derived.ius.size()) {
+                    auto & projection = sub.projections[c];
+                    name = !projection.alias.empty() ? projection.alias : projection.aggregate.empty() ? projection.name : projection.aggregate;
+                } else if (derived.ius[c]->iuType == InformationUnit::Type::ColumnRef) {
+                    name = derived.ius[c]->columnInformation->columnName;
+                }
+                derived.names.push_back(name);
+            }
+            if (relation.subqueryColumns.size() > derived.names.size()) {
+                throw semantic_sql_error("a subquery in FROM has " + std::to_string(derived.names.size()) + " columns available but " +
+                                         std::to_string(relation.subqueryColumns.size()) + " columns specified");
+            }
+            for (size_t c = 0; c < relation.subqueryColumns.size(); ++c) derived.names[c] = relation.subqueryColumns[c];
+            std::set<std::string> unique;
+            for (auto & name : derived.names) {
+                if (!unique.insert(name).second) throw semantic_sql_error("column name \"" + name + "\" appears more than once in a subquery in FROM");
+            }
+            derived.tree = root->takeChild();
+            context.branchIds.insert(nested->branchIds.begin(), nested->branchIds.end());
+            context.derivedTables.emplace(relation.name, std::move(derived));
+            context.nested.push_back(std::move(nested));
+        }
+    }
+
+    /// \returns The names of the columns of a relation in its branch (of a subquery: of its select list)
+    static std::vector<std::string> relationColumns(AnalyzingContext & context, const Relation & relation) {
+        auto derived = context.derivedTables.find(relation.name);
+        if (derived != context.derivedTables.end()) return derived->second.names;
+        return context.db.getTable(relation.name)->getColumnNames(context.db._branchMapping.at(relation.version));
+    }
+
+    /// Puts the columns of the relations, in their order, in place of a * among other items of the select list
+    static void expandStars(AnalyzingContext & context, SelectStatement & stmt) {
+        Database & db = context.db;
+        // SELECT * of subqueries: their columns under their names
+        if (stmt.projections.empty() && std::any_of(stmt.relations.begin(), stmt.relations.end(), [](const Relation & r) { return r.subquery != nullptr; })) {
+            stmt.projections.push_back(Column());
+            stmt.projections.back().name = "*";
+        }
+        std::vector<Column> projections;
+        for (auto & column : stmt.projections) {
+            if (column.name != "*" || !column.aggregate.empty() || column.expression) {
+                projections.push_back(std::move(column));
+                continue;
+            }
+            for (auto & relation : stmt.relations) {
+                if (relation.name == sqlExpressions::oneRowTable) throw semantic_sql_error("SELECT * with no tables specified is not valid");
+                if (!relation.subquery) {
+                    if (!db.hasTable(relation.name)) throw semantic_sql_error("table '" + relation.name + "' does not exist");
+                    if (db._branchMapping.find(relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + relation.version + "' does not exist");
+                }
+                for (auto & name : relationColumns(context, relation)) {
+                    Column expanded;
+                    expanded.name = name;
+                    expanded.table = relation.alias.empty() ? relation.name : relation.alias;
+                    projections.push_back(std::move(expanded));
+                }
+            }
+        }
+        stmt.projections = std::move(projections);
+    }
+
     void SelectAnalyser::verify() {
         Database &db = _context.db;
         SelectStatement* stmt = _context.parserResult.selectStmt;
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
+        analyseSubqueries(_context, *stmt);
+        expandStars(_context, *stmt);
         if (isDiffQuery(stmt)) {
             verifyDiffQuery();
             return;
         }
-        if (needsGeneralAggregation(stmt)) throw general_aggregation_required();
-        if (isBranchQuery(stmt)) {
+        _aggregation = needsGeneralAggregation(stmt);
+        if (!_aggregation && isBranchQuery(stmt)) {
             verifyBranchQuery();
             return;
         }
@@ -25,15 +111,16 @@ namespace semanticalAnalysis {
         std::unordered_map<std::string,size_t> unbindedColumns;
         std::unordered_map<std::string,std::vector<std::string>> bindedColumns;
         for (auto &relation : stmt->relations) {
-            if (!db.hasTable(relation.name)) throw semantic_sql_error("table '" + relation.name + "' does not exist");
-            if (db._branchMapping.find(relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + relation.version + "' does not exist");
+            if (!relation.subquery) {
+                if (!db.hasTable(relation.name)) throw semantic_sql_error("table '" + relation.name + "' does not exist");
+                if (db._branchMapping.find(relation.version) == db._branchMapping.end()) throw semantic_sql_error("version '" + relation.version + "' does not exist");
+            }
             const std::string &binding = relation.alias.empty() ? relation.name : relation.alias;
             if (bindedColumns.find(binding) != bindedColumns.end()) {
                 if (relation.alias.empty()) throw semantic_sql_error("relation '" + relation.name + "' is already specified - use bindings!");
                 throw semantic_sql_error("binding '" + relation.alias + "' is already specified - use bindings!");
             }
-            Table *table = db.getTable(relation.name);
-            std::vector<std::string> columnNames = table->getColumnNames(db._branchMapping.at(relation.version));
+            std::vector<std::string> columnNames = relationColumns(_context, relation);
             for (auto &name : columnNames) ++unbindedColumns[name];
             bindedColumns[binding] = std::move(columnNames);
         }
@@ -56,6 +143,7 @@ namespace semanticalAnalysis {
         for (auto &column : stmt->selections) checkColumn(column.first);
         for (auto &column : stmt->projections) {
             if (column.expression) continue; // its columns are checked when it is analysed
+            if (column.aggregate == "count" && column.name == "*") continue;
             checkColumn(column);
         }
         for (auto &column : stmt->joinConditions) {
@@ -77,7 +165,7 @@ namespace semanticalAnalysis {
             constructDiffQuery();
             return;
         }
-        if (isBranchQuery(stmt)) {
+        if (!_aggregation && isBranchQuery(stmt)) {
             constructBranchQuery();
             return;
         }
@@ -90,6 +178,10 @@ namespace semanticalAnalysis {
             _context.joinedTree = std::make_unique<Select>(std::move(_context.joinedTree), std::move(exp));
         }
         _context.joinedPredicates.clear();
+        if (_aggregation) {
+            constructAggregation(stmt);
+            return;
+        }
 
         auto & db = _context.db;
 
@@ -101,6 +193,11 @@ namespace semanticalAnalysis {
             for (auto &column : stmt->projections) {
                 if (!column.expression) { computedIUs.push_back(nullptr); continue; }
                 Expressions::exp_op_t exp = analyser.analyse(*column.expression);
+                if (exp->getType().typeID == Sql::SqlType::TypeID::UnknownID) {
+                    // a NULL of the select list is text, as in PostgreSQL
+                    const Sql::SqlType text = Sql::getTextTy(true);
+                    exp = analyser.analyse(*column.expression, &text);
+                }
                 if (exp->getType().typeID == Sql::SqlType::TypeID::UnknownID) throw semantic_sql_error("the type of '" + column.name + "' is unknown (a NULL without a type)");
                 iu_p_t iu = _context.iuFactory.createIU(exp->getType());
                 computedIUs.push_back(iu);
@@ -126,7 +223,7 @@ namespace semanticalAnalysis {
             for (auto &relation : stmt->relations) {
                 std::string &productionName = relation.alias.empty() ? relation.name : relation.alias;
                 auto &ius = _context.ius[productionName];
-                for (auto &name : db.getTable(relation.name)->getColumnNames(db._branchMapping.at(relation.version))) {
+                for (auto &name : relationColumns(_context, relation)) {
                     auto it = ius.find(name);
                     if (it != ius.end()) projectedIUs.push_back(it->second);
                 }
@@ -143,6 +240,120 @@ namespace semanticalAnalysis {
         }
         for (auto & child : n.children) if (containsAggregate(child)) return true;
         return false;
+    }
+
+    void SelectAnalyser::constructAggregation(SelectStatement *stmt) {
+        using sqlExpressions::Node;
+        using Function = Aggregation::Function;
+        if (stmt->projections.empty()) throw semantic_sql_error("SELECT * cannot be used with aggregates or GROUP BY");
+        ColumnResolver resolve = columnResolver(_context);
+        ExpressionAnalyser inputs(resolve);
+        auto column = [](const std::string & name, const std::string & table = std::string()) {
+            Node n;
+            n.kind = Node::Kind::Column;
+            n.name = name;
+            n.table = table;
+            return n;
+        };
+
+        // the keys
+        std::vector<Aggregation::Key> keys;
+        for (auto & key : stmt->groupBy) {
+            iu_p_t iu = resolve(key.table, key.name);
+            if (iu == nullptr) throw semantic_sql_error("column '" + key.name + "' is not specified");
+            keys.push_back({iu, _context.iuFactory.createIU(iu->sqlType)});
+        }
+        auto group = [&](const std::string & table, const std::string & name) {
+            for (size_t j = 0; j < stmt->groupBy.size(); ++j) {
+                auto & key = stmt->groupBy[j];
+                if (key.name == name && (key.table == table || key.table.empty() || table.empty())) return j;
+            }
+            throw semantic_sql_error("column \"" + (table.empty() ? name : table + "." + name) +
+                                     "\" must appear in the GROUP BY clause or be used in an aggregate function");
+        };
+
+        // the aggregates, of columns or of expressions computed below them
+        std::vector<Aggregation::Aggregate> aggregates;
+        std::vector<Mapping> arguments;
+        auto aggregate = [&](const std::string & name, bool star, const Node * argument) {
+            const Function function = name == "count" ? (star ? Function::CountAll : Function::Count) : name == "sum" ? Function::Sum :
+                                      name == "avg" ? Function::Avg : name == "min" ? Function::Min : Function::Max;
+            iu_p_t input = nullptr;
+            if (!star) {
+                if (containsAggregate(*argument)) throw semantic_sql_error("aggregate function calls cannot be nested");
+                if (argument->kind == Node::Kind::Column) {
+                    input = resolve(argument->table, argument->name);
+                    if (input == nullptr) throw semantic_sql_error("column '" + argument->name + "' is not specified");
+                } else {
+                    Expressions::exp_op_t e = inputs.analyse(*argument);
+                    if (e->getType().typeID == Sql::SqlType::TypeID::UnknownID) throw general_aggregation_required();
+                    input = _context.iuFactory.createIU(e->getType());
+                    arguments.push_back({input, std::move(e)});
+                }
+            }
+            Sql::SqlType result;
+            if (!Aggregation::aggregateType(function, star ? Sql::getIntegerTy() : Sql::toNotNullableTy(input->sqlType), result)) {
+                throw general_aggregation_required();
+            }
+            aggregates.push_back({function, input, _context.iuFactory.createIU(result)});
+            return aggregates.size() - 1;
+        };
+        // an expression over the groups: aggregates and keys as columns \x01a<k> and \x01g<j>
+        std::function<Node(const Node &)> rewrite = [&](const Node & n) -> Node {
+            if (n.kind == Node::Kind::Function && (n.name == "count" || n.name == "sum" || n.name == "avg" || n.name == "min" || n.name == "max")) {
+                const bool star = n.name == "count" && n.value == "*" && n.children.empty();
+                if (!star && n.children.size() != 1) throw semantic_sql_error("the aggregate " + n.name + " takes one argument");
+                return column("\x01" "a" + std::to_string(aggregate(n.name, star, star ? nullptr : &n.children[0])));
+            }
+            if (n.kind == Node::Kind::Column) return column("\x01" "g" + std::to_string(group(n.table, n.name)));
+            Node copy = n;
+            for (auto & child : copy.children) child = rewrite(child);
+            return copy;
+        };
+        std::vector<Node> outputs;
+        for (auto & projection : stmt->projections) {
+            if (!projection.aggregate.empty()) {
+                const bool star = projection.name == "*";
+                const Node argument = column(projection.name, projection.table);
+                outputs.push_back(column("\x01" "a" + std::to_string(aggregate(projection.aggregate, star, star ? nullptr : &argument))));
+            } else if (projection.expression) {
+                outputs.push_back(rewrite(*projection.expression));
+            } else if (projection.name == "*") {
+                throw semantic_sql_error("SELECT * cannot be used with aggregates or GROUP BY");
+            } else {
+                outputs.push_back(column("\x01" "g" + std::to_string(group(projection.table, projection.name))));
+            }
+        }
+        std::unique_ptr<Node> having;
+        if (stmt->having) having = std::make_unique<Node>(rewrite(*stmt->having));
+
+        // the arguments, the groups, HAVING and the select list over them
+        if (!arguments.empty()) _context.joinedTree = std::make_unique<Map>(std::move(_context.joinedTree), std::move(arguments));
+        _context.joinedTree = std::make_unique<Aggregation>(std::move(_context.joinedTree), keys, aggregates);
+        ExpressionAnalyser groups([&](const std::string &, const std::string & name) -> iu_p_t {
+            if (name.size() < 3 || name[0] != '\x01') return nullptr;
+            const size_t index = std::stoul(name.substr(2));
+            return name[1] == 'a' ? aggregates.at(index).output : keys.at(index).output;
+        });
+        if (having) _context.joinedTree = std::make_unique<Select>(std::move(_context.joinedTree), groups.analyseCondition(*having));
+        std::vector<Mapping> mappings;
+        std::vector<iu_p_t> projected;
+        for (auto & output : outputs) {
+            Expressions::exp_op_t e = groups.analyse(output);
+            if (auto * identifier = dynamic_cast<Expressions::Identifier *>(e.get())) {
+                projected.push_back(identifier->_iu);
+                continue;
+            }
+            if (e->getType().typeID == Sql::SqlType::TypeID::UnknownID) {
+                const Sql::SqlType text = Sql::getTextTy(true);
+                e = groups.analyse(output, &text);
+            }
+            iu_p_t iu = _context.iuFactory.createIU(e->getType());
+            projected.push_back(iu);
+            mappings.push_back({iu, std::move(e)});
+        }
+        if (!mappings.empty()) _context.joinedTree = std::make_unique<Map>(std::move(_context.joinedTree), std::move(mappings));
+        _context.joinedTree = std::make_unique<Result>(std::move(_context.joinedTree), projected);
     }
 
     bool SelectAnalyser::needsGeneralAggregation(SelectStatement *stmt) {
@@ -177,6 +388,7 @@ namespace semanticalAnalysis {
         if (groupByColumns || expressions || stmt->relations.size() != 1 || !stmt->joinConditions.empty()) return true;
         // aggregates of a column: BranchAggregation computes numbers (and counts)
         Relation &relation = stmt->relations.front();
+        if (relation.subquery) return true;
         Table *table = _context.db.getTable(relation.name);
         auto branch = _context.db._branchMapping.find(relation.version);
         if (table == nullptr || branch == _context.db._branchMapping.end()) return false; // the errors of the branch query

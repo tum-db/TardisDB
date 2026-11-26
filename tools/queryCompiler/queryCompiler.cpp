@@ -76,16 +76,23 @@ namespace QueryCompiler {
                 throw TransactionError("25001", tag + " of branch " + relation.version + " cannot run inside a transaction of branch " + transaction.branch);
             }
         };
+        std::function<void(semanticalAnalysis::SelectStatement &)> select = [&](semanticalAnalysis::SelectStatement & stmt) {
+            for (auto & relation : stmt.relations) {
+                if (relation.subquery) {
+                    select(*relation.subquery);
+                    continue;
+                }
+                // the temporary tables of the statement (WITH, SELECT without FROM) are read in master
+                if (relation.name == sqlExpressions::oneRowTable || TemporaryTables::find(db, relation.name) != nullptr) continue;
+                if (relation.versionScope.empty() || relation.versionScope == "set" || relation.versionScope == "diff") {
+                    redirect(relation.version);
+                    for (auto & version : relation.versionSet) redirect(version);
+                }
+            }
+        };
         switch (statement.opType) {
             case OpType::Select:
-                for (auto & relation : statement.selectStmt->relations) {
-                    // the temporary tables of the statement (WITH, SELECT without FROM) are read in master
-                    if (relation.name == sqlExpressions::oneRowTable || TemporaryTables::find(db, relation.name) != nullptr) continue;
-                    if (relation.versionScope.empty() || relation.versionScope == "set" || relation.versionScope == "diff") {
-                        redirect(relation.version);
-                        for (auto & version : relation.versionSet) redirect(version);
-                    }
-                }
+                select(*statement.selectStmt);
                 break;
             case OpType::Insert: write(statement.insertStmt->relation, "INSERT"); break;
             case OpType::Update: write(statement.updateStmt->relation, "UPDATE"); break;
@@ -455,6 +462,7 @@ namespace QueryCompiler {
             return quoted ? "'" + c->_value + "'" : c->_value;
         }
         if (dynamic_cast<const LE::NullConstant *>(&e)) return "NULL";
+        if (dynamic_cast<const LE::Random *>(&e)) return "random()";
         if (auto * f = dynamic_cast<const LE::ArrayFunction *>(&e)) {
             std::string out = arrayFunctionName(f->_function) + "(";
             for (size_t i = 0; i < f->_arguments.size(); ++i) out += (i ? ", " : "") + expression(*f->_arguments[i]);
@@ -498,6 +506,21 @@ namespace QueryCompiler {
             std::string condition;
             for (auto & e : dynamic_cast<const L::Join &>(logical)._joinExprVec) condition += (condition.empty() ? "" : " AND ") + expression(*e);
             if (!condition.empty()) field(merge ? "Merge Cond" : "Join Cond", quote(condition));
+        } else if (dynamic_cast<P::Fixpoint *>(&op)) {
+            type("Recursive Union");
+        } else if (dynamic_cast<P::WorkingTableScan *>(&op)) {
+            type("WorkTable Scan");
+        } else if (dynamic_cast<P::Aggregation *>(&op)) {
+            auto & aggregation = dynamic_cast<const L::Aggregation &>(logical);
+            type(aggregation._keys.empty() ? "Aggregate" : "HashAggregate");
+            std::vector<std::string> keys, aggregates;
+            for (auto & key : aggregation._keys) keys.push_back(iuName(key.input));
+            static const char * functions[] = {"count", "count", "sum", "avg", "min", "max"};
+            for (auto & a : aggregation._aggregates) {
+                aggregates.push_back(std::string(functions[static_cast<int>(a.function)]) + "(" + (a.input ? iuName(a.input) : "*") + ")");
+            }
+            if (!keys.empty()) field("Group Key", list(keys));
+            field("Aggregates", list(aggregates));
         } else if (dynamic_cast<P::GroupBy *>(&op)) {
             type("Aggregate");
             std::vector<std::string> aggregates;
@@ -846,6 +869,7 @@ namespace QueryCompiler {
     }
 
     namespace tablefunctions { static bool mentioned(const std::string & lower); }
+    namespace derived { static bool present(const std::string & sql); }
 
     static void compileAndExecuteStatement(const std::string &query, Database &db, void *callbackFunction) {
         {
@@ -855,6 +879,9 @@ namespace QueryCompiler {
             size_t first = lower.find_first_not_of(" \t\r\n");
             if (first != std::string::npos && (lower.compare(first, 4, "with") == 0 || lower.compare(first, 6, "values") == 0 ||
                 (lower.compare(first, 6, "select") == 0 && tablefunctions::mentioned(lower)) ||
+                (lower.compare(first, 6, "select") == 0 && (lower.find("limit") != std::string::npos || lower.find("offset") != std::string::npos)) ||
+                (lower.compare(first, 6, "insert") == 0 && (lower.find("select") != std::string::npos || lower.find("with") != std::string::npos)) ||
+                (lower.compare(first, 6, "select") == 0 && derived::present(query)) ||
                 lower.compare(first, 1, "(") == 0 || (lower.compare(first, 6, "select") == 0 &&
                 (lower.find("union") != std::string::npos || lower.find("intersect") != std::string::npos || lower.find("order") != std::string::npos ||
                  lower.find("except") != std::string::npos || lower.find(" from ") == std::string::npos)))) {
@@ -956,12 +983,14 @@ namespace QueryCompiler {
     }
 
     /// \returns Whether the statement reads the row of a SELECT without FROM
-    static bool readsOneRow(const semanticalAnalysis::SQLParserResult & statement) {
-        if (statement.opType != semanticalAnalysis::SQLParserResult::OpType::Select) return false;
-        auto & relations = statement.selectStmt->relations;
-        return std::any_of(relations.begin(), relations.end(), [](const semanticalAnalysis::Relation & r) {
-            return r.name == sqlExpressions::oneRowTable;
+    static bool readsOneRow(const semanticalAnalysis::SelectStatement & select) {
+        return std::any_of(select.relations.begin(), select.relations.end(), [](const semanticalAnalysis::Relation & r) {
+            return r.name == sqlExpressions::oneRowTable || (r.subquery && readsOneRow(*r.subquery));
         });
+    }
+
+    static bool readsOneRow(const semanticalAnalysis::SQLParserResult & statement) {
+        return statement.opType == semanticalAnalysis::SQLParserResult::OpType::Select && readsOneRow(*statement.selectStmt);
     }
 
     /// Provides the row of a SELECT without FROM, a temporary table, once per statement
@@ -1332,7 +1361,7 @@ namespace QueryCompiler {
     /// \returns The values of a result tuple in \p types (they own their strings, while the tuple's values
     /// may point into memory of its query), and in \p key the text that tells duplicates apart
     static std::vector<Native::Sql::value_op_t> convertRow(const Native::Sql::SqlTuple & tuple, const std::vector<Sql::SqlType> & types,
-                                                           std::string & key) {
+                                                           std::string & key, bool keyed = true) {
         if (tuple.values.size() != types.size()) {
             throw semanticalAnalysis::semantic_sql_error("each query of a set operation has the same number of columns");
         }
@@ -1345,7 +1374,22 @@ namespace QueryCompiler {
                 key += 'N';
                 continue;
             }
-            const std::string text = Native::Sql::toString(Native::Sql::getAssociatedValue(value));
+            // a number, date, timestamp or bool of the column's representation as it is; strings and arrays may point into the query
+            const Native::Sql::Value & plain = Native::Sql::getAssociatedValue(value);
+            using ID = Sql::SqlType::TypeID;
+            const ID id = plain.type.typeID;
+            if (id == types[i].typeID && (id == ID::IntegerID || id == ID::LongIntegerID || id == ID::DoubleID || id == ID::DateID ||
+                id == ID::TimestampID || id == ID::BoolID || (id == ID::NumericID && plain.type.numericLayout.precision == types[i].numericLayout.precision))) {
+                values.push_back(Native::Sql::toColumnValue(plain.clone(), types[i]));
+                if (!keyed) continue;
+                const std::string converted = Native::Sql::toString(plain);
+                key += 'V';
+                key += std::to_string(converted.size());
+                key += ':';
+                key += converted;
+                continue;
+            }
+            const std::string text = Native::Sql::toString(plain);
             try {
                 values.push_back(Native::Sql::castColumnValue(text, types[i]));
             } catch (...) {
@@ -1666,16 +1710,20 @@ namespace QueryCompiler {
             context.analyzingContext.parserResult.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
             context.analyzingContext.parserResult.selectStmt = rows.release();
             runSelect(context, "aggregate rows", db, branch, transaction, temporaries, [&](Native::Sql::SqlTuple * tuple) {
+                // the key in the encoding of the indexes (equal values, as -0 and 0, have one); the text only of a new group
                 std::string key;
-                std::vector<std::string> values;
                 for (size_t j = 0; j < plan.groups.size(); ++j) {
-                    const Native::Sql::Value & v = *tuple->values[j];
-                    const bool null = Native::Sql::isNullable(v) && static_cast<const Native::Sql::NullableValue &>(v).isNull();
-                    values.push_back(null ? nullLiteral : Native::Sql::toString(Native::Sql::getAssociatedValue(v)));
-                    key += null ? std::string("N") : "V" + std::to_string(values.back().size()) + ":" + values.back();
+                    const std::string k = BranchIndex::key(*tuple->values[j]);
+                    key += std::to_string(k.size()) + ":" + k;
                 }
                 auto it = index.find(key);
                 if (it == index.end()) {
+                    std::vector<std::string> values;
+                    for (size_t j = 0; j < plan.groups.size(); ++j) {
+                        const Native::Sql::Value & v = *tuple->values[j];
+                        const bool null = Native::Sql::isNullable(v) && static_cast<const Native::Sql::NullableValue &>(v).isNull();
+                        values.push_back(null ? nullLiteral : Native::Sql::toString(Native::Sql::getAssociatedValue(v)));
+                    }
                     it = index.emplace(key, groups.size()).first;
                     groups.push_back({std::move(values), std::vector<Accumulator>(plan.aggregates.size())});
                 }
@@ -1765,9 +1813,13 @@ namespace QueryCompiler {
             moduleGen.reset(); // the queries of the aggregation generate their own modules
             return runAggregation(*parserResult.selectStmt, db, branch, transaction, temporaries, sink, described, describeOnly);
         }
-        {
+        try {
             timing::Phase phase(timing::current.analysis);
             analyser->constructTree();
+        } catch (const semanticalAnalysis::general_aggregation_required &) {
+            // aggregates the plan does not compute
+            moduleGen.reset();
+            return runAggregation(*parserResult.selectStmt, db, branch, transaction, temporaries, sink, described, describeOnly);
         }
         auto & queryTree = queryContext.analyzingContext.joinedTree;
         auto * root = (queryTree != nullptr) ? dynamic_cast<Algebra::Logical::Result *>(queryTree->getRoot()) : nullptr;
@@ -1802,39 +1854,335 @@ namespace QueryCompiler {
         return result;
     }
 
+    /// Subqueries in FROM (derived tables): each runs before the query that reads it, into a temporary table
+    namespace derived {
+
+    using with::Lexeme;
+
+    struct Subquery {
+        std::string text;                 // the SELECT
+        std::string table;                // the temporary table
+        std::vector<std::string> columns; // the names of the columns, if given
+    };
+
+    static const std::string prefix = "tardisdb_derived_";
+
+    /// \returns The query with each subquery of its FROM (outside other parentheses) replaced by a temporary table, listed in \p subqueries
+    static std::string rewrite(const std::string & sql, std::vector<Subquery> & subqueries) {
+        static std::atomic<uint64_t> counter{0};
+        if (sql.find('(') == std::string::npos) return sql;
+        const std::vector<Lexeme> lexemes = with::lex(sql);
+        const size_t n = lexemes.size();
+        auto clauseEnd = [&](size_t i) {
+            return lexemes[i].kind == Lexeme::Semicolon || with::isWord(lexemes, i, "where") || with::isWord(lexemes, i, "group") ||
+                   with::isWord(lexemes, i, "having") || with::isWord(lexemes, i, "order") || with::isWord(lexemes, i, "limit") ||
+                   with::isWord(lexemes, i, "offset") || with::isSetOperator(lexemes[i]) || with::isWord(lexemes, i, "window");
+        };
+        std::string out;
+        size_t at = 0, depth = 0;
+        bool from = false; // in the FROM clause of the query
+        for (size_t i = 0; i < n; ++i) {
+            if (lexemes[i].kind == Lexeme::Close) { if (depth > 0) --depth; continue; }
+            if (lexemes[i].kind != Lexeme::Open) {
+                if (depth == 0 && with::isWord(lexemes, i, "from")) from = true;
+                else if (depth == 0 && clauseEnd(i)) from = false;
+                continue;
+            }
+            const bool item = depth == 0 && from && i > 0 && (with::isWord(lexemes, i - 1, "from") || with::isWord(lexemes, i - 1, "join") ||
+                                                              lexemes[i - 1].kind == Lexeme::Comma || with::isWord(lexemes, i - 1, "lateral"));
+            if (!item || !(with::isWord(lexemes, i + 1, "select") || with::isWord(lexemes, i + 1, "with") || with::isWord(lexemes, i + 1, "values"))) {
+                ++depth;
+                continue;
+            }
+            const size_t close = with::matching(lexemes, i, n);
+            if (!with::isWord(lexemes, i + 1, "select")) throw semanticalAnalysis::semantic_sql_error("a subquery in FROM is a SELECT (WITH, VALUES and set operations not yet)");
+            Subquery subquery;
+            subquery.text = sql.substr(lexemes[i + 1].begin, lexemes[close - 1].end - lexemes[i + 1].begin);
+            subquery.table = prefix + std::to_string(++counter);
+            // [AS] alias [( column, ... )]
+            size_t k = close + 1;
+            std::string alias;
+            const bool as = with::isWord(lexemes, k, "as");
+            if (as) ++k;
+            if (k < n && (lexemes[k].kind == Lexeme::Quoted || (lexemes[k].kind == Lexeme::Word && !clauseEnd(k) &&
+                    !with::isWord(lexemes, k, "join") && !with::isWord(lexemes, k, "inner") && !with::isWord(lexemes, k, "left") &&
+                    !with::isWord(lexemes, k, "right") && !with::isWord(lexemes, k, "full") && !with::isWord(lexemes, k, "cross") &&
+                    !with::isWord(lexemes, k, "natural") && !with::isWord(lexemes, k, "on") && !with::isWord(lexemes, k, "using")))) {
+                alias = sql.substr(lexemes[k].begin, lexemes[k].end - lexemes[k].begin);
+                ++k;
+                if (k < n && lexemes[k].kind == Lexeme::Open) {
+                    const size_t end = with::matching(lexemes, k, n);
+                    subquery.columns = with::splitItems(sql, lexemes, k + 1, end);
+                    k = end + 1;
+                }
+            } else if (as) {
+                throw with::syntaxError("Expected an alias of the subquery after AS");
+            }
+            out += sql.substr(at, lexemes[i].begin - at) + subquery.table + (alias.empty() ? "" : " " + alias);
+            at = lexemes[k - 1].end;
+            subqueries.push_back(std::move(subquery));
+            i = k - 1;
+        }
+        if (subqueries.empty()) return sql;
+        return out + sql.substr(at);
+    }
+
+    /// \returns Whether the query has a subquery in FROM
+    static bool present(const std::string & sql) {
+        std::vector<Subquery> subqueries;
+        try {
+            rewrite(sql, subqueries);
+        } catch (const std::exception &) {
+            return true; // its error comes with the query
+        }
+        return !subqueries.empty();
+    }
+
+    } // end namespace derived
+
+    /// Makes each subquery of FROM (of the rewritten statement) the subquery of its relation, parsed, also its own subqueries
+    static void attachSubqueries(semanticalAnalysis::SelectStatement & select, const std::vector<derived::Subquery> & subqueries,
+                                 const std::string & defaultBranch) {
+        for (auto & relation : select.relations) {
+            for (auto & subquery : subqueries) {
+                if (subquery.table != relation.name) continue;
+                std::vector<derived::Subquery> inner;
+                const std::string rewritten = derived::rewrite(subquery.text, inner);
+                tardisParser::ParsingContext parsing;
+                parsing.defaultBranch = defaultBranch;
+                tardisParser::SQLParser::parseStatement(parsing, rewritten + ";");
+                semanticalAnalysis::SQLParserResult result;
+                QueryContext::convertToParserResult(result, parsing);
+                if (result.opType != semanticalAnalysis::SQLParserResult::OpType::Select) {
+                    throw semanticalAnalysis::semantic_sql_error("a subquery in FROM is a SELECT");
+                }
+                relation.subquery.reset(result.selectStmt);
+                result.selectStmt = nullptr;
+                attachSubqueries(*relation.subquery, inner, defaultBranch);
+                relation.subqueryColumns = subquery.columns;
+            }
+        }
+    }
+
+    /// Parses a query into the context; its subqueries in FROM become parts of its statement
+    static void parseQuery(const std::string & text, QueryContext & context) {
+        std::vector<derived::Subquery> subqueries;
+        const std::string rewritten = derived::rewrite(text, subqueries);
+        const std::string defaultBranch = context.parsingContext.defaultBranch;
+        {
+            timing::Phase phase(timing::current.parsing);
+            tardisParser::SQLParser::parseStatement(context.parsingContext, rewritten + ";");
+        }
+        QueryContext::convertToParserResult(context.analyzingContext.parserResult, context.parsingContext);
+        auto & result = context.analyzingContext.parserResult;
+        if (result.opType == semanticalAnalysis::SQLParserResult::OpType::Select && !subqueries.empty()) {
+            timing::Phase phase(timing::current.parsing);
+            attachSubqueries(*result.selectStmt, subqueries, defaultBranch);
+        }
+    }
+
+    /// The relations of temporary tables (also in subqueries) are read in master. \returns The references to \p name, or
+    /// SIZE_MAX if a temporary table is read in a version
+    static size_t prepareRelations(semanticalAnalysis::SelectStatement & select, Database & db, const std::string & defaultBranch,
+                                   const std::string & name) {
+        size_t references = 0;
+        for (auto & relation : select.relations) {
+            if (relation.subquery) {
+                const size_t inner = prepareRelations(*relation.subquery, db, defaultBranch, name);
+                if (inner == SIZE_MAX) return SIZE_MAX;
+                references += inner;
+                continue;
+            }
+            if (!name.empty() && relation.name == name) ++references;
+            if (relation.name == sqlExpressions::oneRowTable || TemporaryTables::find(db, relation.name) == nullptr) continue;
+            if (!relation.versionScope.empty() || relation.version != defaultBranch) return SIZE_MAX;
+            relation.version = "master";
+        }
+        return references;
+    }
+
     /// Runs a query of a WITH statement or of a UNION under the latches of the statement: relations named
     /// as temporary tables (the common table expressions) are read in the master branch
     static StatementResult runQuery(const std::string & text, Database & db, const std::string & branch, const Transaction * transaction,
                                     TemporaryTables & temporaries,
                                     const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                     const std::function<void(const StatementResult &)> & described,
-                                    const std::string & recursiveName = std::string(), bool describeOnly = false) {
+                                    const std::string & recursiveName = std::string(), bool describeOnly = false, bool materialize = false) {
+        if (materialize) {
+            // the subqueries of FROM first, into temporary tables that the query reads
+            std::vector<derived::Subquery> subqueries;
+            const std::string rewritten = derived::rewrite(text, subqueries);
+            if (!subqueries.empty()) {
+                using semanticalAnalysis::semantic_sql_error;
+                TemporaryTables local(db); // the tables visible now stay visible
+                QueryContext insertContext(db);
+                insertContext.executionContext.branchId = master_branch_id;
+                for (auto & subquery : subqueries) {
+                    std::vector<std::string> names;
+                    std::vector<Sql::SqlType> types;
+                    std::vector<with::Row> rows;
+                    runQuery(subquery.text, db, branch, transaction, local, [&](Native::Sql::SqlTuple * tuple) {
+                        with::Row row;
+                        row.values = with::convertRow(*tuple, types, row.key);
+                        rows.push_back(std::move(row));
+                    }, [&](const StatementResult & d) {
+                        names = d.columnNames;
+                        types.clear();
+                        for (auto & type : d.columnTypes) {
+                            types.push_back(type.typeID == Sql::SqlType::TypeID::UnknownID ? Sql::getTextTy(true) : with::columnType(type));
+                        }
+                    }, recursiveName, describeOnly);
+                    if (subquery.columns.size() > names.size()) {
+                        throw semantic_sql_error("a subquery in FROM has " + std::to_string(names.size()) + " columns available but " +
+                                                 std::to_string(subquery.columns.size()) + " columns specified");
+                    }
+                    for (size_t c = 0; c < subquery.columns.size(); ++c) names[c] = subquery.columns[c];
+                    std::vector<std::pair<std::string, Sql::SqlType>> columns;
+                    std::set<std::string> unique;
+                    for (size_t c = 0; c < types.size(); ++c) {
+                        if (!unique.insert(names[c]).second) throw semantic_sql_error("column name \"" + names[c] + "\" appears more than once in a subquery in FROM");
+                        columns.emplace_back(names[c], types[c]);
+                    }
+                    Table * table;
+                    {
+                        ModuleGen moduleGen("TemporaryTable"); // the sizes of the columns take the data layout
+                        table = &local.create(columns);
+                    }
+                    for (auto & row : rows) {
+                        Native::Sql::SqlTuple tuple(std::move(row.values));
+                        insert_tuple(tuple, *table, insertContext);
+                    }
+                    local.bind(subquery.table, table);
+                }
+                return runQuery(rewritten, db, branch, transaction, local, sink, described, recursiveName, describeOnly);
+            }
+        }
         QueryContext queryContext(db);
         const std::string defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
         queryContext.parsingContext.defaultBranch = defaultBranch;
-        {
-            timing::Phase phase(timing::current.parsing);
-            tardisParser::SQLParser::parseStatement(queryContext.parsingContext, text + ";");
-        }
-        QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
+        parseQuery(text, queryContext);
         auto & parserResult = queryContext.analyzingContext.parserResult;
         if (parserResult.opType != semanticalAnalysis::SQLParserResult::OpType::Select) {
             throw semanticalAnalysis::semantic_sql_error("WITH, UNION and VALUES combine queries");
         }
-        size_t recursiveReferences = 0;
-        for (auto & relation : parserResult.selectStmt->relations) {
-            if (!recursiveName.empty() && relation.name == recursiveName) ++recursiveReferences;
-            if (relation.name == sqlExpressions::oneRowTable || TemporaryTables::find(db, relation.name) == nullptr) continue;
-            if (!relation.versionScope.empty() || relation.version != defaultBranch) {
-                throw semanticalAnalysis::semantic_sql_error("the common table expression '" + relation.name + "' has no versions");
-            }
-            relation.version = "master";
-        }
+        const size_t recursiveReferences = prepareRelations(*parserResult.selectStmt, db, defaultBranch, recursiveName);
+        if (recursiveReferences == SIZE_MAX) throw semanticalAnalysis::semantic_sql_error("a common table expression has no versions");
         if (recursiveReferences > 1) {
             throw semanticalAnalysis::semantic_sql_error("recursive reference to query \"" + recursiveName + "\" must not appear more than once");
         }
         if (transaction != nullptr) confine(parserResult, *transaction, db);
-        return runSelect(queryContext, text, db, branch, transaction, temporaries, sink, described, describeOnly);
+        try {
+            return runSelect(queryContext, text, db, branch, transaction, temporaries, sink, described, describeOnly);
+        } catch (const semanticalAnalysis::derived_table_required &) {
+            // a subquery the plan does not compute: all run before, into tables
+            return runQuery(text, db, branch, transaction, temporaries, sink, described, recursiveName, describeOnly, true);
+        }
+    }
+
+    /// The plan of a query of a WITH statement (relations as runQuery prepares them), or nullptr if it needs the general
+    /// aggregation, reads versions of a temporary table or the relation \p once more than once
+    static std::unique_ptr<QueryContext> planQuery(const std::string & text, Database & db, const std::string & branch, const Transaction * transaction,
+                                                   TemporaryTables & temporaries, const std::string & once = std::string()) {
+        auto context = std::make_unique<QueryContext>(db);
+        const std::string defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
+        context->parsingContext.defaultBranch = defaultBranch;
+        parseQuery(text, *context);
+        auto & parserResult = context->analyzingContext.parserResult;
+        if (parserResult.opType != semanticalAnalysis::SQLParserResult::OpType::Select) return nullptr;
+        const size_t references = prepareRelations(*parserResult.selectStmt, db, defaultBranch, once);
+        if (references == SIZE_MAX || references > 1) return nullptr;
+        if (transaction != nullptr) confine(parserResult, *transaction, db);
+        provideOneRowTable(db, temporaries, parserResult);
+        auto analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(context->analyzingContext);
+        try {
+            timing::Phase phase(timing::current.analysis);
+            analyser->verify();
+            analyser->constructTree();
+        } catch (const semanticalAnalysis::general_aggregation_required &) {
+            return nullptr;
+        } catch (const semanticalAnalysis::derived_table_required &) {
+            return nullptr;
+        }
+        auto & tree = context->analyzingContext.joinedTree;
+        if (tree == nullptr || dynamic_cast<Algebra::Logical::Result *>(tree.get()) == nullptr) return nullptr;
+        return context;
+    }
+
+    /// \returns Whether a value of type \p type is stored as a value of the column type \p column (see with::columnType)
+    static bool storesAs(Sql::SqlType type, Sql::SqlType column) {
+        using ID = Sql::SqlType::TypeID;
+        if (type.typeID != column.typeID) return false;
+        if (type.typeID == ID::NumericID) return type.numericLayout.precision == column.numericLayout.precision;
+        if (type.typeID == ID::ArrayID) return storesAs(Sql::getElementTy(type), Sql::getElementTy(column));
+        return type.typeID != ID::CharID && type.typeID != ID::VarcharID;
+    }
+
+    /// Computes a recursive common table expression (non-recursive query UNION ALL recursive query) in one plan: a Fixpoint
+    /// whose loop runs the step until it adds no rows; its rows go to \p row. \returns false if the plan cannot compute it
+    static bool runFixpoint(const std::string & name, const std::string & initialText, const std::string & stepText,
+                            const std::vector<std::pair<std::string, Sql::SqlType>> & columns, Database & db, const std::string & branch,
+                            const Transaction * transaction, TemporaryTables & temporaries, const std::function<void(Native::Sql::SqlTuple *)> & row) {
+        namespace L = Algebra::Logical;
+        Table * working;
+        {
+            ModuleGen moduleGen("TemporaryTable"); // the sizes of the columns take the data layout
+            working = &temporaries.create(columns);
+        }
+        std::optional<ModuleGen> moduleGen;
+        moduleGen.emplace("QueryModule");
+        std::unique_ptr<QueryContext> initial = planQuery(initialText, db, branch, transaction, temporaries);
+        if (initial == nullptr) return false;
+        Table * bound = TemporaryTables::find(db, name);
+        temporaries.bind(name, working);
+        std::unique_ptr<QueryContext> step = planQuery(stepText, db, branch, transaction, temporaries, name);
+        temporaries.bind(name, bound);
+        if (step == nullptr) return false;
+        auto & initialRoot = static_cast<L::Result &>(*initial->analyzingContext.joinedTree);
+        auto & stepRoot = static_cast<L::Result &>(*step->analyzingContext.joinedTree);
+        if (initialRoot.selection.size() != columns.size() || stepRoot.selection.size() != columns.size()) return false;
+        for (size_t c = 0; c < columns.size(); ++c) {
+            if (!storesAs(initialRoot.selection[c]->sqlType, columns[c].second) || !storesAs(stepRoot.selection[c]->sqlType, columns[c].second)) return false;
+        }
+
+        QueryContext context(db);
+        auto owned = std::make_unique<Algebra::Physical::FixpointState>();
+        auto & state = *owned;
+        context.executionContext.acquireResource(std::move(owned));
+        std::vector<iu_p_t> outputs;
+        for (auto & [column, type] : columns) {
+            state.names.push_back(column);
+            state.types.push_back(Sql::toNullableTy(type));
+            outputs.push_back(context.analyzingContext.iuFactory.createIU(state.types.back()));
+        }
+        state.rowSize = getThreadLocalCodeGen().getCurrentModuleGen().getDataLayout().getTypeAllocSize(state.rowType());
+        context.workingTables[working] = &state;
+        for (auto * term : {initial.get(), step.get()}) {
+            auto & ids = term->analyzingContext.branchIds;
+            context.analyzingContext.branchIds.insert(ids.begin(), ids.end());
+        }
+        auto fixpoint = std::make_unique<L::Fixpoint>(initialRoot.takeChild(), stepRoot.takeChild(), initialRoot.selection, stepRoot.selection,
+                                                      outputs, *working);
+        std::unique_ptr<L::Operator> tree = std::make_unique<L::Result>(std::move(fixpoint), outputs);
+        tree->refreshSets();
+
+        // the sink, before the code that calls it is generated
+        std::exception_ptr failure;
+        context.tupleSink = [&](Native::Sql::SqlTuple * tuple) {
+            if (failure) return;
+            try {
+                row(tuple);
+            } catch (...) {
+                failure = std::current_exception();
+            }
+        };
+        auto queryFunc = compileQuery("WITH RECURSIVE " + name, tree, context);
+        QueryContext::constructBranchLineages(context.analyzingContext.branchIds, context);
+        std::vector<llvm::GenericValue> args(2);
+        args[0].IntVal = llvm::APInt(64, 5);
+        args[1].PointerVal = (void *) &context;
+        QueryExecutor::executeFunction(queryFunc, args, (void *) &printFunction, true);
+        if (failure) std::rethrow_exception(failure);
+        return true;
     }
 
     /// WITH [ RECURSIVE ], UNION, INTERSECT and EXCEPT [ ALL ], and VALUES. Each common table expression
@@ -1873,24 +2221,30 @@ namespace QueryCompiler {
         semanticalAnalysis::SQLParserResult relations;
         relations.opType = semanticalAnalysis::SQLParserResult::OpType::Select;
         relations.selectStmt = new semanticalAnalysis::SelectStatement();
-        auto collect = [&](SetQuery & query) {
-            for (SetQuery * term : termsOf(query)) {
-                QueryContext context(db);
-                context.parsingContext.defaultBranch = defaultBranch;
-                {
-                    timing::Phase phase(timing::current.parsing);
-                    tardisParser::SQLParser::parseStatement(context.parsingContext, term->term + ";");
-                }
-                QueryContext::convertToParserResult(context.analyzingContext.parserResult, context.parsingContext);
-                auto & parsed = context.analyzingContext.parserResult;
-                if (parsed.opType != semanticalAnalysis::SQLParserResult::OpType::Select) {
-                    throw semantic_sql_error("WITH, UNION, INTERSECT, EXCEPT and VALUES combine queries");
-                }
-                for (auto & relation : parsed.selectStmt->relations) {
-                    term->relations.insert(relation.name);
-                    if (relation.name != sqlExpressions::oneRowTable) relations.selectStmt->relations.push_back(relation);
-                }
+        // the relations of a query, also of its subqueries in FROM
+        std::function<void(const std::string &, SetQuery &)> collectQuery = [&](const std::string & text, SetQuery & term) {
+            std::vector<derived::Subquery> subqueries;
+            const std::string rewritten = derived::rewrite(text, subqueries);
+            QueryContext context(db);
+            context.parsingContext.defaultBranch = defaultBranch;
+            {
+                timing::Phase phase(timing::current.parsing);
+                tardisParser::SQLParser::parseStatement(context.parsingContext, rewritten + ";");
             }
+            QueryContext::convertToParserResult(context.analyzingContext.parserResult, context.parsingContext);
+            auto & parsed = context.analyzingContext.parserResult;
+            if (parsed.opType != semanticalAnalysis::SQLParserResult::OpType::Select) {
+                throw semantic_sql_error("WITH, UNION, INTERSECT, EXCEPT and VALUES combine queries");
+            }
+            for (auto & relation : parsed.selectStmt->relations) {
+                if (relation.name.compare(0, derived::prefix.size(), derived::prefix) == 0) continue;
+                term.relations.insert(relation.name);
+                if (relation.name != sqlExpressions::oneRowTable) relations.selectStmt->relations.push_back(relation);
+            }
+            for (auto & subquery : subqueries) collectQuery(subquery.text, term);
+        };
+        auto collect = [&](SetQuery & query) {
+            for (SetQuery * term : termsOf(query)) collectQuery(term->term, *term);
         };
         for (auto & cte : statement.ctes) collect(*cte.body);
         collect(*statement.query);
@@ -2010,7 +2364,24 @@ namespace QueryCompiler {
                 if (next != nullptr) insert_tuple(tuple, *next, insertContext);
                 ++added;
             };
-            for (auto & row : evaluate(*nonRecursive, types)) insert(row);
+            // UNION ALL in one plan, whose loop runs the steps; else the steps are queries of their own
+            bool compiled = false;
+            if (recursive != nullptr && body.all && nonRecursive->isTerm()) {
+                compiled = runFixpoint(cte.name, nonRecursive->term, recursive->term, columns, db, branch, transaction, temporaries,
+                                       [&](Native::Sql::SqlTuple * tuple) {
+                    Row row;
+                    row.values = with::convertRow(*tuple, types, row.key, false);
+                    Native::Sql::SqlTuple stored(std::move(row.values));
+                    insert_tuple(stored, *result, insertContext);
+                });
+            }
+            if (compiled) {
+                temporaries.release(next);
+                next = nullptr;
+                recursive = nullptr;
+            } else {
+                for (auto & row : evaluate(*nonRecursive, types)) insert(row);
+            }
             if (recursive != nullptr) {
                 do {
                     Table * working = next;
@@ -2058,6 +2429,11 @@ namespace QueryCompiler {
         return query;
     }
 
+    namespace insertselect {
+    /// The rows of INSERT ... SELECT after the first, which the INSERT takes instead of parsing them (as text of VALUES)
+    thread_local std::vector<std::vector<std::string>> * pendingRows = nullptr;
+    }
+
     static StatementResult executeStatement(const std::string & query, Database & db, const std::string & branch,
                                             const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                             const std::function<void(const StatementResult &)> & described,
@@ -2071,6 +2447,10 @@ namespace QueryCompiler {
             timing::Phase phase(timing::current.parsing);
             tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
             QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
+        }
+        if (insertselect::pendingRows != nullptr && queryContext.analyzingContext.parserResult.opType == semanticalAnalysis::SQLParserResult::OpType::Insert) {
+            queryContext.analyzingContext.parserResult.insertStmt->rows = std::move(*insertselect::pendingRows);
+            insertselect::pendingRows = nullptr;
         }
         if (explain::active != nullptr) {
             // the other statements run in their analysis, which EXPLAIN must not do
@@ -2514,6 +2894,149 @@ namespace QueryCompiler {
 
     } // end namespace tablefunctions
 
+    /// LIMIT and OFFSET at the end of a query: the query runs without them, and the sink takes its rows from the offset on, up to the limit
+    namespace limit {
+
+    using with::Lexeme;
+
+    struct Limit {
+        std::string query;              // without LIMIT and OFFSET
+        std::string count = "all";      // the expressions
+        std::string offset = "0";
+    };
+
+    /// \returns Whether \p sql is a query that ends with LIMIT or OFFSET (outside parentheses); then \p limit
+    static bool parse(const std::string & sql, Limit & limit) {
+        size_t first = sql.find_first_not_of(" \t\r\n(");
+        if (first == std::string::npos) return false;
+        std::string lower;
+        std::transform(sql.begin(), sql.end(), std::back_inserter(lower), ::tolower);
+        if (lower.compare(first, 6, "select") != 0 && lower.compare(first, 4, "with") != 0 && lower.compare(first, 6, "values") != 0) return false;
+        if (lower.find("limit") == std::string::npos && lower.find("offset") == std::string::npos) return false;
+        auto lexemes = with::lex(sql);
+        while (!lexemes.empty() && lexemes.back().kind == Lexeme::Semicolon) lexemes.pop_back();
+        const size_t n = lexemes.size();
+        // the clauses after the first LIMIT or OFFSET outside parentheses
+        size_t start = SIZE_MAX, depth = 0;
+        for (size_t i = 0; i < n && start == SIZE_MAX; ++i) {
+            if (lexemes[i].kind == Lexeme::Open) ++depth;
+            else if (lexemes[i].kind == Lexeme::Close) { if (depth > 0) --depth; }
+            else if (depth == 0 && i > 0 && (with::isWord(lexemes, i, "limit") || with::isWord(lexemes, i, "offset"))) start = i;
+        }
+        if (start == SIZE_MAX) return false;
+        bool counted = false, offset = false;
+        for (size_t i = start; i < n;) {
+            const bool isLimit = with::isWord(lexemes, i, "limit");
+            if (!isLimit && !with::isWord(lexemes, i, "offset")) throw with::syntaxError("Expected LIMIT or OFFSET, found '" + sql.substr(lexemes[i].begin, lexemes[i].end - lexemes[i].begin) + "'");
+            if ((isLimit && counted) || (!isLimit && offset)) throw with::syntaxError(std::string("multiple ") + (isLimit ? "LIMIT" : "OFFSET") + " clauses not allowed");
+            size_t end = ++i;
+            for (depth = 0; end < n; ++end) {
+                if (lexemes[end].kind == Lexeme::Open) ++depth;
+                else if (lexemes[end].kind == Lexeme::Close) { if (depth > 0) --depth; }
+                else if (depth == 0 && (with::isWord(lexemes, end, "limit") || with::isWord(lexemes, end, "offset") ||
+                                        (!isLimit && (with::isWord(lexemes, end, "row") || with::isWord(lexemes, end, "rows"))))) break;
+            }
+            if (end == i) throw with::syntaxError(std::string("Expected an expression after ") + (isLimit ? "LIMIT" : "OFFSET"));
+            (isLimit ? limit.count : limit.offset) = sql.substr(lexemes[i].begin, lexemes[end - 1].end - lexemes[i].begin);
+            (isLimit ? counted : offset) = true;
+            i = end;
+            if (!isLimit && i < n && (with::isWord(lexemes, i, "row") || with::isWord(lexemes, i, "rows"))) ++i;
+        }
+        limit.query = sql.substr(0, lexemes[start - 1].end) + ";";
+        return true;
+    }
+
+    } // end namespace limit
+
+    /// INSERT INTO t [ VERSION b ] [ ( columns ) ] query (also in parentheses): the rows of the query go into an INSERT ... VALUES
+    namespace insertselect {
+
+    using with::Lexeme;
+
+    /// \returns Whether \p sql inserts the rows of a query; then the INSERT up to VALUES in \p head and the query in \p query
+    static bool parse(const std::string & sql, std::string & head, std::string & query) {
+        size_t first = sql.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) return false;
+        std::string lower;
+        std::transform(sql.begin(), sql.end(), std::back_inserter(lower), ::tolower);
+        if (lower.compare(first, 6, "insert") != 0 || (lower.find("select") == std::string::npos && lower.find("with") == std::string::npos)) return false;
+        auto lexemes = with::lex(sql);
+        while (!lexemes.empty() && lexemes.back().kind == Lexeme::Semicolon) lexemes.pop_back();
+        const size_t n = lexemes.size();
+        if (!with::isWord(lexemes, 0, "insert") || !with::isWord(lexemes, 1, "into") || n < 4) return false;
+        size_t i = 3; // after the table
+        if (with::isWord(lexemes, i, "version")) i += 2;
+        auto isQuery = [&](size_t at) { return with::isWord(lexemes, at, "select") || with::isWord(lexemes, at, "with"); };
+        if (i < n && lexemes[i].kind == Lexeme::Open && !isQuery(i + 1)) i = with::matching(lexemes, i, n) + 1; // the columns
+        if (i >= n) return false;
+        size_t begin = i, end = n;
+        if (lexemes[i].kind == Lexeme::Open && isQuery(i + 1) && with::matching(lexemes, i, n) == n - 1) { begin = i + 1; end = n - 1; }
+        if (!isQuery(begin)) return false;
+        head = sql.substr(0, lexemes[i].begin);
+        query = sql.substr(lexemes[begin].begin, lexemes[end - 1].end - lexemes[begin].begin) + ";";
+        return true;
+    }
+
+    /// \returns The value as a constant of INSERT ... VALUES
+    static std::string literal(const Native::Sql::Value & value) {
+        if (Native::Sql::isNullable(value) && static_cast<const Native::Sql::NullableValue &>(value).isNull()) return "NULL";
+        std::string text = Native::Sql::toString(Native::Sql::getAssociatedValue(value)), quoted = "'";
+        for (char c : text) quoted += (c == '\'') ? std::string("''") : std::string(1, c);
+        return quoted + "'";
+    }
+
+    } // end namespace insertselect
+
+    /// Runs a query with LIMIT and OFFSET; their expressions are constants
+    static StatementResult executeLimited(const limit::Limit & limit, Database & db, const std::string & branch,
+                                          const std::function<void(Native::Sql::SqlTuple *)> & sink,
+                                          const std::function<void(const StatementResult &)> & described,
+                                          const Transaction * transaction) {
+        using semanticalAnalysis::semantic_sql_error;
+        // \returns The number, or nothing for ALL and NULL
+        auto number = [&](const std::string & expression, const std::string & what) -> std::optional<uint64_t> {
+            std::string lower;
+            std::transform(expression.begin(), expression.end(), std::back_inserter(lower), ::tolower);
+            if (lower == "all" || lower == "null") return std::nullopt;
+            std::string text = expression;
+            if (!std::all_of(text.begin(), text.end(), ::isdigit)) {
+                bool null = false;
+                try {
+                    executeAny("SELECT " + expression + ";", db, branch, [&](Native::Sql::SqlTuple * tuple) {
+                        const Native::Sql::Value & value = *tuple->values.at(0);
+                        if (Native::Sql::isNullable(value) && static_cast<const Native::Sql::NullableValue &>(value).isNull()) null = true;
+                        else text = Native::Sql::toString(Native::Sql::getAssociatedValue(value));
+                    }, nullptr, transaction);
+                } catch (const std::exception & e) {
+                    throw semantic_sql_error("the argument of " + what + " is a constant: " + e.what());
+                }
+                if (null) return std::nullopt;
+            }
+            long long n;
+            try {
+                size_t used = 0;
+                n = std::stoll(text, &used);
+                if (used != text.size()) throw std::invalid_argument(text);
+            } catch (const std::exception &) {
+                throw semantic_sql_error("argument of " + what + " must be an integer, not '" + text + "'");
+            }
+            if (n < 0) throw semantic_sql_error(what + " must not be negative");
+            return static_cast<uint64_t>(n);
+        };
+        const std::optional<uint64_t> count = number(limit.count, "LIMIT");
+        const uint64_t offset = number(limit.offset, "OFFSET").value_or(0);
+        std::mutex mutex; // the workers of a query call the sink in parallel
+        uint64_t seen = 0, emitted = 0;
+        StatementResult result = executeAny(limit.query, db, branch, [&](Native::Sql::SqlTuple * tuple) {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (seen++ < offset || (count && emitted >= *count)) return;
+            ++emitted;
+            sink(tuple);
+        }, described, transaction);
+        result.rows = emitted;
+        return result;
+    }
+
     static StatementResult executeOrdered(const order::OrderBy & order, Database & db, const std::string & branch,
                                           const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                           const std::function<void(const StatementResult &)> & described,
@@ -2537,6 +3060,53 @@ namespace QueryCompiler {
                 return executeAny(rewritten, db, branch, sink, described, transaction);
             }
         }
+        {
+            // INSERT ... query: the rows of the query first
+            std::string head, rows;
+            bool inserting;
+            {
+                timing::Phase phase(timing::current.parsing);
+                inserting = insertselect::parse(query, head, rows);
+            }
+            if (inserting) {
+                // the first row as the text of VALUES, the others as the values of the statement
+                std::string first;
+                std::vector<std::vector<std::string>> others;
+                std::mutex mutex;
+                executeAny(rows, db, branch, [&](Native::Sql::SqlTuple * tuple) {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    if (first.empty()) {
+                        for (auto & value : tuple->values) first += (first.empty() ? "(" : ", ") + insertselect::literal(*value);
+                        first += ")";
+                        return;
+                    }
+                    std::vector<std::string> row;
+                    for (auto & value : tuple->values) {
+                        const bool null = Native::Sql::isNullable(*value) && static_cast<const Native::Sql::NullableValue &>(*value).isNull();
+                        row.push_back(null ? Native::Sql::nullLiteral : Native::Sql::toString(Native::Sql::getAssociatedValue(*value)));
+                    }
+                    others.push_back(std::move(row));
+                }, nullptr, transaction);
+                if (first.empty()) {
+                    StatementResult result;
+                    result.tag = "INSERT";
+                    if (described) described(result);
+                    return result;
+                }
+                insertselect::pendingRows = &others;
+                struct Reset { ~Reset() { insertselect::pendingRows = nullptr; } } reset;
+                return executeAny(head + " VALUES " + first + ";", db, branch, sink, described, transaction);
+            }
+        }
+        {
+            limit::Limit limit;
+            bool limited;
+            {
+                timing::Phase phase(timing::current.parsing);
+                limited = limit::parse(query, limit);
+            }
+            if (limited) return executeLimited(limit, db, branch, sink, described, transaction);
+        }
         order::OrderBy order;
         bool ordered;
         with::WithStatement setStatement;
@@ -2547,6 +3117,12 @@ namespace QueryCompiler {
             if (!ordered) isSet = with::parseSetStatement(query, setStatement);
         }
         if (ordered) return executeOrdered(order, db, branch, sink, described, transaction);
+        if (!isSet && derived::present(query)) {
+            // subqueries in FROM: the query runs as the query of a WITH statement, which latches all relations
+            setStatement = with::WithStatement();
+            setStatement.query = with::makeTerm(withoutEnd(query));
+            isSet = true;
+        }
         if (isSet) {
             return executeSetStatement(setStatement, db, branch, sink, described, transaction);
         }

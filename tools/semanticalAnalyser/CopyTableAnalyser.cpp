@@ -48,7 +48,7 @@ namespace semanticalAnalysis {
                     return "COPY " + stmt.relation.name + ", line " + std::to_string(reader.line()) + ": " + message;
                 };
                 // a tbl line may end with the delimiter
-                if (!format.csv && fields.size() == columns.size() + 1 && fields.back().value.empty()) fields.pop_back();
+                if (!format.csv && !format.text && fields.size() == columns.size() + 1 && fields.back().value.empty()) fields.pop_back();
                 if (fields.size() < columns.size()) {
                     throw semantic_sql_error(where("missing data for column \"" + columns[fields.size()]->columnName + "\""));
                 }
@@ -58,11 +58,11 @@ namespace semanticalAnalysis {
                     const ci_p_t ci = columns[i];
                     const CopyField & field = fields[i];
                     // the text of NULL is NULL in a nullable column; in a column of strings declared NOT NULL it
-                    // is a string like any other (an empty field is the empty string)
+                    // is a string like any other (an empty field is the empty string), except \N of text
                     const bool nullText = !field.quoted && field.value == format.null;
                     const auto type = ci->type.typeID;
-                    if (nullText && !ci->type.nullable && type != Sql::SqlType::TypeID::CharID &&
-                        type != Sql::SqlType::TypeID::VarcharID && type != Sql::SqlType::TypeID::TextID) {
+                    if (nullText && !ci->type.nullable && (format.text || (type != Sql::SqlType::TypeID::CharID &&
+                        type != Sql::SqlType::TypeID::VarcharID && type != Sql::SqlType::TypeID::TextID))) {
                         throw not_null_violation(where("null value in column \"" + ci->columnName + "\" violates not-null constraint"));
                     }
                     const bool isNull = nullText && ci->type.nullable;

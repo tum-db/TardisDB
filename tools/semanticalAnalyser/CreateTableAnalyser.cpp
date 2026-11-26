@@ -13,7 +13,10 @@ namespace semanticalAnalysis {
         CreateTableStatement* stmt = _context.parserResult.createTableStmt;
 
         if (stmt == nullptr) throw semantic_sql_error("unknown statement type");
-        if (db.hasTable(stmt->tableName)) throw semantic_sql_error("table '" + stmt->tableName + "' already exists");
+        if (db.hasTable(stmt->tableName)) {
+            if (stmt->ifNotExists) return;
+            throw semantic_sql_error("table '" + stmt->tableName + "' already exists");
+        }
         std::vector<std::string> definedColumnNames;
         for (auto &column : stmt->columns) {
             if (std::find(definedColumnNames.begin(),definedColumnNames.end(),column.name) != definedColumnNames.end())
@@ -36,6 +39,10 @@ namespace semanticalAnalysis {
 
     void CreateTableAnalyser::constructTree() {
         CreateTableStatement *stmt = _context.parserResult.createTableStmt;
+        if (stmt->ifNotExists && _context.db.hasTable(stmt->tableName)) {
+            _context.joinedTree = nullptr;
+            return;
+        }
         auto & createdTable = _context.db.createTable(stmt->tableName);
 
         for (auto &columnSpec : stmt->columns) {

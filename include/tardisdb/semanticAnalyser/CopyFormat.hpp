@@ -13,11 +13,13 @@
 namespace semanticalAnalysis {
     struct CopyStatement;
 
-    /// A format of COPY with its options: csv, as PostgreSQL's CSV (fields in quotes may hold the delimiter,
-    /// the quote and line breaks; a quote within quotes is preceded by the escape character), or tbl, the
-    /// format of the TPC-H tools (fields separated by '|', without quotes; a line may end with the delimiter)
+    /// A format of COPY with its options: text, as PostgreSQL's (tabs between fields, backslash escapes, \N for
+    /// NULL), csv, as PostgreSQL's CSV (fields in quotes may hold the delimiter, the quote and line breaks; a
+    /// quote within quotes is preceded by the escape character), or tbl, the format of the TPC-H tools (fields
+    /// separated by '|', without quotes; a line may end with the delimiter)
     struct CopyFormat {
         bool csv = true;
+        bool text = false;
         bool header = false; // the first line names the columns
         char delimiter = ',';
         char quote = '"';

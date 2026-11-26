@@ -296,8 +296,12 @@ exp_op_t ExpressionAnalyser::arrayConstructor(const Node & n, const SqlType * ex
         }
         return constant(n, type);
     }
-    // the elements (or arrays of one dimension less) in their common type
-    const bool nested = !n.children.empty() && n.children.front().kind == Kind::Array;
+    // the elements (or arrays of one dimension less, also of array expressions) in their common type
+    std::vector<bool> nestedChildren;
+    for (auto & c : n.children) {
+        nestedChildren.push_back(c.kind == Kind::Array || (!isLiteral(c) && !isConstantArray(c) && isArray(analyse(c)->getType())));
+    }
+    const bool nested = !nestedChildren.empty() && nestedChildren.front();
     std::vector<exp_op_t> elements;
     SqlType element = expectArray ? Sql::getElementTy(*expected) : Sql::getUnknownTy();
     if (!expectArray) {
@@ -314,8 +318,9 @@ exp_op_t ExpressionAnalyser::arrayConstructor(const Node & n, const SqlType * ex
     }
     element = Sql::toNotNullableTy(element);
     SqlType arrayType = Sql::getArrayTy(element);
-    for (auto & c : n.children) {
-        if ((c.kind == Kind::Array) != nested) throw semantic_sql_error("multidimensional arrays must have array expressions with matching dimensions");
+    for (size_t i = 0; i < n.children.size(); ++i) {
+        const Node & c = n.children[i];
+        if (nestedChildren[i] != nested) throw semantic_sql_error("multidimensional arrays must have array expressions with matching dimensions");
         if (nested) {
             exp_op_t sub = analyse(c, &arrayType);
             if (!isArray(sub->getType())) throw semantic_sql_error("an ARRAY of arrays takes arrays");
@@ -565,6 +570,10 @@ exp_op_t ExpressionAnalyser::function(const Node & n)
     };
     if (name == "count" || name == "sum" || name == "min" || name == "max" || name == "avg") {
         throw semantic_sql_error("the aggregate " + name + " takes a column here, as in " + name + "(column)");
+    }
+    if (name == "random") {
+        arity(0, 0);
+        return std::make_unique<Expressions::Random>();
     }
     if (name == "cardinality" || name == "array_ndims" || name == "array_dims") {
         arity(1, 1);

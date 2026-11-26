@@ -364,6 +364,18 @@ private:
     Native::Sql::Arrays::Arena * _arena; // of the query
 };
 
+/// random(): a call of a generator per thread, seeded once from the system
+class Random : public Expression {
+public:
+    Random() :
+            Expression(Sql::getDoubleTy(false))
+    { }
+
+    ~Random() override { }
+
+    Sql::value_op_t evaluate(const iu_value_mapping_t & values) override;
+};
+
 } // end namespace Expressions
 } // end namespace Physical
 } // end namespace Algebra

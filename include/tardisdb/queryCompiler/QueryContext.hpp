@@ -26,6 +26,9 @@ struct QueryContext {
     /// set while code is generated into a morsel function that several workers run
     bool parallelPipeline = false;
 
+    /// the working tables of recursive queries, whose scans read the buffers of their Fixpoint (a FixpointState)
+    std::unordered_map<const Table *, void *> workingTables;
+
     /// receives the result tuples instead of the callback of the query function, so that every
     /// statement (e.g. of the sessions of a server) has its own receiver; called under the result
     /// latch of a parallel pipeline; the tuple is refilled for the next row, so the receiver copies

@@ -41,6 +41,15 @@ namespace semanticalAnalysis {
         /// conditions of WHERE on the columns of several tables, which apply to the joined tree
         std::vector<Expressions::exp_op_t> joinedPredicates;
 
+        /// the plans of the subqueries in FROM, by the names of their relations, and their contexts (which own their IUs)
+        struct DerivedTable {
+            std::vector<std::string> names;
+            std::vector<iu_p_t> ius;
+            std::unique_ptr<Algebra::Logical::Operator> tree;
+        };
+        std::unordered_map<std::string, DerivedTable> derivedTables;
+        std::vector<std::unique_ptr<AnalyzingContext>> nested;
+
         /// of statements without a plan: the tuples they changed, and a message for the client
         uint64_t changedTuples = 0;
         std::string notice;

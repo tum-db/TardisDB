@@ -204,9 +204,10 @@ static cg_hash_t genJoinHash(const join_pair_vec_t & joinPairs, const iu_value_m
 
 HashJoin::HashJoin(const logical_operator_t & logicalOperator,
                    std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
-                   join_pair_vec_t pairs, QueryContext &queryContext) :
+                   join_pair_vec_t pairs, QueryContext &queryContext, bool swapped) :
         BinaryOperator(std::move(logicalOperator), std::move(left), std::move(right), queryContext),
-        joinPairs(std::move(pairs))
+        joinPairs(std::move(pairs)),
+        _swapped(swapped)
 {
 }
 
@@ -281,7 +282,8 @@ void HashJoin::probeCandidate(cg_voidptr_t rawNodePtr)
     IfGen check(match);
     {
         // merge both sides
-        auto & probeSet = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator).getRightRequired();
+        auto & join = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator);
+        auto & probeSet = _swapped ? join.getLeftRequired() : join.getRightRequired();
         for (iu_p_t iu : probeSet) {
             values[iu] = rightIncoming->at(iu);
         }
@@ -298,7 +300,8 @@ void HashJoin::consumeLeft(const iu_value_mapping_t & values)
 
     // gather tuple information
     size_t i = 0;
-    auto & buildSet = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator).getLeftRequired();
+    auto & join = dynamic_cast<const Logical::BinaryOperator &>(_logicalOperator);
+    auto & buildSet = _swapped ? join.getRightRequired() : join.getLeftRequired();
     for (iu_p_t iu : buildSet) {
         value_op_t sqlValue = values.at(iu)->clone();
         storedTypes.push_back(sqlValue->type);

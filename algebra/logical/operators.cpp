@@ -51,6 +51,19 @@ void Operator::updateRequiredSets()
     root->updateRequiredSetsTraverser();
 }
 
+void Operator::refreshSets()
+{
+    Operator * root = getRoot();
+    root->updateProducedSetsTraverser();
+    root->updateRequiredSetsTraverser();
+}
+
+std::unique_ptr<Operator> UnaryOperator::takeChild()
+{
+    child->parent = nullptr;
+    return std::move(child);
+}
+
 //-----------------------------------------------------------------------------
 // NullaryOperator
 
@@ -149,21 +162,15 @@ void BinaryOperator::updateRequiredSetsTraverser()
 
 void BinaryOperator::splitRequiredSet()
 {
-    // build a set of required ius that only contains ius from the left side
-    const iu_set_t & leftChildRequired = leftChild->getRequired();
-    std::set_intersection(
-            required.begin(), required.end(),
-            leftChildRequired.begin(), leftChildRequired.end(),
-            std::inserter(leftRequired, leftRequired.end())
-    );
-
-    // build a set of required ius that only contains ius from the right side
-    const iu_set_t & rightChildRequired = rightChild->getRequired();
-    std::set_intersection(
-            required.begin(), required.end(),
-            rightChildRequired.begin(), rightChildRequired.end(),
-            std::inserter(rightRequired, rightRequired.end())
-    );
+    // the required ius by the side that produces them (the required set of a child are its inputs)
+    leftRequired.clear();
+    rightRequired.clear();
+    const iu_set_t & leftProduced = leftChild->getProduced();
+    std::set_intersection(required.begin(), required.end(), leftProduced.begin(), leftProduced.end(),
+                          std::inserter(leftRequired, leftRequired.end()));
+    const iu_set_t & rightProduced = rightChild->getProduced();
+    std::set_intersection(required.begin(), required.end(), rightProduced.begin(), rightProduced.end(),
+                          std::inserter(rightRequired, rightRequired.end()));
 }
 
 //-----------------------------------------------------------------------------
@@ -271,6 +278,72 @@ void GroupBy::computeRequired()
         iu_set_t funcRequired = aggregation->getRequired();
         required.insert(funcRequired.begin(), funcRequired.end());
     }
+}
+
+//-----------------------------------------------------------------------------
+// Aggregation operator
+
+bool Aggregation::aggregateType(Function function, Sql::SqlType input, Sql::SqlType & result)
+{
+    using ID = Sql::SqlType::TypeID;
+    const ID id = input.typeID;
+    auto isNumber = [](ID t) { return t == ID::IntegerID || t == ID::LongIntegerID || t == ID::NumericID || t == ID::DoubleID; };
+    if (function == Function::CountAll || function == Function::Count) {
+        result = Sql::getNumericFullLengthTy(0, false);
+        return true;
+    }
+    const bool arithmetic = function == Function::Sum || function == Function::Avg;
+    if (id == ID::ArrayID) {
+        if (!arithmetic) { result = Sql::toNullableTy(input); return true; }
+        if (!isNumber(Sql::getElementTy(input).typeID)) return false;
+        result = Sql::getArrayTy(Sql::getDoubleTy(), true);
+        return true;
+    }
+    if (arithmetic && !isNumber(id)) return false;
+    if (!isNumber(id) && id != ID::DateID && id != ID::TimestampID && id != ID::TextID) return false;
+    if (id == ID::LongIntegerID || (function == Function::Sum && id == ID::IntegerID)) result = Sql::getNumericFullLengthTy(0, true);
+    else result = Sql::toNullableTy(input);
+    return true;
+}
+
+void Aggregation::accept(OperatorVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+void Aggregation::computeProduced()
+{
+    produced.clear();
+    for (auto & key : _keys) produced.insert(key.output);
+    for (auto & aggregate : _aggregates) produced.insert(aggregate.output);
+}
+
+void Aggregation::computeRequired()
+{
+    required.clear();
+    for (auto & key : _keys) required.insert(key.input);
+    for (auto & aggregate : _aggregates) if (aggregate.input != nullptr) required.insert(aggregate.input);
+}
+
+//-----------------------------------------------------------------------------
+// Fixpoint operator
+
+void Fixpoint::accept(OperatorVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+void Fixpoint::computeProduced()
+{
+    produced.clear();
+    produced.insert(_outputs.begin(), _outputs.end());
+}
+
+void Fixpoint::computeRequired()
+{
+    required.clear();
+    required.insert(_initialColumns.begin(), _initialColumns.end());
+    required.insert(_stepColumns.begin(), _stepColumns.end());
 }
 
 //-----------------------------------------------------------------------------
@@ -730,6 +803,8 @@ struct ExpressionIUCollector : public Expressions::ExpressionVisitor {
     {
         for (auto & argument : exp._arguments) argument->accept(*this);
     }
+
+    void visit(Expressions::Random & exp) override { /* NOP */ }
 };
 
 iu_set_t collectRequired(const Expressions::Expression & exp)
@@ -762,6 +837,22 @@ struct Verifier : public OperatorVisitor {
 
         test(op, op.getChild());
         op.getChild().accept(*this);
+    }
+
+    void visit(Aggregation & op) override
+    {
+        if (!_result) { return; }
+
+        test(op, op.getChild());
+        op.getChild().accept(*this);
+    }
+
+    void visit(Fixpoint & op) override
+    {
+        if (!_result) { return; }
+
+        op.getLeftChild().accept(*this);
+        op.getRightChild().accept(*this);
     }
 
     void visit(Join & op) override

@@ -683,16 +683,14 @@ namespace tardisParser {
         stmt.columns.back().nullable = false;
     }
 
-    /// \returns The format of COPY named by \p token: csv or tbl
+    /// \returns The format of COPY named by \p token: text, csv or tbl
     static std::string copyFormat(const Token & token) {
-        if (isWord(token, "csv") || isWord(token, "tbl")) {
+        if (isWord(token, "csv") || isWord(token, "tbl") || isWord(token, "text")) {
             std::string format = token.value;
             std::transform(format.begin(), format.end(), format.begin(), ::tolower);
             return format;
         }
-        if (isWord(token, "text") || isWord(token, "binary")) {
-            throw syntactical_error("COPY reads and writes the formats csv and tbl, not " + token.value);
-        }
+        if (isWord(token, "binary")) throw syntactical_error("COPY reads and writes the formats text, csv and tbl, not binary");
         throw syntactical_error("Expected format name, found '" + token.value + "'");
     }
 
@@ -702,7 +700,7 @@ namespace tardisParser {
             throw syntactical_error("Expected a string after " + option.value + ", found '" + value.value + "'");
         }
         if (isWord(option, "delimiter")) stmt.delimiter = value.value;
-        else if (isWord(option, "null")) stmt.null = value.value;
+        else if (isWord(option, "null")) { stmt.null = value.value; stmt.nullGiven = true; }
         else if (isWord(option, "quote")) stmt.quote = value.value;
         else stmt.escape = value.value;
     }
@@ -713,8 +711,8 @@ namespace tardisParser {
 
     /// Reads the options of COPY after the file and the end of the statement, as PostgreSQL either
     ///   [ WITH ] ( FORMAT csv|tbl [, HEADER [ boolean ] ] [, DELIMITER 'c' ] [, NULL 'text' ] [, QUOTE 'c' ] [, ESCAPE 'c' ] )
-    /// or in the older form
-    ///   [ WITH ] [ FORMAT ] csv|tbl [ HEADER ] [ DELIMITER [ AS ] 'c' ] [ NULL [ AS ] 'text' ] [ QUOTE [ AS ] 'c' ] [ ESCAPE [ AS ] 'c' ]
+    /// or in the older form (without a format: text)
+    ///   [ WITH ] [ [ FORMAT ] text|csv|tbl ] [ HEADER ] [ DELIMITER [ AS ] 'c' ] [ NULL [ AS ] 'text' ] [ QUOTE [ AS ] 'c' ] [ ESCAPE [ AS ] 'c' ]
     static void copyOptions(Tokenizer & tokenizer, CopyStatement & stmt, Token token) {
         if (token.equalsKeyword(Keyword::With)) token = tokenizer.next();
         if (token.equalsControlSymbol(controlSymbols::openBracket)) {
@@ -750,8 +748,9 @@ namespace tardisParser {
             token = tokenizer.next();
         } else {
             if (isWord(token, "format")) token = tokenizer.next();
-            stmt.format = copyFormat(token);
-            for (token = tokenizer.next(); !token.hasType(Type::delimiter); token = tokenizer.next()) {
+            const bool formatGiven = !token.hasType(Type::delimiter) && !isWord(token, "header") && !isCopyOption(token);
+            stmt.format = formatGiven ? copyFormat(token) : "text";
+            for (token = formatGiven ? tokenizer.next() : token; !token.hasType(Type::delimiter); token = tokenizer.next()) {
                 if (isWord(token, "header")) stmt.header = true;
                 else if (isCopyOption(token)) {
                     Token value = tokenizer.next();
@@ -1229,7 +1228,11 @@ namespace tardisParser {
                 break;
 
             case State::CreateTable:
-                if (token.type == Type::identifier) {
+                if (isWord(token, "if") && !context.createTableStmt->ifNotExists) {
+                    Token no = tokenizer.next(), exists = tokenizer.next();
+                    if (!no.equalsKeyword(Keyword::Not) || !isWord(exists, "exists")) throw syntactical_error("Expected IF NOT EXISTS");
+                    context.createTableStmt->ifNotExists = true;
+                } else if (token.type == Type::identifier) {
                     context.createTableStmt->tableName = token.value;
                     context.state = State::CreateTableRelationName;
                 } else {
@@ -1742,8 +1745,13 @@ namespace tardisParser {
                 //
             case State::Select:
             case State::SelectProjectionAttrSeparator:
-                if (token.equalsControlSymbol(controlSymbols::star)) {
+                if (token.equalsControlSymbol(controlSymbols::star) && context.selectStmt->projections.empty() && context.state == State::Select) {
                     context.state = State::SelectProjectionStar;
+                } else if (token.equalsControlSymbol(controlSymbols::star)) {
+                    // * among other items: the analyser puts the columns of the relations in its place
+                    context.selectStmt->projections.push_back(Column());
+                    context.selectStmt->projections.back().name = "*";
+                    context.state = State::SelectProjectionAttrName;
                 } else if (token.equalsKeyword(Keyword::Branch)) {
                     // the branch in which a tuple is visible
                     context.selectStmt->projections.push_back(Column());
@@ -1796,8 +1804,12 @@ namespace tardisParser {
             case SelectProjectionStar:
                 if (token.equalsKeyword(Keyword::From)) {
                     context.state = State::SelectFrom;
+                } else if (token.equalsControlSymbol(controlSymbols::separator)) {
+                    context.selectStmt->projections.push_back(Column());
+                    context.selectStmt->projections.back().name = "*";
+                    context.state = State::SelectProjectionAttrSeparator;
                 } else {
-                    throw syntactical_error("Expected 'FROM' , found '" + token.value + "'");
+                    throw syntactical_error("Expected ',' or 'FROM', found '" + token.value + "'");
                 }
                 break;
             case State::SelectProjectionAttrName:

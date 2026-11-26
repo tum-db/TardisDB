@@ -13,18 +13,17 @@ namespace semanticalAnalysis {
     }
 
     CopyFormat::CopyFormat(const CopyStatement & stmt) {
-        if (stmt.format.empty()) {
-            throw semantic_sql_error("COPY takes FORMAT csv or FORMAT tbl (PostgreSQL's text format is not supported)");
-        }
         csv = (stmt.format == "csv");
+        text = stmt.format.empty() || stmt.format == "text";
         header = stmt.header;
-        delimiter = character(stmt.delimiter, "delimiter", csv ? ',' : '|');
+        delimiter = character(stmt.delimiter, "delimiter", csv ? ',' : text ? '\t' : '|');
         if (!csv && (!stmt.quote.empty() || !stmt.escape.empty())) {
             throw semantic_sql_error("COPY QUOTE and ESCAPE are available only in CSV mode");
         }
         quote = character(stmt.quote, "quote", '"');
         escape = character(stmt.escape, "escape", quote);
-        null = stmt.null;
+        null = (text && !stmt.nullGiven) ? "\\N" : stmt.null;
+        if (text && delimiter == '\\') throw semantic_sql_error("COPY delimiter cannot be backslash");
         if (delimiter == '\n' || delimiter == '\r') throw semantic_sql_error("COPY delimiter cannot be newline or carriage return");
         if (null.find_first_of("\r\n") != std::string::npos) {
             throw semantic_sql_error("COPY null representation cannot use newline or carriage return");
@@ -34,11 +33,65 @@ namespace semanticalAnalysis {
         if (csv && null.find(quote) != std::string::npos) throw semantic_sql_error("CSV quote character must not appear in the NULL specification");
     }
 
+    /// The value of a field of the text format: backslash escapes decoded (\n, \t, octal \123, hex \x41, ...)
+    static std::string decodeText(const std::string & raw) {
+        std::string value;
+        for (size_t i = 0; i < raw.size(); ++i) {
+            if (raw[i] != '\\' || i + 1 == raw.size()) { value += raw[i]; continue; }
+            const char c = raw[++i];
+            auto digits = [&](size_t max, int base) {
+                int code = 0;
+                size_t n = 0;
+                for (; n < max && i < raw.size() && std::isxdigit(static_cast<unsigned char>(raw[i])) && (base == 16 || (raw[i] >= '0' && raw[i] <= '7')); ++n, ++i) {
+                    code = code * base + (std::isdigit(static_cast<unsigned char>(raw[i])) ? raw[i] - '0' : std::tolower(raw[i]) - 'a' + 10);
+                }
+                --i;
+                return static_cast<char>(code);
+            };
+            switch (c) {
+                case 'b': value += '\b'; break;
+                case 'f': value += '\f'; break;
+                case 'n': value += '\n'; break;
+                case 'r': value += '\r'; break;
+                case 't': value += '\t'; break;
+                case 'v': value += '\v'; break;
+                case 'x':
+                    if (i + 1 < raw.size() && std::isxdigit(static_cast<unsigned char>(raw[i + 1]))) { ++i; value += digits(2, 16); }
+                    else value += c;
+                    break;
+                default:
+                    if (c >= '0' && c <= '7') value += digits(3, 8);
+                    else value += c; // \\ and an escaped delimiter
+            }
+        }
+        return value;
+    }
+
     bool CopyReader::next(std::vector<CopyField> & fields) {
         if (!std::getline(_in, _line)) return false;
         _recordLine = ++_lines;
         fields.clear();
         fields.emplace_back();
+        if (_format.text) {
+            // \. alone ends the data
+            size_t end = _line.size();
+            if (end > 0 && _line[end - 1] == '\r') --end;
+            if (_line.compare(0, end, "\\.") == 0) return false;
+            std::string raw;
+            auto finish = [&]() {
+                CopyField & field = fields.back();
+                if (raw == _format.null) field.value = raw;
+                else { field.value = decodeText(raw); field.quoted = true; }
+                raw.clear();
+            };
+            for (size_t i = 0; i < end; ++i) {
+                if (_line[i] == '\\' && i + 1 < end) { raw += _line[i]; raw += _line[++i]; continue; }
+                if (_line[i] == _format.delimiter) { finish(); fields.emplace_back(); continue; }
+                raw += _line[i];
+            }
+            finish();
+            return true;
+        }
         const char delimiter = _format.delimiter, quote = _format.quote, escape = _format.escape;
         bool inQuotes = false;
         for (;;) {
@@ -93,6 +146,17 @@ namespace semanticalAnalysis {
         if (column > 0) _record += _format.delimiter;
         if (isNull) {
             _record += _format.null;
+            return;
+        }
+        if (_format.text) {
+            for (char c : value) {
+                if (c == '\\') _record += "\\\\";
+                else if (c == '\n') _record += "\\n";
+                else if (c == '\r') _record += "\\r";
+                else if (c == '\t') _record += "\\t";
+                else if (c == _format.delimiter) { _record += '\\'; _record += c; }
+                else _record += c;
+            }
             return;
         }
         if (!_format.csv) {

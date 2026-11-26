@@ -424,6 +424,17 @@ public:
     }
 };
 
+/// random(): a double precision in [0, 1), another at each evaluation
+class Random : public Expression {
+public:
+    void accept(ExpressionVisitor & visitor) override;
+
+    Sql::SqlType getType() const override
+    {
+        return Sql::getDoubleTy(false);
+    }
+};
+
 class ExpressionVisitor {
 public:
     void visit(Expression & exp)
@@ -445,6 +456,7 @@ public:
     virtual void visit(Constant & exp) = 0;
     virtual void visit(NullConstant & exp) = 0;
     virtual void visit(ArrayFunction & exp) = 0;
+    virtual void visit(Random & exp) = 0;
 };
 
 } // end namespace Expressions

@@ -103,7 +103,10 @@ namespace TableFunctions {
                 if (step == 0) throw semantic_sql_error("step size cannot equal zero");
                 for (__int128 v = start; step > 0 ? v <= stop : v >= stop; v += step) {
                     std::vector<Native::Sql::value_op_t> values;
-                    values.push_back(Native::Sql::castColumnValue(text(v, scale), type));
+                    // integers and numerics as values, the others from their text
+                    if (type.typeID == Sql::SqlType::TypeID::IntegerID) values.push_back(std::make_unique<Native::Sql::Integer>(static_cast<int32_t>(v)));
+                    else if (type.typeID == Sql::SqlType::TypeID::NumericID) values.push_back(std::make_unique<Native::Sql::Numeric>(type, static_cast<int64_t>(v)));
+                    else values.push_back(Native::Sql::castColumnValue(text(v, scale), type));
                     row(std::move(values));
                 }
             }

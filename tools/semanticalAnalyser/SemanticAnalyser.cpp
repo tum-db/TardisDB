@@ -18,6 +18,18 @@ namespace semanticalAnalysis {
         for (auto &relation : relations) {
             if (relation.alias.compare("") == 0) relation.alias = relation.name;
 
+            // a subquery: its plan, with the columns of its select list
+            auto derived = context.derivedTables.find(relation.name);
+            if (derived != context.derivedTables.end()) {
+                auto & table = derived->second;
+                for (size_t c = 0; c < table.ius.size(); ++c) {
+                    context.ius[relation.alias][table.names[c]] = table.ius[c];
+                    context.scanIUs[relation.alias].push_back(table.ius[c]);
+                }
+                context.dangling_productions.insert({relation.alias, std::move(table.tree)});
+                continue;
+            }
+
             // Recognize version
             std::string &branchName = relation.version;
             branch_id_t branchId;

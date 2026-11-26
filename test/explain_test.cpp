@@ -77,10 +77,10 @@ namespace {
         for (size_t t : {threads, size_t(4)}) {
             Parallel::threads = t;
             Parallel::morselSize = (t == threads) ? morselSize : 2;
-            // result, join, filter, scan of t, scan of u
+            // result, join, scan of u (the hash table of the smaller table), filter, scan of t
             const std::string p = plan("EXPLAIN ANALYZE SELECT t.name, u.y FROM t, u WHERE t.g = u.g AND x > 5;");
             EXPECT_TRUE(has(p, "\"Join Cond\": \"(t.g = u.g)\"")) << p;
-            EXPECT_EQ(actualRows(p), (std::vector<int>{3, 3, 3, 4, 2})) << p;
+            EXPECT_EQ(actualRows(p), (std::vector<int>{3, 3, 2, 3, 4})) << p;
             EXPECT_TRUE(has(p, "\"Compilation Time\"") && has(p, "\"Execution Time\"")) << p;
         }
         Parallel::threads = threads;
@@ -92,13 +92,17 @@ namespace {
     }
 
     TEST_F(ExplainTest, SeveralQueries) {
-        // the general aggregation: the rows, then the select list over the groups with HAVING
-        const std::string a = plan("EXPLAIN ANALYZE SELECT g, count(*) FROM t GROUP BY g HAVING count(*) > 1;");
+        // GROUP BY in the plan: a hash aggregation, HAVING a filter over its groups
+        const std::string g = plan("EXPLAIN ANALYZE SELECT g, count(*) FROM t GROUP BY g HAVING count(*) > 1;");
+        EXPECT_TRUE(has(g, "\"Node Type\": \"HashAggregate\"") && has(g, "\"Group Key\": [\"g\"]")) << g;
+        EXPECT_EQ(actualRows(g), (std::vector<int>{1, 1, 3, 4})) << g;
+        // an aggregate the plan does not compute (of varchar): the rows, then the select list over the groups with HAVING
+        const std::string a = plan("EXPLAIN ANALYZE SELECT g, max(CAST(name AS varchar(5))) FROM t GROUP BY g HAVING count(*) > 1;");
         EXPECT_TRUE(has(a, "\"Node Type\": \"Queries\"") && has(a, "\"Query\": \"aggregate rows\"") && has(a, "\"Query\": \"aggregate\"")) << a;
-        EXPECT_EQ(actualRows(a), (std::vector<int>{4, 4, 1, 1, 3})) << a;
-        // the steps of a recursive common table expression: one plan with its executions
+        EXPECT_EQ(actualRows(a), (std::vector<int>{4, 4, 4, 1, 1, 1, 3})) << a;
+        // a recursive common table expression: one plan, whose loop runs the steps over the working table
         const std::string r = plan("EXPLAIN ANALYZE WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 3) SELECT max(i) FROM r;");
-        EXPECT_TRUE(has(r, "\"Executions\": 3")) << r;
+        EXPECT_TRUE(has(r, "\"Node Type\": \"Recursive Union\"") && has(r, "\"Node Type\": \"WorkTable Scan\"")) << r;
         // over several branches
         exec("CREATE BRANCH b FROM master;");
         const std::string b = plan("EXPLAIN SELECT branch, sum(x) FROM t VERSION ALL GROUP BY branch;");
@@ -112,7 +116,7 @@ namespace {
         EXPECT_THROW(exec("EXPLAIN (BUFFERS) SELECT g FROM t;"), std::exception);
         EXPECT_THROW(exec("EXPLAIN EXPLAIN SELECT g FROM t;"), std::exception);
         EXPECT_THROW(exec("EXPLAIN;"), std::exception);
-        EXPECT_THROW(exec("EXPLAIN SELECT g, count(*) FROM t GROUP BY g;"), std::exception);    // needs ANALYZE
+        EXPECT_THROW(exec("EXPLAIN SELECT g, max(CAST(name AS varchar(5))) FROM t GROUP BY g;"), std::exception);    // needs ANALYZE
         EXPECT_THROW(exec("EXPLAIN SELECT 1 UNION SELECT 2;"), std::exception);
         EXPECT_FALSE(db->hasTable("z"));
         EXPECT_EQ(rows("SELECT count(*) FROM t;"), (std::vector<std::string>{"(4)"}));

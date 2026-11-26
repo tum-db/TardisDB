@@ -7,6 +7,7 @@
 
 
 #include "sqlParser/Expression.hpp"
+#include <memory>
 #include <vector>
 #include <string>
 
@@ -19,6 +20,7 @@ namespace semanticalAnalysis {
         size_t precision;
         bool nullable;
     };
+    struct SelectStatement;
     struct Relation {
         std::string name;
         std::string alias;
@@ -27,6 +29,8 @@ namespace semanticalAnalysis {
         // "descendants" or "leaves" (of version), "diff" (the two versions in versionSet)
         std::string versionScope;
         std::vector<std::string> versionSet;
+        std::shared_ptr<SelectStatement> subquery;   // a subquery in FROM, planned as a part of the query
+        std::vector<std::string> subqueryColumns;    // the names its alias gives its columns
     };
     struct Column {
         std::string name;
@@ -58,6 +62,7 @@ namespace semanticalAnalysis {
         std::string tableName;
         std::vector<ColumnSpec> columns;
         std::vector<std::string> primaryKey; // the columns of PRIMARY KEY ( ... ), if any
+        bool ifNotExists = false;            // CREATE TABLE IF NOT EXISTS: nothing if the table exists
     };
     struct CreateBranchStatement {
         std::string branchName;
@@ -94,13 +99,14 @@ namespace semanticalAnalysis {
     struct CopyStatement {
         Relation relation;
         std::string filePath;
-        std::string format;      // csv or tbl
+        std::string format;      // text (the default), csv or tbl
         bool directionFrom;
         bool header = false;     // the first line names the columns
         std::string delimiter;   // the options; empty for the default of the format
         std::string quote;
         std::string escape;
         std::string null;        // the text of NULL (an empty field by default)
+        bool nullGiven = false;  // NULL 'text' was given (text's default is \N)
     };
 
     using BindingAttribute = std::pair<std::string, std::string>; // bindingName and attribute

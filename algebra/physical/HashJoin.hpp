@@ -20,10 +20,10 @@ class HashJoin : public BinaryOperator {
 public:
     using join_pair_vec_t = std::vector<std::pair<Expressions::exp_op_t, Expressions::exp_op_t>>;
 
-    /// \param pairs: vector of (left expr, right expr) pairs
+    /// \param pairs: vector of (left expr, right expr) pairs; \p swapped: the left (build) side is the logical join's right side
     HashJoin(const logical_operator_t & logicalOperator,
             std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
-            join_pair_vec_t pairs, QueryContext &queryContext);
+            join_pair_vec_t pairs, QueryContext &queryContext, bool swapped = false);
 
     virtual ~HashJoin();
 
@@ -36,6 +36,7 @@ private:
     void consumeRight(const iu_value_mapping_t & values) override;
 
     join_pair_vec_t joinPairs;
+    bool _swapped;
 
     cg_voidptr_t memoryPool;
     cg_voidptr_t joinTable;

@@ -5,6 +5,8 @@
 #include "BranchAggregation.hpp"
 #include "BranchDiff.hpp"
 #include "GroupBy.hpp"
+#include "Aggregation.hpp"
+#include "Fixpoint.hpp"
 #include "HashJoin.hpp"
 #include "MergeJoin.hpp"
 #include "IndexJoin.hpp"
