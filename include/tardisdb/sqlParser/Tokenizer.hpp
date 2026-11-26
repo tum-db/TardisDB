@@ -133,6 +133,13 @@ namespace tardisParser {
         std::istream &_in;
         std::vector<Token> _tokens;
         bool _keepCasts = false;
+        bool _ended = false; // a comment ran to the end of the input
+
+        /// \returns Whether the text is a number up to the e of its exponent
+        static bool isExponent(const std::string & text);
+
+        /// \returns Whether the last token ends an operand (a + or - after it is an operator)
+        bool afterOperand() const;
 
         static bool is_delimiter(Token &tok);
 

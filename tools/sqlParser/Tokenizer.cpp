@@ -154,8 +154,26 @@ namespace tardisParser {
         return array ? type + "[]" : type;
     }
 
+    bool Tokenizer::isExponent(const std::string & text) {
+        if (text.size() < 2 || (text.back() != 'e' && text.back() != 'E')) return false;
+        return (std::isdigit(static_cast<unsigned char>(text[0])) || text[0] == '.') &&
+               text.find_first_not_of("0123456789.") == text.size() - 1;
+    }
+
+    bool Tokenizer::afterOperand() const {
+        if (_tokens.empty()) return false;
+        const Token & last = _tokens.back();
+        if (last.type == Type::identifier) return true;
+        if (last.type == Type::literal) return last.quoted || (last.value != "+" && last.value != "-" && last.value != "/");
+        return last.equalsControlSymbol(controlSymbols::closeBracket) || last.equalsControlSymbol(controlSymbols::closeSquare);
+    }
+
     const Token &Tokenizer::next() {
         std::stringstream ss;
+        if (_ended) {
+            _tokens.emplace_back(Type::delimiter, ";");
+            return _tokens.back();
+        }
 
         // a string literal is one token, whatever it contains; '' stands for a quote
         while (std::isspace(_in.peek())) _in.get();
@@ -227,6 +245,27 @@ namespace tardisParser {
                         ss << static_cast<char>(_in.get());
                     }
                 }
+                break;
+            } else if (c == '-' && _in.peek() == '-' && !(i > 0 && ss.str().front() == '"')) {
+                // a comment, to the end of the line; at the end of the input it ends the statement
+                while (_in.peek() != EOF && _in.peek() != '\n') _in.get();
+                if (_in.peek() == EOF) _ended = true;
+                if (i > 0) break;
+                if (_ended) {
+                    _tokens.emplace_back(Type::delimiter, ";");
+                    return _tokens.back();
+                }
+                continue;
+            } else if ((c == '+' || c == '-' || c == '/') && !(i > 0 && ss.str().front() == '"')) {
+                // + - / end the token before them (a-1 is a, -, 1), except the sign of an exponent (1e-5)
+                if (i > 0) {
+                    if (c != '/' && isExponent(ss.str())) { ss << static_cast<char>(c); i++; continue; }
+                    _in.putback(c);
+                    break;
+                }
+                // a sign after no operand is of the number (-5); else the operator
+                if (c != '/' && (std::isdigit(_in.peek()) || _in.peek() == '.') && !afterOperand()) { ss << static_cast<char>(c); i++; continue; }
+                ss << static_cast<char>(c);
                 break;
             } else if (c == ';' || controlSymbols::controlSymbolSet.count(std::string({static_cast<char>(c)})) > 0) {
                 if (i > 0) {
