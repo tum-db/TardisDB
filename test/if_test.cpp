@@ -16,7 +16,7 @@ llvm::Function * if_1_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if1Test", funcTy);
 
     {
@@ -39,7 +39,7 @@ llvm::Function * if_2_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if2Test", funcTy);
 
     {
@@ -62,7 +62,7 @@ llvm::Function * if_3_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if3Test", funcTy);
 
     {
@@ -89,7 +89,7 @@ llvm::Function * if_4_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if4Test", funcTy);
 
     {
@@ -116,7 +116,7 @@ llvm::Function * if_5_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if5Test", funcTy);
 
     {
@@ -147,7 +147,7 @@ llvm::Function * if_6_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if6Test", funcTy);
 
     {
@@ -179,7 +179,7 @@ llvm::Function * if_7_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if7Test", funcTy);
 
     {
@@ -208,7 +208,7 @@ llvm::Function * if_8_test()
     auto & context = codeGen.getLLVMContext();
     auto & moduleGen = codeGen.getCurrentModuleGen();
 
-    llvm::FunctionType * funcTy = llvm::TypeBuilder<void (), false>::get(context);
+    llvm::FunctionType * funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(context), false); // returns the result
     FunctionGen funcGen(moduleGen, "if8Test", funcTy);
 
     {

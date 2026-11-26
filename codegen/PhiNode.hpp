@@ -3,6 +3,7 @@
 #include <string>
 
 #include "codegen/CodeGen.hpp"
+#include <llvm/IR/CFG.h>
 #include "foundations/exceptions.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
@@ -76,10 +77,19 @@ public:
             _node = llvm::PHINode::Create(firstValue->getType(), size, _name, first);
         }
 
-        for (auto & inPair : _incoming) {
-            _node->addIncoming(inPair.first, inPair.second);
+        // one entry per edge into the block: the value of its predecessor, else the initial value (the branches of an
+        // IfGen with ElseIf need not be the blocks the values were assigned in, nor the block the node was declared in)
+        if (llvm::pred_begin(currentBB) == llvm::pred_end(currentBB)) {
+            for (auto & inPair : _incoming) _node->addIncoming(inPair.first, inPair.second);
+            return _node;
         }
-
+        for (llvm::BasicBlock * predecessor : llvm::predecessors(currentBB)) {
+            llvm::Value * value = firstValue;
+            for (auto it = _incoming.rbegin(); it != _incoming.rend(); ++it) {
+                if (it->second == predecessor) { value = it->first; break; }
+            }
+            _node->addIncoming(value, predecessor);
+        }
         return _node;
     }
 

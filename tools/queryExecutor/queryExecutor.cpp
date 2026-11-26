@@ -17,6 +17,7 @@
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
 #include <llvm/Transforms/InstCombine/InstCombine.h>
+#include <llvm/Transforms/Utils.h>
 #include <llvm/Target/TargetMachine.h>
 
 #include "algebra/logical/operators.hpp"
@@ -48,7 +49,10 @@ namespace QueryExecutor {
         using namespace llvm;
         using namespace llvm::legacy;
 
-        //pm.add(createInstructionCombiningPass());
+        // values in registers instead of stack slots, then simpler instructions and branches: less code to compile, faster to run
+        pm.add(createPromoteMemoryToRegisterPass());
+        pm.add(createInstructionCombiningPass());
+        pm.add(createCFGSimplificationPass());
         pm.add(createReassociatePass());
         pm.add(createGVNPass(false)); // there should be no redundant loads
         //pm.add(createCFGSimplificationPass());
@@ -74,7 +78,7 @@ namespace QueryExecutor {
         return times;
     }
 
-    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction) {
+    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction, bool loops) {
         auto &moduleGen = getThreadLocalCodeGen().getCurrentModuleGen();
 
         llvm::FunctionType * funcUpdateTupleTy = llvm::TypeBuilder<void (void *), false>::get(getThreadLocalCodeGen().getLLVMContext());
@@ -106,7 +110,7 @@ namespace QueryExecutor {
         const auto compilationStart = std::chrono::high_resolution_clock::now();
 
         llvm::EngineBuilder eb(moduleGen.finalizeModule());
-        eb.setOptLevel(LLVMCompat::codeGenOptNone);
+        eb.setOptLevel(loops ? LLVMCompat::codeGenOptLess : LLVMCompat::codeGenOptNone);
 //    eb.setOptLevel( llvm::CodeGenOpt::Less );
 //    eb.setOptLevel( llvm::CodeGenOpt::Default );
 //    eb.setOptLevel( llvm::CodeGenOpt::Aggressive );

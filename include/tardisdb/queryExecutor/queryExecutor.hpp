@@ -24,7 +24,8 @@ namespace QueryExecutor {
     };
     RunTimes & runTimes();
 
-    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction = nullptr);
+    /// Compiles and runs the query function; \p loops: its code runs many times (a recursive query), so the machine code is optimised
+    llvm::GenericValue executeFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, void *callbackFunction = nullptr, bool loops = false);
     BenchmarkResult executeBenchmarkFunction(llvm::Function *queryFunc, std::vector<llvm::GenericValue> &args, unsigned runs = 1, void *callbackFunction = nullptr);
 }
 

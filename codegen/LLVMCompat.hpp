@@ -110,8 +110,10 @@ inline llvm::PointerType * getIntNPtrTy(llvm::LLVMContext & context, unsigned bi
 /// Optimisation level of the code generator: none
 #if LLVM_VERSION_MAJOR < 18
 constexpr auto codeGenOptNone = llvm::CodeGenOpt::None;
+constexpr auto codeGenOptLess = llvm::CodeGenOpt::Less;
 #else
 constexpr auto codeGenOptNone = llvm::CodeGenOptLevel::None;
+constexpr auto codeGenOptLess = llvm::CodeGenOptLevel::Less;
 #endif
 
 /// Makes the load atomic (monotonic), for values that other threads may store meanwhile
