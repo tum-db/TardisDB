@@ -5,12 +5,17 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
+#include <deque>
 #include <limits>
 #include <atomic>
 #include <mutex>
 #include <shared_mutex>
 
 #include "utils/shared_latch.hpp"
+
+class Key; // of third_party/ART
+namespace ART_unsynchronized { class Tree; }
+namespace Native { namespace Sql { class Value; } }
 
 #include "sql/SqlType.hpp"
 #include "Vector.hpp"
@@ -207,21 +212,26 @@ private:
     std::atomic<size_t> _active[2] = {{0}, {0}};
 };
 
-/// A hash index on one column of a table, local to one branch: CREATE INDEX ON t (c) VERSION b.
-/// It covers the tuples of the branch and is maintained by the writes of the branch only, since
-/// writes in other branches are not visible in it. Entries are candidates: the scan still tests
-/// visibility and the predicate, so entries of overwritten or deleted versions may remain.
+/// An index on one column of a table, local to one branch: CREATE INDEX ON t (c) VERSION b. An
+/// adaptive radix tree (third_party/ART) maps the key of each value (BranchIndex::key) to its
+/// posting, the tuples with that value. It covers the tuples of the branch and is maintained by the
+/// writes of the branch only, since writes in other branches are not visible in it. Entries are
+/// candidates: readers still test visibility and the predicate, so entries of overwritten or deleted
+/// versions may remain. NULL is not indexed.
 class BranchIndex {
 public:
-    BranchIndex(std::string name, size_t column, branch_id_t branch) :
-            name(std::move(name)), column(column), branch(branch)
-    { }
+    BranchIndex(std::string name, size_t column, branch_id_t branch);
+    ~BranchIndex();
 
-    /// Adds the tuple under the hash of its key, unless it is there already
-    void add(uint64_t hash, tid_t tid);
+    /// The key of a value: its bytes, order-preserving for numbers and prefix-free (strings end in a
+    /// terminator); empty for NULL
+    static std::string key(const Native::Sql::Value & value);
 
-    /// \returns The candidates for the key with the given hash, or nullptr
-    const std::vector<tid_t> * lookup(uint64_t hash) const;
+    /// Adds the tuple under the key, unless it is there already
+    void add(const std::string & key, tid_t tid);
+
+    /// \returns The tuples of the key, in ascending order, or nullptr
+    const std::vector<tid_t> * lookup(const std::string & key) const;
 
     size_t size() const { return _size; }
 
@@ -230,7 +240,14 @@ public:
     const branch_id_t branch;
 
 private:
-    std::unordered_map<uint64_t, std::vector<tid_t>> _entries;
+    struct Posting {
+        std::string key;
+        std::vector<tid_t> tids;
+    };
+    static void loadKey(uint64_t posting, Key & key); // the key of a leaf of the tree
+
+    std::unique_ptr<ART_unsynchronized::Tree> _tree;
+    std::deque<Posting> _postings; // their addresses are the values of the leaves
     size_t _size = 0;
 };
 
@@ -400,25 +417,6 @@ public:
 };
 
 //-----------------------------------------------------------------------------
-// Index
-class Index {
-public:
-    virtual ~Index() { }
-
-private:
-    std::vector<ci_p_t> _key;
-};
-
-class ARTIndex : public Index {
-
-};
-
-class BTreeIndex : public Index {
-
-};
-
-
-//-----------------------------------------------------------------------------
 // Branch
 
 struct Branch {
@@ -490,7 +488,6 @@ public:
 
 private:
     std::unordered_map<std::string, std::unique_ptr<Table>> _tables;
-    std::unordered_map<std::string, std::unique_ptr<Index>> _indexes;
 
 public:
     branch_id_t createBranch(const std::string & name, branch_id_t parent);

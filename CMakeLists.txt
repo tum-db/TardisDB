@@ -167,7 +167,8 @@ file(GLOB_RECURSE NATIVE_FILES "native/*.cpp" "native/*.hpp" "native/*.tcc")
 file(GLOB_RECURSE SQL_FILES "sql/*.cpp" "sql/*.hpp" "sql/*.tcc")
 file(GLOB_RECURSE UTILS_FILES "utils/*.cpp" "utils/*.hpp" "utils/*.tcc")
 
-set(THIRD_PARTY_FILES third_party/hexdump.cpp third_party/hexdump.hpp)
+# the adaptive radix tree of the indexes; Tree.cpp includes the nodes' sources
+set(THIRD_PARTY_FILES third_party/hexdump.cpp third_party/hexdump.hpp third_party/ART/Tree.cpp)
 
 set(DB_LIB_SOURCE_FILES
 	${ALGEBRA_FILES}

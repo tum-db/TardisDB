@@ -36,9 +36,7 @@ static size_t index_probe(void * state)
 {
     auto * s = static_cast<TableScan::ProbeState *>(state);
     s->candidates.clear();
-    if (const auto * tids = s->index->lookup(s->keyHash)) {
-        s->candidates = *tids;
-    }
+    if (const auto * tids = s->index->lookup(s->key)) s->candidates = *tids;
     return s->candidates.size();
 }
 
@@ -86,12 +84,11 @@ void TableScan::produce()
 {
     auto & funcGen = _codeGen.getCurrentFunctionGen();
 
-    size_t tableSize = table.size();
-    if (tableSize < 1) return;  // nothing to produce
-    prepare_scan(table, branchId);
+    if (!prepare()) return;  // nothing to produce
+    const size_t tableSize = table.size();
     auto & logicalScan = static_cast<const Logical::TableScan &>(_logicalOperator);
     if (logicalScan.getIndex() != nullptr) {
-        produceIndexProbe(*logicalScan.getIndex(), logicalScan.getIndexKeyHash());
+        produceIndexProbe(*logicalScan.getIndex(), logicalScan.getIndexKey());
         return;
     }
     if (Parallel::threads > 1 && isParallelPipeline()) {
@@ -204,9 +201,34 @@ llvm::Value *TableScan::getBranchElemPtr(cg_tid_t &tid, column_t &column, cg_voi
     return check.getResult(0);
 }
 
-void TableScan::produceIndexProbe(const BranchIndex & index, uint64_t keyHash)
+bool TableScan::prepare()
+{
+    if (table.size() < 1) return false;
+    prepare_scan(table, branchId);
+    return true;
+}
+
+void TableScan::produceCandidates(llvm::Value * count, llvm::Value * tids)
 {
     auto & funcGen = _codeGen.getCurrentFunctionGen();
+    llvm::Type * i64Ty = llvm::Type::getInt64Ty(_codeGen.getLLVMContext());
+    LoopGen loop(funcGen, _codeGen->CreateICmpULT(cg_size_t(0ul).getValue(), count), {{"candidate", cg_size_t(0ul)}});
+    cg_size_t candidate(loop.getLoopVar(0));
+    {
+        LoopBodyGen bodyGen(loop);
+        cg_tid_t tid(_codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, tids, candidate.getValue())));
+        IfGen visibilityCheck(isVisible(tid, branchId));
+        {
+            produce(tid, branchId);
+        }
+        visibilityCheck.EndIf();
+    }
+    cg_size_t next = candidate + 1ul;
+    loop.loopDone(_codeGen->CreateICmpULT(next.getValue(), count), {next});
+}
+
+void TableScan::produceIndexProbe(const BranchIndex & index, const std::string & key)
+{
     auto & context = _codeGen.getLLVMContext();
     llvm::Type * i64Ty = llvm::Type::getInt64Ty(context);
 
@@ -214,7 +236,7 @@ void TableScan::produceIndexProbe(const BranchIndex & index, uint64_t keyHash)
     ProbeState & state = *owned;
     _context.executionContext.acquireResource(std::move(owned));
     state.index = &index;
-    state.keyHash = keyHash;
+    state.key = key;
 
     auto & moduleGen = _codeGen.getCurrentModuleGen();
     llvm::Function * probe = LLVMCompat::getOrInsertFunction(moduleGen.getModule(), "index_probe",
@@ -227,20 +249,7 @@ void TableScan::produceIndexProbe(const BranchIndex & index, uint64_t keyHash)
     llvm::Value * statePtr = cg_ptr8_t::fromRawPointer(&state).getValue();
     llvm::Value * count = _codeGen->CreateCall(probe, {statePtr});
     llvm::Value * candidates = _codeGen->CreatePointerCast(_codeGen->CreateCall(candidatesFunc, {statePtr}), llvm::PointerType::getUnqual(i64Ty));
-
-    LoopGen probeLoop(funcGen, _codeGen->CreateICmpULT(cg_size_t(0ul).getValue(), count), {{"candidate", cg_size_t(0ul)}});
-    cg_size_t candidate(probeLoop.getLoopVar(0));
-    {
-        LoopBodyGen bodyGen(probeLoop);
-        cg_tid_t tid(_codeGen->CreateLoad(i64Ty, _codeGen->CreateGEP(i64Ty, candidates, candidate.getValue())));
-        IfGen visibilityCheck(isVisible(tid, branchId));
-        {
-            produce(tid, branchId);
-        }
-        visibilityCheck.EndIf();
-    }
-    cg_size_t nextCandidate = candidate + 1ul;
-    probeLoop.loopDone(_codeGen->CreateICmpULT(nextCandidate.getValue(), count), {nextCandidate});
+    produceCandidates(count, candidates);
 }
 
 bool TableScan::isParallelPipeline()

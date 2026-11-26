@@ -212,6 +212,20 @@ assert "Merge Join" in cur.fetchone()[0]
 cur.execute("select a.id, b.id from k a, k b where a.id = b.id - 1")
 assert sorted(cur.fetchall()) == hashed == [(1, 2), (2, 3), (3, 4), (4, 5)], hashed
 cur.execute("set enable_hashjoin = on")
+# the index join of the session (SET enable_indexjoin)
+cur.execute("create table ij (id integer not null, label text)")
+cur.execute("insert into ij values " + ", ".join(f"({i}, 'label {i}')" for i in range(1, 2001)))
+cur.execute("create index on ij (id)")
+cur.execute("explain select k.id, ij.label from k, ij where k.id = ij.id")
+assert "Index Join" in cur.fetchone()[0]
+cur.execute("select k.id, ij.label from k, ij where k.id = ij.id")
+indexed = sorted(cur.fetchall())
+cur.execute("set enable_indexjoin = off")
+cur.execute("show enable_indexjoin")
+assert cur.fetchone() == ("off",)
+cur.execute("select k.id, ij.label from k, ij where k.id = ij.id")
+assert sorted(cur.fetchall()) == indexed and len(indexed) > 0, indexed
+cur.execute("set enable_indexjoin = on")
 # generate_series, with parameters in both drivers
 cur.execute("select g from generate_series(1, %s) g order by g desc", (3,))
 assert cur.fetchall() == [(3,), (2,), (1,)] and [d.name for d in cur.description] == ["g"]

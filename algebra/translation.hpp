@@ -15,6 +15,10 @@ enum class JoinMethod { Hash, Merge };
 /// \returns The join method of the translations of the current thread (a session of pgserver has its thread)
 JoinMethod & joinMethod();
 
+/// \returns Whether the translations of the current thread join by an index where one side is a scan
+/// of a table with a BranchIndex on the column of an equality (SET enable_indexjoin, default on)
+bool & indexJoin();
+
 /// \note This function must only be used inside a code generation context.
 /// This means that there already has to be a valid ModuleGen available within the current context.
 std::unique_ptr<Physical::Operator> translateToPhysicalTree(const Logical::Operator & resultOperator, QueryContext &queryContext);

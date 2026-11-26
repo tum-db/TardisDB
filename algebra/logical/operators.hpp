@@ -558,14 +558,14 @@ public:
 
     Table & getTable() const { return _table; }
 
-    branch_id_t getBranchId() { return branchId; }
+    branch_id_t getBranchId() const { return branchId; }
 
-    /// Scans only the candidates of the index for the key with the given hash
-    void setIndexProbe(const BranchIndex * index, uint64_t keyHash) { _index = index; _indexKeyHash = keyHash; }
+    /// Scans only the candidates of the index for the key (BranchIndex::key)
+    void setIndexProbe(const BranchIndex * index, std::string key) { _index = index; _indexKey = std::move(key); }
 
     const BranchIndex * getIndex() const { return _index; }
 
-    uint64_t getIndexKeyHash() const { return _indexKeyHash; }
+    const std::string & getIndexKey() const { return _indexKey; }
 
 protected:
     void computeProduced() override;
@@ -574,7 +574,7 @@ protected:
     Table & _table;
     branch_id_t branchId;
     const BranchIndex * _index = nullptr;
-    uint64_t _indexKeyHash = 0;
+    std::string _indexKey;
 };
 
 //-----------------------------------------------------------------------------

@@ -18,6 +18,12 @@ JoinMethod & joinMethod()
     return method;
 }
 
+bool & indexJoin()
+{
+    thread_local bool enabled = true;
+    return enabled;
+}
+
 using physical_aggregator_op_t = std::unique_ptr<Physical::Aggregations::Aggregator>;
 using physical_expression_op_t = std::unique_ptr<Physical::Expressions::Expression>;
 using physical_operator_op_t = std::unique_ptr<Physical::Operator>;
@@ -363,6 +369,53 @@ public:
         ) );
     }
 
+    /// The tuples of the indexed table per tuple of a scan on the probe side from which the index join
+    /// is faster than the hash join (measured: 30 at 1.5M tuples, 20 at 150K)
+    static constexpr size_t indexJoinRatio = 32;
+
+    /// The scan of a side, below its selections, or nullptr
+    static const Logical::TableScan * scanOf(const Logical::Operator & side)
+    {
+        const Logical::Operator * op = &side;
+        while (auto * select = dynamic_cast<const Logical::Select *>(op)) op = &select->getChild();
+        return dynamic_cast<const Logical::TableScan *>(op);
+    }
+
+    /// An index join, if a side is a scan (also below selections) of a table whose BranchIndex in the
+    /// scanned branch is on the column of a pair's expression of that side, and the other side, if it
+    /// is a scan, has at most 1/indexJoinRatio of the tuples of that table: a lookup per tuple (with its
+    /// cache misses in the tree and the table) costs about as much as hashing 30 tuples of a scan; the
+    /// right side first. \returns Whether it pushed one
+    bool tryIndexJoin(Logical::Join & op, physical_operator_op_t & leftChild, physical_operator_op_t & rightChild,
+                      std::vector<std::pair<physical_expression_op_t, physical_expression_op_t>> & joinPairs)
+    {
+        for (const bool rightIndexed : {true, false}) {
+            const Logical::TableScan * scan = scanOf(rightIndexed ? op.getRightChild() : op.getLeftChild());
+            const Logical::TableScan * probeScan = scanOf(rightIndexed ? op.getLeftChild() : op.getRightChild());
+            physical_operator_op_t & indexed = rightIndexed ? rightChild : leftChild;
+            if (scan == nullptr || Physical::IndexJoin::indexedScan(*indexed) == nullptr) continue;
+            if (probeScan != nullptr && probeScan->getTable().size() * indexJoinRatio > scan->getTable().size()) continue;
+            for (size_t i = 0; i < op._joinExprVec.size(); ++i) {
+                auto & cmp = static_cast<Logical::Expressions::Comparison &>(*op._joinExprVec[i]);
+                auto * column = dynamic_cast<Logical::Expressions::Identifier *>(rightIndexed ? &cmp.getRightChild() : &cmp.getLeftChild());
+                if (column == nullptr || column->_iu->columnInformation == nullptr) continue;
+                const BranchIndex * index = scan->getTable().getIndex(column->_iu->columnInformation->index, scan->getBranchId());
+                if (index == nullptr) continue;
+                // the pairs as (probe side, indexed side)
+                Physical::IndexJoin::join_pair_vec_t pairs;
+                for (auto & pair : joinPairs) {
+                    if (rightIndexed) pairs.emplace_back(std::move(pair.first), std::move(pair.second));
+                    else pairs.emplace_back(std::move(pair.second), std::move(pair.first));
+                }
+                physical_operator_op_t & probe = rightIndexed ? leftChild : rightChild;
+                _translated.push(std::make_unique<Physical::IndexJoin>(op, std::move(probe), std::move(indexed), *index,
+                                                                       std::move(pairs), i, _queryContext));
+                return true;
+            }
+        }
+        return false;
+    }
+
     void visit(Logical::Join & op) override
     {
         auto rightChild = std::move( _translated.top() );
@@ -399,6 +452,11 @@ public:
                 throw NotImplementedException();
                 // e.g. or construction within an expression -> block nested loop join
             }
+        }
+
+        if (op._method == Logical::Join::Method::Hash && indexJoin() &&
+            tryIndexJoin(op, leftChild, rightChild, joinPairs)) {
+            return;
         }
 
         switch (op._method) {

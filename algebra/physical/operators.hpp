@@ -7,6 +7,7 @@
 #include "GroupBy.hpp"
 #include "HashJoin.hpp"
 #include "MergeJoin.hpp"
+#include "IndexJoin.hpp"
 #include "Map.hpp"
 #include "Print.hpp"
 #include "Select.hpp"

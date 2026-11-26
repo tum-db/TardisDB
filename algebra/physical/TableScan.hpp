@@ -37,9 +37,16 @@ public:
     /// The candidates of an index probe; owned by the execution context
     struct ProbeState : public ExecutionResource {
         const BranchIndex * index;
-        uint64_t keyHash;
-        std::vector<tid_t> candidates;
+        std::string key;
+        std::vector<tid_t> candidates; // a copy: an UPDATE of the branch adds to the index while it scans
     };
+
+    /// Produces the tuples of the tids (count of them at tids, an array of i64) that are visible in the
+    /// branch of the scan; prepare() first, once per query
+    void produceCandidates(llvm::Value * count, llvm::Value * tids);
+
+    /// What a scan needs before it produces tuples: false if the table is empty
+    bool prepare();
 
 private:
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, Sql::value_op_t>;
@@ -53,7 +60,7 @@ private:
     ParallelState * _parallel = nullptr;
 
     /// Scans the candidates of a branch-local index instead of the whole table
-    void produceIndexProbe(const BranchIndex & index, uint64_t keyHash);
+    void produceIndexProbe(const BranchIndex & index, const std::string & key);
     cg_bool_t nullPointerCheck(cg_voidptr_t &pointer);
     llvm::Value *tupleToElemPtr(cg_voidptr_t &ptr, column_t &column);
 

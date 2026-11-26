@@ -222,6 +222,12 @@ sides read one table each, also over expressions (`a.x + 1 = b.y`), as a key of 
 (`test/dialect_test.cpp`). `SET enable_hashjoin = off` (in `pgserver` for the session, as in
 PostgreSQL, and in the `sql` shell) joins by sorting both sides and merging them instead, if the keys
 of each pair have one type with an order; `EXPLAIN` shows a `Merge Join` (`test/merge_join_test.cpp`).
+`CREATE INDEX ON t (c) [VERSION b]` builds an index of the branch, an adaptive radix tree
+(`third_party/ART`) from the values of the column to their tuples, which `WHERE c = constant` and joins
+use: a join whose side scans a table with an index on the column of one of its equalities, in the
+branch it reads, looks up each tuple of the other side in the index (`Index Join` in `EXPLAIN`), unless
+the other side scans more than 1/32 of its tuples; `SET enable_indexjoin = off` turns it off
+(`test/index_join_test.cpp`).
 Each type has a table of the types it casts to (`sql/SqlCasts.cpp`), as `pg_cast` of PostgreSQL:
 comparisons, joins and the arithmetic cast both sides to their common type (`integer` < `bigint` <
 `numeric` < `double precision`; `char` and `varchar` of different lengths to `varchar`, without the

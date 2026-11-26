@@ -715,7 +715,7 @@ private:
                 if (_inBlock) throw SqlError("25001", "SET branch cannot run inside a transaction block");
                 setBranch(match[2].str());
             } else {
-                // enable_hashjoin and enable_mergejoin: for the session, whose statements run in its thread
+                // enable_hashjoin, enable_mergejoin and enable_indexjoin: for the session, whose statements run in its thread
                 try {
                     QueryCompiler::setSetting(match[1].str(), match[2].str());
                 } catch (const std::invalid_argument & e) {
@@ -752,6 +752,7 @@ private:
             _branch = "master";
             QueryCompiler::setSetting("enable_hashjoin", "on");
             QueryCompiler::setSetting("enable_mergejoin", "on");
+            QueryCompiler::setSetting("enable_indexjoin", "on");
             outcome.tag = first == "discard" ? "DISCARD ALL" : "RESET";
         } else if (s == "select version()" || s == "select current_database()" || s == "select current_schema()") {
             outcome.returnsRows = true;

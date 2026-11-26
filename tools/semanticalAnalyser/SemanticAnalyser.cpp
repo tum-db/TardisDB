@@ -73,7 +73,7 @@ namespace semanticalAnalysis {
                 Table & table = scan->getTable();
                 if (const BranchIndex * index = table.getIndex(iu->columnInformation->index, scan->getBranchId())) {
                     auto key = Native::Sql::Value::castString(valueString, Sql::toNotNullableTy(iu->columnInformation->type));
-                    scan->setIndexProbe(index, key->hash());
+                    scan->setIndexProbe(index, BranchIndex::key(*key));
                 }
             }
 

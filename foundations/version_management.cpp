@@ -112,7 +112,7 @@ static void record_write(Table & table, branch_id_t branch, tid_t tid, bool dele
 void index_tuple(Table & table, branch_id_t branch, tid_t tid, const Native::Sql::SqlTuple & tuple) {
     for (auto & index : table._indexes) {
         if (index->branch == branch) {
-            index->add(tuple.values[index->column]->hash(), tid);
+            index->add(BranchIndex::key(*tuple.values[index->column]), tid);
         }
     }
 }
@@ -801,7 +801,7 @@ void build_index(Table & table, BranchIndex & index) {
         const VersionEntry * entry = table._version_mgmt_column[tid].get();
         const void * element = reader.visible(entry);
         if (element == nullptr) continue;
-        index.add(load_version(tid, table, element)->values[index.column]->hash(), tid);
+        index.add(BranchIndex::key(*load_version(tid, table, element)->values[index.column]), tid);
     }
 }
 

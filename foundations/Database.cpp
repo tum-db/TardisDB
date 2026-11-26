@@ -1,6 +1,8 @@
 #include "foundations/Database.hpp"
 
 #include <cmath>
+#include <limits>
+#include <type_traits>
 #include <climits>
 #include <cstring>
 #include <algorithm>
@@ -11,6 +13,8 @@
 #include "codegen/LLVMCompat.hpp"
 
 #include "foundations/exceptions.hpp"
+#include "native/sql/SqlValues.hpp"
+#include "third_party/ART/Tree.h"
 #include "native/sql/SqlValues.hpp"
 #include "foundations/version_management.hpp"
 
@@ -380,19 +384,130 @@ cg_bool_t genMembershipTest(BranchMembership & membership, cg_tid_t tid, llvm::V
 //-----------------------------------------------------------------------------
 // BranchIndex
 
-void BranchIndex::add(uint64_t hash, tid_t tid)
+BranchIndex::BranchIndex(std::string name, size_t column, branch_id_t branch) :
+        name(std::move(name)), column(column), branch(branch), _tree(std::make_unique<ART_unsynchronized::Tree>(&BranchIndex::loadKey))
+{ }
+
+BranchIndex::~BranchIndex() = default;
+
+void BranchIndex::loadKey(uint64_t posting, Key & key)
 {
-    auto & tids = _entries[hash];
-    if (std::find(tids.begin(), tids.end(), tid) == tids.end()) {
-        tids.push_back(tid);
-        _size += 1;
-    }
+    const std::string & bytes = reinterpret_cast<const Posting *>(posting)->key;
+    key.set(bytes.data(), bytes.size());
 }
 
-const std::vector<tid_t> * BranchIndex::lookup(uint64_t hash) const
+namespace {
+
+/// the bytes of an integer, most significant first; a signed one with the sign bit flipped, so that
+/// the bytes compare as the numbers
+template<typename T>
+void appendInteger(std::string & out, T value)
 {
-    auto it = _entries.find(hash);
-    return (it != _entries.end()) ? &it->second : nullptr;
+    using U = typename std::make_unsigned<T>::type;
+    U bits = static_cast<U>(value);
+    if (std::is_signed<T>::value) bits ^= static_cast<U>(1) << (8 * sizeof(T) - 1);
+    for (size_t i = sizeof(T); i-- > 0;) out.push_back(static_cast<char>((bits >> (8 * i)) & 0xff));
+}
+
+/// the bytes of a string, prefix-free: 0 becomes 0 255, and 0 0 ends the string
+void appendString(std::string & out, const uint8_t * bytes, size_t length)
+{
+    for (size_t i = 0; i < length; ++i) {
+        out.push_back(static_cast<char>(bytes[i]));
+        if (bytes[i] == 0) out.push_back(static_cast<char>(0xff));
+    }
+    out.push_back(0);
+    out.push_back(0);
+}
+
+} // namespace
+
+std::string BranchIndex::key(const Native::Sql::Value & value)
+{
+    using TypeID = Sql::SqlType::TypeID;
+    if (Native::Sql::isNullable(value)) {
+        if (static_cast<const Native::Sql::NullableValue &>(value).isNull()) return std::string();
+        return key(Native::Sql::getAssociatedValue(value));
+    }
+    std::string out;
+    switch (value.type.typeID) {
+        case TypeID::BoolID:
+            out.push_back(static_cast<const Native::Sql::Bool &>(value).value ? 1 : 0);
+            break;
+        case TypeID::IntegerID:
+            appendInteger(out, static_cast<const Native::Sql::Integer &>(value).value);
+            break;
+        case TypeID::LongIntegerID: // held by a Numeric
+        case TypeID::NumericID:
+            appendInteger(out, static_cast<const Native::Sql::Numeric &>(value).value);
+            break;
+        case TypeID::DateID:
+            appendInteger(out, static_cast<const Native::Sql::Date &>(value).value);
+            break;
+        case TypeID::TimestampID:
+            appendInteger(out, static_cast<const Native::Sql::Timestamp &>(value).value);
+            break;
+        case TypeID::DoubleID: {
+            // the bits, ordered as the numbers: -0 is 0, and all NaNs are one
+            double d = static_cast<const Native::Sql::Double &>(value).value;
+            if (d == 0.0) d = 0.0;
+            if (std::isnan(d)) d = std::numeric_limits<double>::quiet_NaN();
+            uint64_t bits;
+            std::memcpy(&bits, &d, sizeof(bits));
+            bits = (bits >> 63) ? ~bits : bits | (static_cast<uint64_t>(1) << 63);
+            appendInteger(out, bits);
+            break;
+        }
+        case TypeID::CharID:
+        case TypeID::VarcharID: {
+            auto & string = static_cast<const Native::Sql::Varchar &>(value);
+            appendString(out, string.begin(), string.length());
+            break;
+        }
+        case TypeID::TextID: {
+            auto & text = static_cast<const Native::Sql::Text &>(value);
+            appendString(out, text.begin(), text.length());
+            break;
+        }
+        default: {
+            // arrays: their text
+            const std::string text = Native::Sql::toString(value);
+            appendString(out, reinterpret_cast<const uint8_t *>(text.data()), text.size());
+        }
+    }
+    return out;
+}
+
+void BranchIndex::add(const std::string & key, tid_t tid)
+{
+    if (key.empty()) return; // NULL
+    Key k;
+    k.set(key.data(), key.size());
+    Posting * posting = reinterpret_cast<Posting *>(_tree->lookup(k));
+    if (posting == nullptr) {
+        _postings.push_back(Posting{key, {}});
+        posting = &_postings.back();
+        _tree->insert(k, reinterpret_cast<uint64_t>(posting));
+    }
+    // ascending, without duplicates (a tuple updated in the branch is added again)
+    auto & tids = posting->tids;
+    if (tids.empty() || tids.back() < tid) {
+        tids.push_back(tid);
+    } else {
+        auto it = std::lower_bound(tids.begin(), tids.end(), tid);
+        if (it != tids.end() && *it == tid) return;
+        tids.insert(it, tid);
+    }
+    _size += 1;
+}
+
+const std::vector<tid_t> * BranchIndex::lookup(const std::string & key) const
+{
+    if (key.empty()) return nullptr;
+    Key k;
+    k.set(key.data(), key.size());
+    const Posting * posting = reinterpret_cast<const Posting *>(_tree->lookup(k));
+    return (posting != nullptr) ? &posting->tids : nullptr;
 }
 
 //-----------------------------------------------------------------------------
