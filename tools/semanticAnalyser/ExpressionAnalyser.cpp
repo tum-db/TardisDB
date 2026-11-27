@@ -2,6 +2,7 @@
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 
+#include <map>
 #include <set>
 #include <climits>
 
@@ -505,10 +506,22 @@ exp_op_t ExpressionAnalyser::arrayArithmetic(const Node & n)
 exp_op_t ExpressionAnalyser::linearAlgebraFunction(const Node & n)
 {
     static const std::set<std::string> names = {"transpose", "kroneckerproduct", "sig", "relu", "relup", "tanh", "abs",
-                                                "softmax", "softmaxcce", "softmaxccep", "highestposition"};
+                                                "softmax", "softmaxcce", "softmaxccep", "highestposition", "unbroadcast",
+                                                "exp", "ln", "log", "sqrt", "sin", "cos"};
     const std::string & name = n.name;
     if (names.count(name) == 0) return nullptr;
-    const size_t argc = name == "kroneckerproduct" || name == "softmaxcce" || name == "softmaxccep" ? 2 : 1;
+    if (name == "log" && n.children.size() == 2) {
+        // log(b, x) is ln(x) / ln(b)
+        Node ln = n, base = n, quotient;
+        ln.name = base.name = "ln";
+        ln.children = {n.children[1]};
+        base.children = {n.children[0]};
+        quotient.kind = Kind::Operator;
+        quotient.name = "/";
+        quotient.children = {ln, base};
+        return analyse(quotient);
+    }
+    const size_t argc = name == "kroneckerproduct" || name == "softmaxcce" || name == "softmaxccep" || name == "unbroadcast" ? 2 : 1;
     if (n.children.size() != argc) throw semantic_sql_error("function " + name + " takes " + std::to_string(argc) + " argument" + (argc > 1 ? "s" : ""));
     const SqlType doubles = Sql::getArrayTy(Sql::getDoubleTy(), true);
     std::vector<exp_op_t> arguments;
@@ -534,6 +547,15 @@ exp_op_t ExpressionAnalyser::linearAlgebraFunction(const Node & n)
         if (name == "kroneckerproduct") return call(Function::Kronecker, doubles);
         return name == "softmaxcce" ? call(Function::SoftmaxCce, Sql::getDoubleTy(true)) : call(Function::SoftmaxCceP, doubles);
     }
+    if (name == "unbroadcast") {
+        // to the shape of x: nothing to do if both are arrays or both numbers
+        exp_op_t g = numericArgument(n.children[0], "function " + name), x = numericArgument(n.children[1], "function " + name);
+        if (isArray(g->getType()) == isArray(x->getType())) return g;
+        const bool toArray = isArray(x->getType());
+        arguments.push_back(std::move(g));
+        arguments.push_back(std::move(x));
+        return call(Function::Unbroadcast, toArray ? doubles : Sql::getDoubleTy(true));
+    }
     if (name == "softmax" || name == "highestposition") {
         arguments.push_back(array(n.children[0]));
         return name == "softmax" ? call(Function::Softmax, doubles) : call(Function::HighestPosition, Sql::getIntegerTy(true));
@@ -541,7 +563,10 @@ exp_op_t ExpressionAnalyser::linearAlgebraFunction(const Node & n)
     // of each element, or of a number
     exp_op_t x = numericArgument(n.children[0], "function " + name);
     const bool isArrayArgument = isArray(x->getType());
-    MapOp op = name == "sig" ? MapOp::Sig : name == "relu" ? MapOp::Relu : name == "relup" ? MapOp::ReluP : name == "tanh" ? MapOp::Tanh : MapOp::Abs;
+    static const std::map<std::string, MapOp> maps = {{"abs", MapOp::Abs}, {"sig", MapOp::Sig}, {"relu", MapOp::Relu}, {"relup", MapOp::ReluP},
+                                                      {"tanh", MapOp::Tanh}, {"exp", MapOp::Exp}, {"ln", MapOp::Ln}, {"log", MapOp::Log10},
+                                                      {"sqrt", MapOp::Sqrt}, {"sin", MapOp::Sin}, {"cos", MapOp::Cos}};
+    const MapOp op = maps.at(name);
     Node literal;
     literal.kind = Kind::Literal;
     literal.value = std::to_string(static_cast<int32_t>(op));

@@ -213,6 +213,15 @@ stand among other items of the select list, `random()` gives a number in [0, 1) 
 TABLE IF NOT EXISTS` leaves an existing table (`test/script_syntax_test.cpp`).
 Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
 `kroneckerproduct`, `sig`, `softmax`, ...), computed without BLAS (`test/linear_algebra_test.cpp`);
+`exp`, `ln`, `log` (base 10, or `log(b, x)`), `sqrt`, `sin` and `cos` take numbers and arrays, element
+by element. `derivation(TABLE (query), lambda (x) (expression))` in `FROM` returns the rows of the query
+with the partial derivative `d_c` of the expression for each column `x.c` it uses, by reverse-mode
+automatic differentiation of `+ - * / ^ **`, `sig`, `tanh`, `relu`, `abs`, `exp`, `ln`, `log`, `sqrt`,
+`sin`, `cos`, `softmax`, `softmaxcce` and `transpose`; an array expression is summed, and
+`unbroadcast(g, x)` brings a derivative to the shape of its column. Gradient descent runs it in the step
+of a recursive query, as `SELECT id + 1, a - 0.05 * avg(d_a), b - 0.05 * avg(d_b) FROM derivation(TABLE
+(SELECT * FROM gd, samples WHERE id < 500), lambda (x) ((x.a * x.x + x.b - x.y)^2)) GROUP BY id, a, b`
+(`test/derivation_test.cpp`);
 `sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,
 read joins and common table expressions, group by columns, and `HAVING` filters the groups
 (`test/aggregate_test.cpp`); they run in a hash aggregation of the plan (`HashAggregate` in `EXPLAIN`),

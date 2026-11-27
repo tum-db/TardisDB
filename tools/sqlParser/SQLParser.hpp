@@ -5,6 +5,7 @@
 
 #include "sqlParser/Tokenizer.hpp"
 #include "sqlParser/ParserResult.hpp"
+#include "sqlParser/Expression.hpp"
 
 namespace tardisParser {
     struct syntactical_error : std::runtime_error {
@@ -15,6 +16,9 @@ namespace tardisParser {
     public:
 
         static void parseStatement(ParsingContext &context, std::string statement);
+
+        /// \returns The tree of an expression, which must make up all of \p text
+        static sqlExpressions::Node parseExpression(const std::string & text);
 
     private:
 

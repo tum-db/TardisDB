@@ -2123,6 +2123,16 @@ namespace tardisParser {
         }
     }
 
+    sqlExpressions::Node SQLParser::parseExpression(const std::string & text) {
+        std::stringstream in(text + ";");
+        Tokenizer tokenizer(in);
+        ExpressionParser parser(tokenizer, tokenizer.next());
+        Node e = parser.parse();
+        const Token & end = parser.token();
+        if (end.type != Type::delimiter || end.value != ";") throw syntactical_error("Expected the end of the expression, found '" + end.value + "'");
+        return e;
+    }
+
     void SQLParser::parseStatement(ParsingContext &context, std::string statement) {
 
         std::stringstream in(statement);

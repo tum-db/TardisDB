@@ -911,6 +911,17 @@ double mapNumber(MapOp op, double x)
         case MapOp::Relu: return x > 0 ? x : 0;
         case MapOp::ReluP: return x > 0 ? 1 : 0;
         case MapOp::Tanh: return std::tanh(x);
+        case MapOp::Exp: return std::exp(x);
+        case MapOp::Ln:
+        case MapOp::Log10:
+            if (x == 0) throw arrayError("cannot take logarithm of zero");
+            if (x < 0) throw arrayError("cannot take logarithm of a negative number");
+            return op == MapOp::Ln ? std::log(x) : std::log10(x);
+        case MapOp::Sqrt:
+            if (x < 0) throw arrayError("cannot take square root of a negative number");
+            return std::sqrt(x);
+        case MapOp::Sin: return std::sin(x);
+        case MapOp::Cos: return std::cos(x);
     }
     return 0;
 }
@@ -1362,6 +1373,11 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
         case Function::MatrixProduct: {
             if (a.null(0) || a.null(1)) return true;
             Numbers x = numbersOf(a.array(0), elementTypeOf(0)), y = numbersOf(a.array(1), elementTypeOf(1));
+            if (x.widths.size() >= 2 && x.widths.back() == 1 && y.widths.size() == 1 && y.widths.front() != 1) {
+                // a column and a vector: the vector is a row, their product the outer product
+                y.widths.insert(y.widths.begin(), 1);
+                y.lowers.insert(y.lowers.begin(), 1);
+            }
             if (x.widths.empty() || y.widths.empty() || x.widths.back() != y.widths.front()) {
                 throw arrayError("arrays do not have suitable size for **: the last dimension of the first (" +
                                  (x.widths.empty() ? std::string("empty") : std::to_string(x.widths.back())) +
@@ -1450,6 +1466,22 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
             }
             Numbers x = numbersOf(a.array(0), elementTypeOf(0));
             for (size_t i = 0; i < x.count(); ++i) if (!x.isNull(i)) x.values[i] = mapNumber(op, x.values[i]);
+            storeHandle(result, doubles(x.widths, x.lowers, x.values, x.nulls, arena));
+            return false;
+        }
+        case Function::Unbroadcast: {
+            if (a.null(0) || a.null(1)) return true;
+            if (isArrayArgument(a, 0)) {
+                // the sum of the elements, NULL if one of them is
+                Numbers g = numbersOf(a.array(0), elementTypeOf(0));
+                if (g.anyNull()) return true;
+                double sum = 0;
+                for (double v : g.values) sum += v;
+                writeDouble(result, sum);
+                return false;
+            }
+            Numbers x = numbersOf(a.array(1), elementTypeOf(1));
+            x.values.assign(x.count(), numberAt(static_cast<const uint8_t *>(a.args[0]), a.type(0)));
             storeHandle(result, doubles(x.widths, x.lowers, x.values, x.nulls, arena));
             return false;
         }

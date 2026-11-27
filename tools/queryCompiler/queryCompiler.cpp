@@ -4,6 +4,7 @@
 
 #include "queryCompiler/queryCompiler.hpp"
 #include "queryCompiler/TableFunctions.hpp"
+#include "queryCompiler/Derivation.hpp"
 #include "semanticAnalyser/CopyFormat.hpp"
 
 #include <algorithm>
@@ -1479,9 +1480,45 @@ namespace QueryCompiler {
 
     static const std::string prefix = "tardisdb_derived_";
 
+    /// \returns The statement with each derivation(TABLE (query), lambda (x) (expression)) replaced by its subquery (see Derivation.hpp)
+    static std::string derivations(const std::string & sql) {
+        if (sql.find('(') == std::string::npos) return sql;
+        std::string lower;
+        std::transform(sql.begin(), sql.end(), std::back_inserter(lower), ::tolower);
+        if (lower.find("derivation") == std::string::npos) return sql;
+        const std::vector<Lexeme> lexemes = with::lex(sql);
+        const size_t n = lexemes.size();
+        auto text = [&](size_t from, size_t to) { return sql.substr(lexemes[from].begin, lexemes[to].end - lexemes[from].begin); };
+        std::string out;
+        size_t at = 0;
+        for (size_t i = 0; i + 3 < n; ++i) {
+            if (!with::isWord(lexemes, i, "derivation") || lexemes[i + 1].kind != Lexeme::Open || !with::isWord(lexemes, i + 2, "table")) continue;
+            const size_t close = with::matching(lexemes, i + 1, n);
+            // TABLE ( query ) , lambda ( x ) ( expression )
+            size_t k = i + 3;
+            if (k >= close || lexemes[k].kind != Lexeme::Open) throw with::syntaxError("Expected TABLE ( query ) in derivation");
+            const size_t tableEnd = with::matching(lexemes, k, n);
+            const std::string table = text(k + 1, tableEnd - 1);
+            k = tableEnd + 1;
+            if (k + 5 >= close || lexemes[k].kind != Lexeme::Comma || !with::isWord(lexemes, k + 1, "lambda") || lexemes[k + 2].kind != Lexeme::Open ||
+                (lexemes[k + 3].kind != Lexeme::Word && lexemes[k + 3].kind != Lexeme::Quoted) || lexemes[k + 4].kind != Lexeme::Close ||
+                lexemes[k + 5].kind != Lexeme::Open) {
+                throw with::syntaxError("Expected lambda ( name ) ( expression ) after the table of derivation");
+            }
+            const std::string parameter = text(k + 3, k + 3);
+            const size_t bodyEnd = with::matching(lexemes, k + 5, n);
+            if (bodyEnd + 1 != close) throw with::syntaxError("Expected ')' after the lambda of derivation");
+            out += sql.substr(at, lexemes[i].begin - at) + "(" + Derivation::query(table, parameter, text(k + 6, bodyEnd - 1)) + ")";
+            at = lexemes[close].end;
+            i = close;
+        }
+        return at == 0 ? sql : out + sql.substr(at);
+    }
+
     /// \returns The query with each subquery of its FROM (outside other parentheses) replaced by a temporary table, listed in \p subqueries
-    static std::string rewrite(const std::string & sql, std::vector<Subquery> & subqueries) {
+    static std::string rewrite(const std::string & statement, std::vector<Subquery> & subqueries) {
         static std::atomic<uint64_t> counter{0};
+        const std::string sql = derivations(statement);
         if (sql.find('(') == std::string::npos) return sql;
         const std::vector<Lexeme> lexemes = with::lex(sql);
         const size_t n = lexemes.size();

@@ -169,14 +169,15 @@ enum class Function : uint32_t {
     Equals,         // a = b of arrays (with NULL as false and NULL inputs handled by the caller)
     // linear algebra (without BLAS): arrays of numbers, computed in double precision
     Elementwise,    // x op y, an array or a number each: third argument + - * / ^ (ElementwiseOp)
-    MatrixProduct,  // a ** b: sums over the last dimension of a and the first of b (a matrix product)
+    MatrixProduct,  // a ** b: sums over the last dimension of a and the first of b (a matrix product; a column and a vector: the outer product)
     Kronecker,      // kroneckerproduct(a, b) of two matrices
     Transpose,      // transpose(a): the first two dimensions swapped; a vector becomes a column
-    Map,            // f(x) of each element, or of a number: second argument @/abs, sig, relu, relup, tanh (MapOp)
+    Map,            // f(x) of each element, or of a number: second argument a MapOp
     Softmax,        // softmax(a) over all elements
     SoftmaxCce,     // softmaxcce(a, labels): the categorical cross-entropy of softmax(a) and the labels
     SoftmaxCceP,    // softmaxccep(a, labels): its gradient, softmax(a) - labels
     HighestPosition,// highestposition(a): the offset (from 0) of the first greatest element
+    Unbroadcast,    // unbroadcast(g, x): an array g summed to the number x, or a number g repeated in the shape of the array x
 };
 
 /// The numbers of an array (of integer, bigint, numeric or double precision elements) as doubles, with its shape
@@ -196,7 +197,7 @@ void addNumbers(NumberArray & sum, const NumberArray & add);
 Handle fromNumbers(const NumberArray & numbers, Arena * arena);
 
 enum class ElementwiseOp : int32_t { Add, Sub, Mul, Div, Pow };
-enum class MapOp : int32_t { Abs, Sig, Relu, ReluP, Tanh };
+enum class MapOp : int32_t { Abs, Sig, Relu, ReluP, Tanh, Exp, Ln, Log10, Sqrt, Sin, Cos };
 
 /// Writes the result of a function of stored values (with NULL indicators and types as 64 bits) and \returns whether it is NULL
 extern "C" bool tardisArrayCall(uint32_t function, Arena * arena, uint64_t resultType, void * result,
