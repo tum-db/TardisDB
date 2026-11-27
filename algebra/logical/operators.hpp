@@ -93,6 +93,7 @@ class Join;
 class Map;
 class Update;
 class Insert;
+class InsertQuery;
 class Delete;
 class Result;
 class Select;
@@ -113,6 +114,7 @@ struct OperatorVisitor {
     virtual void visit(Map & op) = 0;
     virtual void visit(Update & op) = 0;
     virtual void visit(Insert & op) = 0;
+    virtual void visit(InsertQuery & op) = 0;
     virtual void visit(Delete & op) = 0;
     virtual void visit(Result & op) = 0;
     virtual void visit(Select & op) = 0;
@@ -556,6 +558,25 @@ protected:
     Table & _table;
     branch_id_t branchId;
     std::vector<Native::Sql::SqlTuple *> sqlTuples;
+};
+
+/// INSERT of the rows of a query: its values \p values (the select list) into the columns \p columns
+class InsertQuery : public UnaryOperator {
+public:
+    InsertQuery(std::unique_ptr<Operator> child, Table & table, branch_id_t branchId, std::vector<iu_p_t> values, std::vector<ci_p_t> columns);
+
+    ~InsertQuery() override;
+
+    void accept(OperatorVisitor & visitor) override;
+
+    Table & _table;
+    branch_id_t _branchId;
+    std::vector<iu_p_t> _values;
+    std::vector<ci_p_t> _columns;
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
 };
 
 //-----------------------------------------------------------------------------

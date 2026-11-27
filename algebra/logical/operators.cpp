@@ -640,6 +640,25 @@ void Insert::computeRequired() {
 
 }
 
+InsertQuery::InsertQuery(std::unique_ptr<Operator> child, Table & table, branch_id_t branchId, std::vector<iu_p_t> values,
+                         std::vector<ci_p_t> columns) :
+        UnaryOperator(std::move(child)), _table(table), _branchId(branchId), _values(std::move(values)), _columns(std::move(columns)) { }
+
+InsertQuery::~InsertQuery() { }
+
+void InsertQuery::accept(OperatorVisitor & visitor) {
+    visitor.visit(*this);
+}
+
+void InsertQuery::computeProduced() {
+    produced.clear();
+}
+
+void InsertQuery::computeRequired() {
+    required.clear();
+    required.insert(_values.begin(), _values.end());
+}
+
 //-----------------------------------------------------------------------------
 // Update operator
 
@@ -876,6 +895,14 @@ struct Verifier : public OperatorVisitor {
     void visit(Insert & op) override
     {
 
+    }
+
+    void visit(InsertQuery & op) override
+    {
+        if (!_result) { return; }
+
+        test(op, op.getChild());
+        op.getChild().accept(*this);
     }
 
     void visit(Update & op) override

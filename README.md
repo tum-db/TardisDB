@@ -208,7 +208,7 @@ Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION`, `I
 query without `FROM`; their arguments are constant expressions, and `TableFunctions::add` registers more
 (`test/table_function_test.cpp`). `generate_series(start, stop [, step])` of integers, bigints and
 numerics is one (`test/series_test.cpp`). Subqueries in `FROM` (`(SELECT ...) [AS] s [(a, b)]`, also
-without an alias and nested) are parts of the plan of the query that reads them; `LIMIT` and `OFFSET` end any query, `INSERT INTO t [(columns)] SELECT ...` inserts its rows, `*` may
+without an alias and nested) are parts of the plan of the query that reads them; `LIMIT` and `OFFSET` end any query, `INSERT INTO t [(columns)] SELECT ...` inserts its rows (in the plan of the query, unless it reads `t` or is a `WITH`, set operation, `ORDER BY` or `LIMIT`), `*` may
 stand among other items of the select list, `random()` gives a number in [0, 1) per row, and `CREATE
 TABLE IF NOT EXISTS` leaves an existing table (`test/script_syntax_test.cpp`).
 Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,

@@ -27,6 +27,9 @@ namespace semanticalAnalysis {
         /// COPY ... TO: writes the result tuples into the file instead of returning them
         std::shared_ptr<CopyWriter> copyWriter;
 
+        /// INSERT ... SELECT: the types of the columns of the select list, which a NULL without a type takes (otherwise text)
+        std::vector<Sql::SqlType> projectionTypes;
+
         JoinGraph graph;
         std::set<branch_id_t> branchIds;
 

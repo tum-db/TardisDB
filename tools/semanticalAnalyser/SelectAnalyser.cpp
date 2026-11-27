@@ -186,13 +186,14 @@ namespace semanticalAnalysis {
         std::vector<iu_p_t> computedIUs;
         {
             ExpressionAnalyser analyser(columnResolver(_context));
-            for (auto &column : stmt->projections) {
+            for (size_t c = 0; c < stmt->projections.size(); ++c) {
+                auto & column = stmt->projections[c];
                 if (!column.expression) { computedIUs.push_back(nullptr); continue; }
                 Expressions::exp_op_t exp = analyser.analyse(*column.expression);
                 if (exp->getType().typeID == Sql::SqlType::TypeID::UnknownID) {
-                    // a NULL of the select list is text, as in PostgreSQL
-                    const Sql::SqlType text = Sql::getTextTy(true);
-                    exp = analyser.analyse(*column.expression, &text);
+                    // a NULL of the select list is text, as in PostgreSQL, or of the column an INSERT writes it into
+                    const Sql::SqlType type = projectionType(c);
+                    exp = analyser.analyse(*column.expression, &type);
                 }
                 if (exp->getType().typeID == Sql::SqlType::TypeID::UnknownID) throw semantic_sql_error("the type of '" + column.name + "' is unknown (a NULL without a type)");
                 iu_p_t iu = _context.iuFactory.createIU(exp->getType());
@@ -351,15 +352,15 @@ namespace semanticalAnalysis {
         if (having) _context.joinedTree = std::make_unique<Select>(std::move(_context.joinedTree), groups.analyseCondition(*having));
         std::vector<Mapping> mappings;
         std::vector<iu_p_t> projected;
-        for (auto & output : outputs) {
-            Expressions::exp_op_t e = groups.analyse(output);
+        for (size_t c = 0; c < outputs.size(); ++c) {
+            Expressions::exp_op_t e = groups.analyse(outputs[c]);
             if (auto * identifier = dynamic_cast<Expressions::Identifier *>(e.get())) {
                 projected.push_back(identifier->_iu);
                 continue;
             }
             if (e->getType().typeID == Sql::SqlType::TypeID::UnknownID) {
-                const Sql::SqlType text = Sql::getTextTy(true);
-                e = groups.analyse(output, &text);
+                const Sql::SqlType type = projectionType(c);
+                e = groups.analyse(outputs[c], &type);
             }
             iu_p_t iu = _context.iuFactory.createIU(e->getType());
             projected.push_back(iu);

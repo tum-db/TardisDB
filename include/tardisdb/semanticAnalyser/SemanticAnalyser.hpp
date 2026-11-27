@@ -70,6 +70,12 @@ namespace semanticalAnalysis {
     private:
         /// Aggregates over the rows of one branch that the aggregation over branches does not compute
         bool needsAggregation(SelectStatement *stmt);
+
+        /// \returns The type of a NULL without a type at a position of the select list (see AnalyzingContext::projectionTypes)
+        Sql::SqlType projectionType(size_t position) const {
+            const auto & types = _context.projectionTypes;
+            return position < types.size() ? Sql::toNullableTy(types[position]) : Sql::getTextTy(true);
+        }
         /// GROUP BY and aggregates in the plan (an Aggregation)
         void constructAggregation(SelectStatement *stmt);
         bool _aggregation = false;

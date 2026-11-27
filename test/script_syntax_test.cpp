@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include "native/sql/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
+#include "semanticAnalyser/SemanticAnalyser.hpp"
 #include <gtest/gtest.h>
 
 namespace {
@@ -116,6 +117,40 @@ namespace {
         exec("INSERT INTO it (y, x) SELECT 7, 8;");
         EXPECT_EQ(exec("INSERT INTO it SELECT x, y, s FROM it WHERE x > 100;").rows, 0u);
         EXPECT_EQ(sorted("SELECT x, y, s FROM it;"), (rows_t{"(1, 2.5, it's)", "(2, 4, NULL)", "(3, 6, NULL)", "(8, 7, NULL)"}));
+    }
+
+    TEST_F(ScriptSyntaxTest, InsertSelectInOnePlan) {
+        // the insert writes the rows of the query in its plan
+        exec("CREATE TABLE ip ( k integer not null, n numeric(6,2), v varchar(4), t text, a double precision[] );");
+        std::string p;
+        QueryCompiler::execute("EXPLAIN INSERT INTO ip SELECT a, b, 'x', 'y', NULL FROM st;", *db, "master",
+                               [&](Native::Sql::SqlTuple * tuple) { p = Native::Sql::toString(*tuple); });
+        EXPECT_NE(p.find("\"Node Type\": \"Insert\""), std::string::npos) << p;
+        EXPECT_NE(p.find("\"Relation Name\": \"st\""), std::string::npos) << p;
+        EXPECT_EQ(run("SELECT count(*) FROM ip;"), rows_t{"(0)"});
+        // casts to the columns, computed texts and arrays outlive the query, the other columns NULL
+        EXPECT_EQ(exec("INSERT INTO ip SELECT a * 10, b, array_to_string(array[a, a * 7], '-'), array_to_string(array[a, a, a, a], ' and '), array[b, a] * 2 "
+                       "FROM st;").rows, 3u);
+        EXPECT_EQ(exec("INSERT INTO ip (t, k) SELECT 'w', count(*) FROM st;").rows, 1u);
+        EXPECT_EQ(sorted("SELECT * FROM ip;"), (rows_t{"(10, 2.50, 1-7, 1 and 1 and 1 and 1, {5,2})", "(20, 3.50, 2-14, 2 and 2 and 2 and 2, {7,4})",
+                                                        "(3, NULL, NULL, w, NULL)", "(30, NULL, 3-21, 3 and 3 and 3 and 3, {NULL,6})"}));
+        // NULL into a column without NULLs, when it comes
+        EXPECT_THROW(exec("INSERT INTO ip (k) SELECT NULL FROM st;"), semanticalAnalysis::not_null_violation);
+        EXPECT_THROW(exec("INSERT INTO ip (k) SELECT b FROM st;"), semanticalAnalysis::not_null_violation);
+        EXPECT_EQ(exec("INSERT INTO ip (k) SELECT b FROM st WHERE b IS NOT NULL;").rows, 2u);
+        EXPECT_THROW(exec("INSERT INTO ip (k, n) SELECT a FROM st;"), std::exception);
+        EXPECT_THROW(exec("INSERT INTO ip (k) SELECT a, b FROM st;"), std::exception);
+        EXPECT_THROW(exec("INSERT INTO ip (nope) SELECT a FROM st;"), std::exception);
+        // into a branch, from a subquery with an aggregate joined with a table function
+        exec("CREATE BRANCH side FROM master;");
+        EXPECT_EQ(exec("INSERT INTO ip VERSION side (k) SELECT g + s.a + 100 FROM (SELECT max(a) AS a FROM st) s, generate_series(1, 2) g;").rows, 2u);
+        EXPECT_EQ(run("SELECT k FROM ip VERSION side WHERE k > 100 ORDER BY k;"), (rows_t{"(104)", "(105)"}));
+        EXPECT_EQ(run("SELECT count(*) FROM ip WHERE k > 100;"), rows_t{"(0)"});
+        // the rows of the other queries, and of a query of the table itself, are inserted after it
+        EXPECT_EQ(exec("INSERT INTO st SELECT a + 10, b FROM st;").rows, 3u);
+        EXPECT_EQ(exec("INSERT INTO st (a) SELECT a FROM st ORDER BY a LIMIT 2;").rows, 2u);
+        EXPECT_EQ(exec("INSERT INTO st (a) WITH w AS (SELECT 100 AS a) SELECT a FROM w UNION ALL SELECT 101;").rows, 2u);
+        EXPECT_EQ(run("SELECT count(*), sum(a) FROM st;"), rows_t{"(10, 246)"});
     }
 
     TEST_F(ScriptSyntaxTest, StarRandom) {

@@ -534,6 +534,13 @@ public:
         ) );
     }
 
+    void visit(Logical::InsertQuery & op) override
+    {
+        auto child = std::move(_translated.top());
+        _translated.pop();
+        _translated.push(std::make_unique<Physical::InsertQuery>(op, std::move(child), _queryContext));
+    }
+
     void visit(Logical::Update & op) override
     {
         auto child = std::move(_translated.top());

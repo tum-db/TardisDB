@@ -117,7 +117,9 @@ namespace QueryCompiler {
     /// keep overlapping do not starve one that changes the catalog.
     class StatementLatches {
     public:
-        StatementLatches(Database & db, semanticalAnalysis::SQLParserResult & statement, const Transaction * transaction = nullptr) {
+        /// \p query: the relations the query of an INSERT reads (its table is then latched exclusive, for any number of rows)
+        StatementLatches(Database & db, semanticalAnalysis::SQLParserResult & statement, const Transaction * transaction = nullptr,
+                         const std::vector<std::string> * query = nullptr) {
             using OpType = semanticalAnalysis::SQLParserResult::OpType;
             // a transaction's statement is confined to its snapshot under the latches, since BEGIN changes the catalog
             if (latching == Latching::Serial) {
@@ -133,7 +135,13 @@ namespace QueryCompiler {
                     for (auto & relation : statement.selectStmt->relations) read.push_back(relation.name);
                     _readsBranches = (latching == Latching::Branch);
                     break;
-                case OpType::Insert: insertInto = &statement.insertStmt->relation; break;
+                case OpType::Insert:
+                    insertInto = &statement.insertStmt->relation;
+                    if (query != nullptr) {
+                        read = *query;
+                        _readsBranches = (latching == Latching::Branch);
+                    }
+                    break;
                 case OpType::Update: branchWrite = &statement.updateStmt->relation; _writesInPlace = true; break;
 #if LAZY_MEMBERSHIP
                 // a delete adds an entry to the membership of the table, which all branches read
@@ -154,7 +162,7 @@ namespace QueryCompiler {
             if (insertInto != nullptr) {
                 Table * table = db.getTable(insertInto->name);
                 auto it = db._branchMapping.find(insertInto->version);
-                if (latching == Latching::Branch && table != nullptr && it != db._branchMapping.end()) {
+                if (latching == Latching::Branch && query == nullptr && table != nullptr && it != db._branchMapping.end()) {
                     // one insert at a time; it decides whether the tuple fits without moving the storage
                     _insertLatch = std::unique_lock<std::mutex>(table->_insertLatch);
                     if (table->size() < table->capacity()) {
@@ -561,6 +569,11 @@ namespace QueryCompiler {
             field("Relation Name", quote(tableName(db, insert.getTable())));
             field("Branch", quote(branchName(db, insert.getBranchId())));
             field("Tuples", std::to_string(insert.getTuples().size()));
+        } else if (dynamic_cast<P::InsertQuery *>(&op)) {
+            auto & insert = dynamic_cast<const L::InsertQuery &>(logical);
+            type("Insert");
+            field("Relation Name", quote(tableName(db, insert._table)));
+            field("Branch", quote(branchName(db, insert._branchId)));
         } else if (auto * physicalUpdate = dynamic_cast<P::Update *>(&op)) {
             auto & update = const_cast<L::Update &>(dynamic_cast<const L::Update &>(logical));
             type("Update");
@@ -586,7 +599,8 @@ namespace QueryCompiler {
 
         for (auto * child : op.getChildren()) node.children.push_back(describe(*child, db, plan));
         // the writes pass nothing on (their rows are those of their input)
-        const bool write = dynamic_cast<P::Insert *>(&op) || dynamic_cast<P::Update *>(&op) || dynamic_cast<P::Delete *>(&op);
+        const bool write = dynamic_cast<P::Insert *>(&op) || dynamic_cast<P::InsertQuery *>(&op) || dynamic_cast<P::Update *>(&op) ||
+                           dynamic_cast<P::Delete *>(&op);
         if (active->analyze && !write) {
             if (op.getChildren().empty() || !(dynamic_cast<P::Print *>(&op) || dynamic_cast<P::TupleStream *>(&op))) {
                 plan.counters.push_back(std::make_unique<uint64_t>(0));
@@ -1969,11 +1983,6 @@ namespace QueryCompiler {
         return query;
     }
 
-    namespace insertselect {
-    /// The rows of INSERT ... SELECT after the first, which the INSERT takes instead of parsing them (as text of VALUES)
-    thread_local std::vector<std::vector<std::string>> * pendingRows = nullptr;
-    }
-
     static StatementResult executeStatement(const std::string & query, Database & db, const std::string & branch,
                                             const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                             const std::function<void(const StatementResult &)> & described,
@@ -1987,10 +1996,6 @@ namespace QueryCompiler {
             timing::Phase phase(timing::current.parsing);
             tardisParser::SQLParser::parseStatement(queryContext.parsingContext, query);
             QueryContext::convertToParserResult(queryContext.analyzingContext.parserResult, queryContext.parsingContext);
-        }
-        if (insertselect::pendingRows != nullptr && queryContext.analyzingContext.parserResult.opType == semanticalAnalysis::SQLParserResult::OpType::Insert) {
-            queryContext.analyzingContext.parserResult.insertStmt->rows = std::move(*insertselect::pendingRows);
-            insertselect::pendingRows = nullptr;
         }
         if (explain::active != nullptr) {
             // the other statements run in their analysis, which EXPLAIN must not do
@@ -2517,14 +2522,6 @@ namespace QueryCompiler {
         return true;
     }
 
-    /// \returns The value as a constant of INSERT ... VALUES
-    static std::string literal(const Native::Sql::Value & value) {
-        if (Native::Sql::isNullable(value) && static_cast<const Native::Sql::NullableValue &>(value).isNull()) return "NULL";
-        std::string text = Native::Sql::toString(Native::Sql::getAssociatedValue(value)), quoted = "'";
-        for (char c : text) quoted += (c == '\'') ? std::string("''") : std::string(1, c);
-        return quoted + "'";
-    }
-
     } // end namespace insertselect
 
     /// Runs a query with LIMIT and OFFSET; their expressions are constants
@@ -2582,6 +2579,9 @@ namespace QueryCompiler {
                                           const std::function<void(const StatementResult &)> & described,
                                           const Transaction * transaction);
 
+    static StatementResult executeInsertQuery(const std::string & head, const std::string & query, Database & db, const std::string & branch,
+                                              const std::function<void(const StatementResult &)> & described, const Transaction * transaction);
+
     static StatementResult executeAny(const std::string & query, Database & db, const std::string & branch,
                                       const std::function<void(Native::Sql::SqlTuple *)> & sink,
                                       const std::function<void(const StatementResult &)> & described,
@@ -2608,35 +2608,7 @@ namespace QueryCompiler {
                 timing::Phase phase(timing::current.parsing);
                 inserting = insertselect::parse(query, head, rows);
             }
-            if (inserting) {
-                // the first row as the text of VALUES, the others as the values of the statement
-                std::string first;
-                std::vector<std::vector<std::string>> others;
-                std::mutex mutex;
-                executeAny(rows, db, branch, [&](Native::Sql::SqlTuple * tuple) {
-                    std::lock_guard<std::mutex> lock(mutex);
-                    if (first.empty()) {
-                        for (auto & value : tuple->values) first += (first.empty() ? "(" : ", ") + insertselect::literal(*value);
-                        first += ")";
-                        return;
-                    }
-                    std::vector<std::string> row;
-                    for (auto & value : tuple->values) {
-                        const bool null = Native::Sql::isNullable(*value) && static_cast<const Native::Sql::NullableValue &>(*value).isNull();
-                        row.push_back(null ? Native::Sql::nullLiteral : Native::Sql::toString(Native::Sql::getAssociatedValue(*value)));
-                    }
-                    others.push_back(std::move(row));
-                }, nullptr, transaction);
-                if (first.empty()) {
-                    StatementResult result;
-                    result.tag = "INSERT";
-                    if (described) described(result);
-                    return result;
-                }
-                insertselect::pendingRows = &others;
-                struct Reset { ~Reset() { insertselect::pendingRows = nullptr; } } reset;
-                return executeAny(head + " VALUES " + first + ";", db, branch, sink, described, transaction);
-            }
+            if (inserting) return executeInsertQuery(head, rows, db, branch, described, transaction);
         }
         {
             limit::Limit limit;
@@ -2667,6 +2639,158 @@ namespace QueryCompiler {
             return executeSetStatement(setStatement, db, branch, sink, described, transaction);
         }
         return executeStatement(query, db, branch, sink, described, transaction);
+    }
+
+    namespace insertselect {
+
+    /// The table and the columns of an INSERT: all of the branch's, or those named
+    struct Target {
+        Table * table;
+        branch_id_t branch;
+        std::vector<ci_p_t> columns;
+    };
+
+    static Target target(Database & db, semanticalAnalysis::InsertStatement & insert) {
+        using semanticalAnalysis::semantic_sql_error;
+        if (!db.hasTable(insert.relation.name)) throw semantic_sql_error("table '" + insert.relation.name + "' does not exist");
+        auto version = db._branchMapping.find(insert.relation.version);
+        if (version == db._branchMapping.end()) throw semantic_sql_error("version '" + insert.relation.version + "' does not exist");
+        Target t{db.getTable(insert.relation.name), version->second, {}};
+        std::vector<std::string> names = t.table->getColumnNames(t.branch), given;
+        for (auto & column : insert.columns) {
+            if (std::find(names.begin(), names.end(), column.name) == names.end()) throw semantic_sql_error("column '" + column.name + "' does not exist");
+            given.push_back(column.name);
+        }
+        for (auto & name : given.empty() ? names : given) t.columns.push_back(t.table->findColumn(name, t.branch));
+        return t;
+    }
+
+    static void requireColumns(const Target & t, size_t values) {
+        if (values > t.columns.size()) throw semanticalAnalysis::semantic_sql_error("INSERT has more expressions than target columns");
+        if (values < t.columns.size()) throw semanticalAnalysis::semantic_sql_error("INSERT has more target columns than expressions");
+    }
+
+    /// \returns The value of a row of a query as a value of the column (the characters of strings in \p strings)
+    static Native::Sql::value_op_t columnValue(const Native::Sql::Value & value, ci_p_t ci, std::deque<std::string> & strings) {
+        using ID = Sql::SqlType::TypeID;
+        if (value.type.typeID == ID::UnknownID || (Native::Sql::isNullable(value) && static_cast<const Native::Sql::NullableValue &>(value).isNull())) {
+            if (!ci->type.nullable) throw semanticalAnalysis::not_null_violation("null value in column '" + ci->columnName + "', which is NOT NULL");
+            return Native::Sql::NullableValue::getNull(ci->type);
+        }
+        const Native::Sql::Value & plain = Native::Sql::getAssociatedValue(value);
+        const ID id = ci->type.typeID;
+        if (Sql::equals(plain.type, ci->type, Sql::SqlTypeEqualsMode::WithoutNullable) && id != ID::CharID && id != ID::VarcharID) {
+            return Native::Sql::toColumnValue(plain.clone(), ci->type);
+        }
+        strings.push_back(Native::Sql::toString(plain));
+        return Native::Sql::castColumnValue(strings.back(), ci->type);
+    }
+
+    } // end namespace insertselect
+
+    /// INSERT ... query: a SELECT that does not read the table runs in the plan of the insert; the rows of the other queries are inserted after them
+    static StatementResult executeInsertQuery(const std::string & head, const std::string & query, Database & db, const std::string & branch,
+                                              const std::function<void(const StatementResult &)> & described, const Transaction * transaction) {
+        namespace L = Algebra::Logical;
+        using OpType = semanticalAnalysis::SQLParserResult::OpType;
+        ModuleGen moduleGen("QueryModule");
+        const std::string defaultBranch = (transaction != nullptr) ? transaction->snapshot : branch;
+        // the table and its columns, parsed as of INSERT ... VALUES
+        QueryContext insertContext(db);
+        insertContext.parsingContext.defaultBranch = defaultBranch;
+        auto & insertStatement = insertContext.analyzingContext.parserResult;
+        StatementResult result;
+        result.tag = "INSERT";
+
+        std::unique_ptr<QueryContext> context;
+        std::vector<std::string> reads; // the relations of the query, also of its subqueries
+        {
+            timing::Phase phase(timing::current.parsing);
+            tardisParser::SQLParser::parseStatement(insertContext.parsingContext, head + " VALUES (NULL);");
+            QueryContext::convertToParserResult(insertStatement, insertContext.parsingContext);
+            order::OrderBy order;
+            limit::Limit limit;
+            with::WithStatement set;
+            if (!order::parse(query, order) && !limit::parse(query, limit) && !with::parseSetStatement(query, set)) {
+                context = std::make_unique<QueryContext>(db);
+                context->parsingContext.defaultBranch = defaultBranch;
+                parseQuery(query, *context);
+            }
+        }
+        if (context != nullptr && context->analyzingContext.parserResult.opType == OpType::Select) {
+            std::function<void(const semanticalAnalysis::SelectStatement &)> collect = [&](const semanticalAnalysis::SelectStatement & select) {
+                for (auto & relation : select.relations) {
+                    if (relation.subquery) collect(*relation.subquery);
+                    else reads.push_back(relation.name);
+                }
+            };
+            collect(*context->analyzingContext.parserResult.selectStmt);
+        }
+        const std::string & table = insertStatement.insertStmt->relation.name;
+        if (context == nullptr || context->analyzingContext.parserResult.opType != OpType::Select ||
+            std::find(reads.begin(), reads.end(), table) != reads.end()) {
+            // the rows of the query first, then inserted
+            std::vector<std::vector<Native::Sql::value_op_t>> rows;
+            std::deque<std::string> strings;
+            std::mutex mutex;
+            executeAny(query, db, branch, [&](Native::Sql::SqlTuple * tuple) {
+                std::vector<Native::Sql::value_op_t> row;
+                for (auto & value : tuple->values) row.push_back(value->clone());
+                std::lock_guard<std::mutex> lock(mutex);
+                rows.push_back(std::move(row));
+            }, nullptr, transaction);
+            StatementLatches latches(db, insertStatement, transaction, &reads);
+            const insertselect::Target target = insertselect::target(db, *insertStatement.insertStmt);
+            if (!rows.empty()) insertselect::requireColumns(target, rows.front().size());
+            if (described) described(result);
+            std::vector<std::unique_ptr<Native::Sql::SqlTuple>> tuples;
+            for (auto & row : rows) {
+                std::vector<std::pair<ci_p_t, Native::Sql::value_op_t>> values;
+                for (size_t c = 0; c < row.size(); ++c) values.emplace_back(target.columns[c], insertselect::columnValue(*row[c], target.columns[c], strings));
+                tuples.push_back(complete_tuple(*target.table, std::move(values)));
+            }
+            for (auto & tuple : tuples) insert_tuple_with_branchId(*tuple, *target.table, insertContext, target.branch);
+            result.rows = tuples.size();
+            return result;
+        }
+
+        // one plan: the query, whose rows the insert writes
+        auto & parsed = context->analyzingContext.parserResult;
+        StatementLatches latches(db, insertStatement, transaction, &reads);
+        TemporaryTables temporaries(db);
+        if (prepareRelations(*parsed.selectStmt, db, defaultBranch, std::string()) == SIZE_MAX) {
+            throw semanticalAnalysis::semantic_sql_error("a common table expression has no versions");
+        }
+        if (transaction != nullptr) confine(parsed, *transaction, db);
+        provideOneRowTable(db, temporaries, parsed);
+        const insertselect::Target target = insertselect::target(db, *insertStatement.insertStmt);
+        for (ci_p_t ci : target.columns) context->analyzingContext.projectionTypes.push_back(ci->type);
+        auto analyser = semanticalAnalysis::SemanticAnalyser::getSemanticAnalyser(context->analyzingContext);
+        {
+            timing::Phase phase(timing::current.analysis);
+            analyser->verify();
+            analyser->constructTree();
+        }
+        auto & tree = context->analyzingContext.joinedTree;
+        auto * root = dynamic_cast<L::Result *>(tree.get());
+        if (root == nullptr) throw semanticalAnalysis::semantic_sql_error("INSERT takes the rows of a query");
+        insertselect::requireColumns(target, root->selection.size());
+        latches.latchReadBranches(db, context->analyzingContext.branchIds);
+        const std::vector<iu_p_t> values = root->selection;
+        std::unique_ptr<L::Operator> input = root->takeChild();
+        tree = std::make_unique<L::InsertQuery>(std::move(input), *target.table, target.branch, values, target.columns);
+        tree->refreshSets();
+        if (described) described(result);
+
+        auto queryFunc = compileQuery(head + query, tree, *context);
+        if (explain::active != nullptr && !explain::active->analyze) return result; // EXPLAIN: the plan only
+        QueryContext::constructBranchLineages(context->analyzingContext.branchIds, *context);
+        std::vector<llvm::GenericValue> args(2);
+        args[0].IntVal = llvm::APInt(64, 5);
+        args[1].PointerVal = (void *) context.get();
+        QueryExecutor::executeFunction(queryFunc, args, (void *) &printFunction);
+        result.rows = context->executionContext.affectedRows;
+        return result;
     }
 
     static StatementResult executeOrdered(const order::OrderBy & order, Database & db, const std::string & branch,
