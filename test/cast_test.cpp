@@ -1,6 +1,4 @@
-// The casts of the cast tables (sql/SqlCasts.hpp): the contexts and the common types, implicit casts in
-// comparisons, joins (hash and merge) and the arithmetic, explicit casts, casts on assignment, and a
-// hash join of an empty table
+// The casts of sql/SqlCasts.hpp: contexts, common types, implicit, explicit and assignment casts (also to strings), joins
 
 #include "codegen/LLVMCompat.hpp"
 #include <algorithm>
@@ -77,6 +75,9 @@ namespace {
         EXPECT_TRUE(Sql::Casts::canCast(Sql::getTextTy(), Sql::getVarcharTy(5), Context::Explicit));
         EXPECT_FALSE(Sql::Casts::canCast(Sql::getTextTy(), Sql::getIntegerTy(), Context::Explicit));
         EXPECT_FALSE(Sql::Casts::canCast(Sql::getDateTy(), Sql::getIntegerTy(), Context::Explicit));
+        EXPECT_FALSE(Sql::Casts::canCast(Sql::getIntegerTy(), Sql::getTextTy(), Context::Implicit));
+        EXPECT_TRUE(Sql::Casts::canCast(Sql::getIntegerTy(), Sql::getTextTy(), Context::Assignment));
+        EXPECT_TRUE(Sql::Casts::canCast(Sql::getDateTy(), Sql::getVarcharTy(10), Context::Explicit));
         EXPECT_TRUE(Sql::Casts::canCast(Sql::getDateTy(), Sql::getDateTy(true), Context::Implicit));
 
         auto common = [](Sql::SqlType a, Sql::SqlType b) {
@@ -141,6 +142,12 @@ namespace {
         EXPECT_EQ(run("SELECT CAST(id AS integer), CAST(d AS bigint) FROM cb WHERE id = 2;"), (rows_t{"(2, 2)"}));
         EXPECT_EQ(run("SELECT v::text FROM ci WHERE id = 1;"), (rows_t{"(one)"}));
         EXPECT_THROW(exec("SELECT CAST(t AS integer) FROM cb;"), std::exception);
+        // to strings as PostgreSQL writes the values, truncated to the length; NULL stays NULL
+        EXPECT_EQ(run("SELECT CAST(id AS text), CAST(n AS text), CAST(d AS varchar(3)), CAST(id > 1 AS text), CAST(id * 1000000000000000 AS text) "
+                      "FROM ci WHERE id < 3;"), (rows_t{"(1, 1.50, 1.5, false, 1000000000000000)", "(2, 2.00, 2, true, 2000000000000000)"}));
+        EXPECT_EQ(run("SELECT CAST(n AS text) FROM ci WHERE n IS NULL;"), (rows_t{"(NULL)"}));
+        EXPECT_EQ(run("SELECT CAST(1::int AS text), CAST('{1,2}'::int[] AS text), CAST('2026-11-27'::date AS char(10));"),
+                  (rows_t{"(1, {1,2}, 2026-11-27)"}));
     }
 
     TEST_F(CastTest, Assignment) {
@@ -156,6 +163,9 @@ namespace {
         EXPECT_EQ(run("SELECT id, n FROM ci WHERE v = 'cd';"), (rows_t{"(7, 1.56)"}));
         EXPECT_THROW(exec("UPDATE ci SET id = v;"), std::exception);
         EXPECT_THROW(exec("UPDATE ci SET n = c;"), std::exception);
+        // numbers into strings
+        exec("UPDATE ci SET v = n WHERE id = 7;");
+        EXPECT_EQ(run("SELECT v FROM ci WHERE id = 7;"), (rows_t{"(1.56)"}));
     }
 
     TEST_F(CastTest, EmptyBuildSide) {

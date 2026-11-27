@@ -241,7 +241,7 @@ Each type has a table of the types it casts to (`sql/SqlCasts.cpp`), as `pg_cast
 comparisons, joins and the arithmetic cast both sides to their common type (`integer` < `bigint` <
 `numeric` < `double precision`; `char` and `varchar` of different lengths to `varchar`, without the
 trailing spaces of a `char`; with `text` to `text`), `SET` also narrows (`bigint` to `integer`,
-numbers rounded half away from zero, `text` to `varchar(n)`), and `CAST(... AS type)` truncates a
+numbers rounded half away from zero, `text` to `varchar(n)`, numbers, booleans, dates, timestamps and arrays to strings), and `CAST(... AS type)` truncates a
 string to the length (`test/cast_test.cpp`). An error at run time (an overflow, a division by zero,
 a string too long for its column) prints a message, but does not yet abort the statement.
 

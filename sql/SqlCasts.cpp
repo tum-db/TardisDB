@@ -9,6 +9,7 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
+#include "native/sql/SqlValues.hpp"
 #include "sql/SqlOperators.hpp"
 #include "sql/SqlUtils.hpp"
 
@@ -275,29 +276,63 @@ value_op_t castString(const Value & value, SqlType target, Context context)
     }
 }
 
+/// Writes the text of a stored value, as PostgreSQL casts it to text, into the 16 bytes at \p dest
+void formatText(char * dest, const void * stored, uint64_t typeBits)
+{
+    SqlType type;
+    std::memcpy(&type, &typeBits, sizeof(type));
+    std::string text;
+    if (type.typeID == TypeID::BoolID) text = *static_cast<const uint8_t *>(stored) ? "true" : "false";
+    else text = Native::Sql::toString(*Native::Sql::Value::load(stored, type));
+    storeText(dest, text.data(), text.size());
+}
+
+/// A number, boolean, date, timestamp or array as a string: its text, which the runtime formats
+value_op_t castToString(const Value & value, SqlType target, Context context)
+{
+    auto & codeGen = getThreadLocalCodeGen();
+    llvm::Value * stored = entryAlloca(toLLVMTy(value.type), 1);
+    value.store(stored);
+    llvm::Value * text = entryAlloca(codeGen->getInt64Ty(), 2);
+    uint64_t typeBits;
+    std::memcpy(&typeBits, &value.type, sizeof(typeBits));
+    codeGen.CreateCall(&formatText, llvm::TypeBuilder<void (char *, void *, uint64_t), false>::get(codeGen.getLLVMContext()),
+                       {cg_ptr8_t(text), cg_ptr8_t(stored), codeGen->getInt64(typeBits)});
+    value_op_t asText(new Text(getTextTy(), text));
+    if (target.typeID == TypeID::TextID) return asText;
+    return castString(*asText, target, context);
+}
+
 //-----------------------------------------------------------------------------
 // the tables
+
+#define TO_STRINGS {TypeID::TextID, Context::Assignment, &castToString}, {TypeID::VarcharID, Context::Assignment, &castToString}, \
+                   {TypeID::CharID, Context::Assignment, &castToString}
 
 const std::vector<Cast> integerCasts = {
         {TypeID::LongIntegerID, Context::Implicit, &castInteger},
         {TypeID::NumericID, Context::Implicit, &castInteger},
         {TypeID::DoubleID, Context::Implicit, &castInteger},
+        TO_STRINGS,
 };
 const std::vector<Cast> longIntegerCasts = {
         {TypeID::NumericID, Context::Implicit, &castLongInteger},
         {TypeID::DoubleID, Context::Implicit, &castLongInteger},
         {TypeID::IntegerID, Context::Assignment, &castLongInteger},
+        TO_STRINGS,
 };
 const std::vector<Cast> numericCasts = {
         {TypeID::NumericID, Context::Implicit, &castNumeric},
         {TypeID::DoubleID, Context::Implicit, &castNumeric},
         {TypeID::IntegerID, Context::Assignment, &castNumeric},
         {TypeID::LongIntegerID, Context::Assignment, &castNumeric},
+        TO_STRINGS,
 };
 const std::vector<Cast> doubleCasts = {
         {TypeID::IntegerID, Context::Assignment, &castDouble},
         {TypeID::LongIntegerID, Context::Assignment, &castDouble},
         {TypeID::NumericID, Context::Assignment, &castDouble},
+        TO_STRINGS,
 };
 const std::vector<Cast> charCasts = {
         {TypeID::CharID, Context::Implicit, &castString},
@@ -313,6 +348,7 @@ const std::vector<Cast> textCasts = {
         {TypeID::VarcharID, Context::Assignment, &castString},
         {TypeID::CharID, Context::Assignment, &castString},
 };
+const std::vector<Cast> otherCasts = { TO_STRINGS }; // of booleans, dates, timestamps and arrays
 const std::vector<Cast> noCasts;
 
 } // namespace
@@ -327,6 +363,7 @@ const std::vector<Cast> & castTable(TypeID source)
         case TypeID::CharID: return charCasts;
         case TypeID::VarcharID: return varcharCasts;
         case TypeID::TextID: return textCasts;
+        case TypeID::BoolID: case TypeID::DateID: case TypeID::TimestampID: case TypeID::ArrayID: return otherCasts;
         default: return noCasts;
     }
 }
