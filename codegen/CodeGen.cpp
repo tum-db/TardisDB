@@ -8,17 +8,28 @@
 #include <llvm/IR/Module.h>
 #include "codegen/LLVMCompat.hpp"
 
-// target data layout:
-#if defined (__amd64__)
-#define LAYOUT_DESCRIPTION "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
-#elif defined (__aarch64__) && defined (__linux__)
-// ARM64 Linux, e.g. Docker/Colima on Apple Silicon (LLVM's layout for aarch64-linux-gnu)
-#define LAYOUT_DESCRIPTION "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
-#else
-#error "Layout description not available for this platform"
-#endif
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Target/TargetMachine.h>
+
+#include <stdexcept>
 
 using namespace llvm;
+
+/// \returns The data layout of the machine the JIT compiles for, the host
+static const std::string & hostDataLayout()
+{
+    static const std::string layout = [] {
+        llvm::InitializeNativeTarget();
+        std::string error;
+        llvm::EngineBuilder builder;
+        builder.setErrorStr(&error);
+        std::unique_ptr<llvm::TargetMachine> machine(builder.selectTarget());
+        if (!machine) throw std::runtime_error("no LLVM target for this machine: " + error);
+        return machine->createDataLayout().getStringRepresentation();
+    }();
+    return layout;
+}
 
 thread_local CodeGen g_codeGen;
 
@@ -34,7 +45,7 @@ CodeGen::CodeGen() :
 //        currentFunctionGen(nullptr),
         builder(context)
 {
-    dataLayout = std::make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
+    dataLayout = std::make_unique<llvm::DataLayout>(hostDataLayout());
 }
 
 CodeGen::~CodeGen()
@@ -139,9 +150,6 @@ ModuleGen::ModuleGen(const std::string & moduleName) :
     // initialize:
     module = std::make_unique<llvm::Module>(StringRef(moduleName), context);
 
-    
-//    dataLayout = std::make_unique<llvm::DataLayout>(LAYOUT_DESCRIPTION);
-//    module->setDataLayout(*dataLayout);
     module->setDataLayout(codeGen.getDefaultDataLayout());
     codeGen.setCurrentModuleGen(*this);
 }
