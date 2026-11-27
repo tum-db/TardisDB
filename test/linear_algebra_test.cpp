@@ -77,6 +77,7 @@ namespace {
         // a NULL element gives NULL elements, a NULL array NULL
         EXPECT_EQ(value("SELECT a + 1, a * b FROM m WHERE id = 2;"), "{{2,NULL},{4,5}}, {{1,NULL},{0,4}}");
         EXPECT_EQ(value("SELECT a + 1 FROM m WHERE id = 3;"), "NULL");
+        EXPECT_EQ(value("SELECT b - a, 1 - v FROM m WHERE id = 2;"), "{{0,NULL},{-3,-3}}, {NULL,0}");
         EXPECT_THROW(exec("SELECT a + '{1,2}' FROM m;"), std::exception);       // different shapes
         EXPECT_THROW(exec("SELECT a / 0 FROM m WHERE id = 1;"), std::exception); // division by zero
         EXPECT_THROW(exec("SELECT s + 1 FROM m;"), std::exception);              // not numbers
@@ -104,6 +105,9 @@ namespace {
     TEST_F(LinearAlgebraTest, TransposeAndFunctions) {
         EXPECT_EQ(value("SELECT transpose(a), transpose(v), transpose(s) FROM m WHERE id = 1;"), "{{1,3},{2,4}}, {{1.50},{-2.50}}, {{x,z},{y,w}}");
         EXPECT_EQ(value("SELECT transpose('{{{1,2},{3,4}},{{5,6},{7,8}}}'::integer[]) FROM m WHERE id = 1;"), "{{{1,2},{5,6}},{{3,4},{7,8}}}");
+        EXPECT_EQ(value("SELECT transpose(a), kroneckerproduct('{{1,2}}', a) FROM m WHERE id = 2;"), "{{1,3},{NULL,4}}, {{1,NULL,2,NULL},{3,4,6,8}}");
+        // the sum of arrays: a NULL element, also of a later row, makes its sum NULL
+        EXPECT_EQ(value("SELECT sum(a), sum(v) FROM m;"), "{{2,NULL},{6,8}}, {NULL,-1.5}");
         EXPECT_EQ(value("SELECT @ v, abs(v), relu(v), relup(v) FROM m WHERE id = 1;"), "{1.5,2.5}, {1.5,2.5}, {1.5,0}, {1,0}");
         EXPECT_EQ(value("SELECT sig(a) FROM m WHERE id = 1;"),
                   "{{0.7310585786300049,0.8807970779778823},{0.9525741268224334,0.9820137900379085}}");

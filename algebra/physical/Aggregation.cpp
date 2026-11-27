@@ -25,19 +25,15 @@ Aggregation::State::~State() = default;
 static void aggregation_array_add(void * state, uint32_t aggregate, void ** slot, const void * handle)
 {
     auto * s = static_cast<Aggregation::State *>(state);
-    NumberArray numbers = toNumbers(loadHandle(handle), s->elementTypes[aggregate]);
     auto * sum = static_cast<NumberArray *>(*slot);
-    if (sum == nullptr) {
-        std::lock_guard<std::mutex> lock(s->arraysLatch); // the workers of a parallel scan
-        s->arrays.push_back(std::make_unique<NumberArray>(std::move(numbers)));
-        *slot = s->arrays.back().get();
+    if (sum != nullptr) {
+        addNumbers(*sum, loadHandle(handle), s->elementTypes[aggregate]);
         return;
     }
-    if (numbers.widths != sum->widths) throw std::runtime_error("sum of arrays of different shapes");
-    for (size_t i = 0; i < numbers.values.size(); ++i) {
-        sum->values[i] += numbers.values[i];
-        if (numbers.nulls[i]) sum->nulls[i] = true;
-    }
+    auto numbers = std::make_unique<NumberArray>(toNumbers(loadHandle(handle), s->elementTypes[aggregate]));
+    std::lock_guard<std::mutex> lock(s->arraysLatch); // the workers of a parallel scan
+    s->arrays.push_back(std::move(numbers));
+    *slot = s->arrays.back().get();
 }
 
 /// Adds the sum of arrays \p src (of a worker) to the sum at \p slot
@@ -49,12 +45,7 @@ static void aggregation_array_merge(void * state, void ** slot, void * src)
         *slot = src;
         return;
     }
-    auto * add = static_cast<NumberArray *>(src);
-    if (add->widths != sum->widths) throw std::runtime_error("sum of arrays of different shapes");
-    for (size_t i = 0; i < add->values.size(); ++i) {
-        sum->values[i] += add->values[i];
-        if (add->nulls[i]) sum->nulls[i] = true;
-    }
+    addNumbers(*sum, *static_cast<NumberArray *>(src));
 }
 
 /// A hash table per worker (at the start of an execution)

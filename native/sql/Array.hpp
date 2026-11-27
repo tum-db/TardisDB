@@ -1,8 +1,6 @@
 #pragma once
 
-// Arrays of PostgreSQL (any number of dimensions, lower bounds, NULL elements) for TardisDB: a tuple
-// holds a handle (16 bytes) of an immutable representation, as for text, so versions, merges and diffs copy
-// handles only.
+// Arrays of PostgreSQL: a tuple holds a 16-byte handle of an immutable representation, as for text
 
 #include <atomic>
 #include <cstdint>
@@ -21,9 +19,7 @@ namespace Arrays {
 
 using ::Sql::SqlType;
 
-/// An array as a tuple holds it: the address and the length of its representation. The top bit of the
-/// length marks a representation in the arena of a query (an array the query computed); a store into a
-/// table moves it to the string pool (persist), where all other arrays are.
+/// The address and length of a representation; the top bit of the length marks one in a query's arena (see persist)
 struct Handle {
     const uint8_t * data = nullptr;
     uint64_t length = 0;
@@ -54,12 +50,12 @@ private:
     const uint64_t _id; // the threads' current chunks belong to the arena of their id
 };
 
-/// The arenas of a query, which live until the query ends (the plan that generated the code goes before)
+/// The arena of a query, which lives until the query ends (the plan that generated the code goes before)
 struct QueryArenas {
-    std::vector<std::unique_ptr<Arena>> arenas;
+    std::unique_ptr<Arena> arena;
 };
 
-/// While a query is compiled, the arenas of its expressions go to its QueryArenas
+/// While a query is compiled, its expressions compute arrays in the arena of its QueryArenas
 class ArenaScope {
 public:
     explicit ArenaScope(QueryArenas & arenas);
@@ -68,20 +64,17 @@ private:
     QueryArenas * _previous;
 };
 
-/// \returns A new arena of the query being compiled (see ArenaScope)
+/// \returns The arena of the query being compiled (one for all, so that a thread keeps allocating from its chunk)
 Arena * createQueryArena();
 
 /// \returns The representation in the string pool (a handle that is not temporary)
 Handle persist(Handle handle);
 
-/// The size of an element of the representation; a string element (char, varchar, text) is the end of its
-/// characters (4 bytes)
+/// The size of an element; of a string element the 4-byte end of its characters
 size_t elementSize(SqlType elementType);
 bool isStringElement(SqlType elementType);
 
-/// Read access to a representation:
-///   number of dimensions (u32) | widths (i32 each) | lower bounds (i32 each) | elements | NULL bitmap | strings
-/// The empty array has no dimensions. A NULL element has zero bytes (and an empty string).
+/// A representation: dims (u32) | widths, lower bounds (i32 each) | elements (zero bytes if NULL) | NULL bitmap | strings
 class View {
 public:
     View(Handle handle, SqlType elementType);
@@ -92,6 +85,7 @@ public:
     int32_t lower(uint32_t d) const { return load32(_base + 4 + 4 * (_dims + d)); }
     int32_t upper(uint32_t d) const { return lower(d) + width(d) - 1; }
     bool isNull(uint32_t i) const { return (_nulls[i >> 3] >> (i & 7)) & 1; }
+    bool anyNull() const;
     /// the bytes of a fixed size element
     const uint8_t * fixed(uint32_t i) const { return _elements + i * _elementSize; }
     /// the characters of a string element
@@ -188,19 +182,23 @@ enum class Function : uint32_t {
 /// The numbers of an array (of integer, bigint, numeric or double precision elements) as doubles, with its shape
 struct NumberArray {
     std::vector<int32_t> widths, lowers; // none: the empty array
-    std::vector<double> values;
-    std::vector<bool> nulls;
+    std::vector<double> values;          // 0 for a NULL element
+    std::vector<uint8_t> nulls;          // per element, none without NULL elements
+    size_t count() const { return values.size(); }
+    bool anyNull() const { return !nulls.empty(); }
+    bool isNull(size_t i) const { return !nulls.empty() && nulls[i] != 0; }
 };
 NumberArray toNumbers(Handle handle, SqlType elementType);
+/// Adds the numbers of an array of the same shape to \p sum (a NULL element makes its sum NULL)
+void addNumbers(NumberArray & sum, Handle handle, SqlType elementType);
+void addNumbers(NumberArray & sum, const NumberArray & add);
 /// \returns The array of double precision of the numbers, in the arena or, without one, in the string pool
 Handle fromNumbers(const NumberArray & numbers, Arena * arena);
 
 enum class ElementwiseOp : int32_t { Add, Sub, Mul, Div, Pow };
 enum class MapOp : int32_t { Abs, Sig, Relu, ReluP, Tanh };
 
-/// Runs a function for the generated code: the arguments are pointers to values as the generated code
-/// stores them (an array: its handle), with their NULL indicators and types (SqlType as 64 bits). Writes
-/// the result (of the not nullable result type) and \returns whether it is NULL.
+/// Writes the result of a function of stored values (with NULL indicators and types as 64 bits) and \returns whether it is NULL
 extern "C" bool tardisArrayCall(uint32_t function, Arena * arena, uint64_t resultType, void * result,
                                 uint32_t argc, void * const * args, const bool * nulls, const uint64_t * types);
 

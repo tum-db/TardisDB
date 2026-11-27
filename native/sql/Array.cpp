@@ -76,8 +76,8 @@ ArenaScope::~ArenaScope()
 Arena * createQueryArena()
 {
     if (currentArenas == nullptr) throw std::logic_error("arrays are computed outside of a query");
-    currentArenas->arenas.push_back(std::make_unique<Arena>());
-    return currentArenas->arenas.back().get();
+    if (!currentArenas->arena) currentArenas->arena = std::make_unique<Arena>();
+    return currentArenas->arena.get();
 }
 
 Handle persist(Handle handle)
@@ -128,6 +128,12 @@ View::View(Handle handle, SqlType elementType) :
     _elements = _base + 4 + 8 * _dims;
     _nulls = _elements + _count * _elementSize;
     _strings = _nulls + nullBytes(_count);
+}
+
+bool View::anyNull() const
+{
+    for (size_t b = 0; b < nullBytes(_count); ++b) if (_nulls[b] != 0) return true;
+    return false;
 }
 
 std::string_view View::string(uint32_t i) const
@@ -790,14 +796,7 @@ std::vector<int32_t> integerList(Handle handle, const char * what)
     return values;
 }
 
-/// The numbers of an array as doubles, with its shape and NULL elements
-struct Numbers {
-    std::vector<int32_t> widths, lowers;
-    std::vector<double> values;
-    std::vector<bool> nulls;
-    bool anyNull = false;
-    size_t count() const { return values.size(); }
-};
+using Numbers = NumberArray;
 
 double powerOf10(uint32_t n)
 {
@@ -822,34 +821,70 @@ Numbers numbersOf(Handle handle, SqlType elementType)
 {
     View view(handle, elementType);
     Numbers n;
-    if (view.count() > 0) {
-        for (uint32_t d = 0; d < view.dims(); ++d) { n.widths.push_back(view.width(d)); n.lowers.push_back(view.lower(d)); }
+    const uint32_t count = view.count();
+    if (count == 0) return n;
+    for (uint32_t d = 0; d < view.dims(); ++d) { n.widths.push_back(view.width(d)); n.lowers.push_back(view.lower(d)); }
+    n.values.resize(count);
+    if (elementType.typeID == TypeID::DoubleID) {
+        std::memcpy(n.values.data(), view.fixed(0), 8 * size_t(count)); // a NULL element has zero bytes
+    } else {
+        for (uint32_t i = 0; i < count; ++i) if (!view.isNull(i)) n.values[i] = numberAt(view.fixed(i), elementType);
     }
-    n.values.resize(view.count());
-    n.nulls.resize(view.count());
-    for (uint32_t i = 0; i < view.count(); ++i) {
-        if (view.isNull(i)) {
-            n.nulls[i] = true;
-            n.anyNull = true;
-        } else {
-            n.values[i] = numberAt(view.fixed(i), elementType);
-        }
+    if (view.anyNull()) {
+        n.nulls.resize(count);
+        for (uint32_t i = 0; i < count; ++i) n.nulls[i] = view.isNull(i);
     }
     return n;
 }
 
-/// \returns An array of double precision of the shape with the values (NULL where \p nulls says)
-Handle doubles(const std::vector<int32_t> & widths, const std::vector<int32_t> & lowers, const std::vector<double> & values,
-               const std::vector<bool> & nulls, Arena * arena)
+/// \returns The elements (followed by the zeroed NULL bitmap) of a new representation of the shape in the arena, its handle in \p handle
+uint8_t * allocateFixed(const std::vector<int32_t> & widths, const std::vector<int32_t> & lowers, size_t count, size_t elementSize,
+                        Arena * arena, Handle & handle)
 {
-    Builder builder(::Sql::getDoubleTy());
-    builder.widths = widths;
-    builder.lowers = lowers;
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (!nulls.empty() && nulls[i]) builder.addNull();
-        else builder.addFixed(&values[i]);
+    const uint32_t dims = count ? static_cast<uint32_t>(widths.size()) : 0;
+    for (uint32_t d = 0; d < dims; ++d) {
+        if (static_cast<int64_t>(lowers[d]) + widths[d] - 1 > INT32_MAX) throw arrayError("array upper bound is too large");
     }
-    return builder.finish(arena);
+    if (count > INT32_MAX) throw arrayError("array size exceeds the maximum allowed");
+    const size_t size = 4 + 8 * size_t(dims) + elementSize * count + nullBytes(static_cast<uint32_t>(count));
+    uint8_t * out = arena->allocate(size), * w = out;
+    std::memcpy(w, &dims, 4); w += 4;
+    if (dims) {
+        std::memcpy(w, widths.data(), 4 * dims); w += 4 * dims;
+        std::memcpy(w, lowers.data(), 4 * dims); w += 4 * dims;
+    }
+    std::memset(w + elementSize * count, 0, nullBytes(static_cast<uint32_t>(count)));
+    handle = Handle{out, size | Handle::temporary};
+    return w;
+}
+
+/// \returns An array of double precision of the shape with the values (NULL where \p nulls, if any, says)
+Handle doubles(const std::vector<int32_t> & widths, const std::vector<int32_t> & lowers, const std::vector<double> & values,
+               const std::vector<uint8_t> & nulls, Arena * arena)
+{
+    if (arena == nullptr) {
+        Builder builder(::Sql::getDoubleTy());
+        builder.widths = widths;
+        builder.lowers = lowers;
+        for (size_t i = 0; i < values.size(); ++i) {
+            if (!nulls.empty() && nulls[i]) builder.addNull();
+            else builder.addFixed(&values[i]);
+        }
+        return builder.finish(arena);
+    }
+    Handle handle;
+    const size_t count = values.size();
+    uint8_t * elements = allocateFixed(widths, lowers, count, 8, arena, handle);
+    if (count) std::memcpy(elements, values.data(), 8 * count);
+    if (!nulls.empty()) {
+        uint8_t * bitmap = elements + 8 * count;
+        for (size_t i = 0; i < count; ++i) {
+            if (!nulls[i]) continue;
+            std::memset(elements + 8 * i, 0, 8);
+            bitmap[i >> 3] |= static_cast<uint8_t>(1u << (i & 7));
+        }
+    }
+    return handle;
 }
 
 void writeDouble(void * result, double value) { std::memcpy(result, &value, 8); }
@@ -1311,15 +1346,17 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
                 throw arrayError("arrays of different shapes: " + std::to_string(x.widths.size()) + " and " + std::to_string(y.widths.size()) +
                                  " dimensions or different lengths");
             }
-            const Numbers & shape = leftArray ? x : y;
-            std::vector<double> values(shape.count());
-            std::vector<bool> nulls(shape.count());
-            for (size_t i = 0; i < shape.count(); ++i) {
-                nulls[i] = (leftArray && x.nulls[i]) || (rightArray && y.nulls[i]);
-                if (nulls[i]) continue;
-                values[i] = elementwise(op, leftArray ? x.values[i] : scalar, rightArray ? y.values[i] : scalar);
+            // in place of the array (of the left, if both are)
+            Numbers & out = leftArray ? x : y;
+            if (leftArray && rightArray && y.anyNull()) {
+                if (!x.anyNull()) x.nulls.assign(x.count(), 0);
+                for (size_t i = 0; i < x.count(); ++i) x.nulls[i] |= y.nulls[i];
             }
-            storeHandle(result, doubles(shape.widths, shape.lowers, values, nulls, arena));
+            for (size_t i = 0; i < out.count(); ++i) {
+                if (out.isNull(i)) continue;
+                out.values[i] = elementwise(op, leftArray ? x.values[i] : scalar, rightArray ? y.values[i] : scalar);
+            }
+            storeHandle(result, doubles(out.widths, out.lowers, out.values, out.nulls, arena));
             return false;
         }
         case Function::MatrixProduct: {
@@ -1339,11 +1376,11 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
             std::vector<double> values(m * n);
             multiply(x.values.data(), y.values.data(), values.data(), m, k, n);
             // a NULL in a row of the first or a column of the second makes the sums over it NULL
-            std::vector<bool> nulls;
-            if (x.anyNull || y.anyNull) {
-                std::vector<bool> rowNull(m), columnNull(n);
-                for (size_t i = 0; i < m; ++i) for (size_t l = 0; l < k; ++l) if (x.nulls[i * k + l]) rowNull[i] = true;
-                for (size_t l = 0; l < k; ++l) for (size_t j = 0; j < n; ++j) if (y.nulls[l * n + j]) columnNull[j] = true;
+            std::vector<uint8_t> nulls;
+            if (x.anyNull() || y.anyNull()) {
+                std::vector<uint8_t> rowNull(m), columnNull(n);
+                for (size_t i = 0; i < m; ++i) for (size_t l = 0; l < k; ++l) if (x.isNull(i * k + l)) rowNull[i] = true;
+                for (size_t l = 0; l < k; ++l) for (size_t j = 0; j < n; ++j) if (y.isNull(l * n + j)) columnNull[j] = true;
                 nulls.resize(m * n);
                 for (size_t i = 0; i < m; ++i) for (size_t j = 0; j < n; ++j) nulls[i * n + j] = rowNull[i] || columnNull[j];
             }
@@ -1356,13 +1393,13 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
             if (x.widths.size() != 2 || y.widths.size() != 2) throw arrayError("arrays for kronecker product need two dimensions");
             const size_t r1 = x.widths[0], c1 = x.widths[1], r2 = y.widths[0], c2 = y.widths[1], columns = c1 * c2;
             std::vector<double> values(r1 * r2 * columns);
-            std::vector<bool> nulls(values.size());
+            std::vector<uint8_t> nulls(x.anyNull() || y.anyNull() ? values.size() : 0);
             for (size_t i = 0; i < r1; ++i)
                 for (size_t k = 0; k < r2; ++k)
                     for (size_t j = 0; j < c1; ++j)
                         for (size_t l = 0; l < c2; ++l) {
                             const size_t to = (i * r2 + k) * columns + j * c2 + l, p = i * c1 + j, q = k * c2 + l;
-                            nulls[to] = x.nulls[p] || y.nulls[q];
+                            if (!nulls.empty()) nulls[to] = x.isNull(p) || y.isNull(q);
                             values[to] = x.values[p] * y.values[q];
                         }
             storeHandle(result, doubles({static_cast<int32_t>(r1 * r2), static_cast<int32_t>(columns)}, {1, 1}, values, nulls, arena));
@@ -1382,6 +1419,22 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
             builder.widths = {widths[1], widths[0]};
             builder.lowers = {lowers[1], lowers[0]};
             for (size_t d = 2; d < widths.size(); ++d) { builder.widths.push_back(widths[d]); builder.lowers.push_back(lowers[d]); }
+            if (arena != nullptr && !isStringElement(elementType)) {
+                // the bytes of the elements, without a builder
+                Handle handle;
+                const size_t size = elementSize(elementType);
+                uint8_t * elements = allocateFixed(builder.widths, builder.lowers, view.count(), size, arena, handle), * to = elements;
+                uint8_t * bitmap = elements + size * view.count();
+                for (size_t j = 0, t = 0; j < columns; ++j)
+                    for (size_t i = 0; i < rows; ++i)
+                        for (size_t e = 0; e < inner; ++e, ++t, to += size) {
+                            const auto from = static_cast<uint32_t>((i * columns + j) * inner + e);
+                            std::memcpy(to, view.fixed(from), size);
+                            if (view.isNull(from)) bitmap[t >> 3] |= static_cast<uint8_t>(1u << (t & 7));
+                        }
+                storeHandle(result, handle);
+                return false;
+            }
             for (size_t j = 0; j < columns; ++j)
                 for (size_t i = 0; i < rows; ++i)
                     for (size_t e = 0; e < inner; ++e) builder.add(view, static_cast<uint32_t>((i * columns + j) * inner + e));
@@ -1396,7 +1449,7 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
                 return false;
             }
             Numbers x = numbersOf(a.array(0), elementTypeOf(0));
-            for (size_t i = 0; i < x.count(); ++i) if (!x.nulls[i]) x.values[i] = mapNumber(op, x.values[i]);
+            for (size_t i = 0; i < x.count(); ++i) if (!x.isNull(i)) x.values[i] = mapNumber(op, x.values[i]);
             storeHandle(result, doubles(x.widths, x.lowers, x.values, x.nulls, arena));
             return false;
         }
@@ -1407,10 +1460,10 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
             // over all elements: NULL if one of them is NULL
             if (a.null(0) || (a.argc > 1 && a.null(1))) return true;
             Numbers x = numbersOf(a.array(0), elementTypeOf(0)), labels;
-            if (x.anyNull) return true;
+            if (x.anyNull()) return true;
             if (a.argc > 1) {
                 labels = numbersOf(a.array(1), elementTypeOf(1));
-                if (labels.anyNull) return true;
+                if (labels.anyNull()) return true;
                 if (labels.count() != x.count()) {
                     throw arrayError("arrays do not have suitable size: " + std::to_string(x.count()) + " values and " +
                                      std::to_string(labels.count()) + " labels");
@@ -1447,8 +1500,35 @@ bool call(Function function, Arena * arena, SqlType resultType, void * result, c
 
 NumberArray toNumbers(Handle handle, SqlType elementType)
 {
-    Numbers n = numbersOf(handle, elementType);
-    return NumberArray{std::move(n.widths), std::move(n.lowers), std::move(n.values), std::move(n.nulls)};
+    return numbersOf(handle, elementType);
+}
+
+void addNumbers(NumberArray & sum, Handle handle, SqlType elementType)
+{
+    View view(handle, elementType);
+    const uint32_t dims = view.count() ? view.dims() : 0;
+    bool same = dims == sum.widths.size();
+    for (uint32_t d = 0; same && d < dims; ++d) same = view.width(d) == sum.widths[d];
+    if (!same) throw arrayError("sum of arrays of different shapes");
+    if (elementType.typeID == TypeID::DoubleID) {
+        for (uint32_t i = 0; i < view.count(); ++i) sum.values[i] += loadDouble(view.fixed(i));
+    } else {
+        for (uint32_t i = 0; i < view.count(); ++i) if (!view.isNull(i)) sum.values[i] += numberAt(view.fixed(i), elementType);
+    }
+    if (view.anyNull()) {
+        if (!sum.anyNull()) sum.nulls.assign(sum.count(), 0);
+        for (uint32_t i = 0; i < view.count(); ++i) if (view.isNull(i)) sum.nulls[i] = 1;
+    }
+}
+
+void addNumbers(NumberArray & sum, const NumberArray & add)
+{
+    if (add.widths != sum.widths) throw arrayError("sum of arrays of different shapes");
+    for (size_t i = 0; i < add.count(); ++i) sum.values[i] += add.values[i];
+    if (add.anyNull()) {
+        if (!sum.anyNull()) sum.nulls.assign(sum.count(), 0);
+        for (size_t i = 0; i < add.count(); ++i) sum.nulls[i] |= add.nulls[i];
+    }
 }
 
 Handle fromNumbers(const NumberArray & numbers, Arena * arena)

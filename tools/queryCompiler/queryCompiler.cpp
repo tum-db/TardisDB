@@ -768,7 +768,7 @@ namespace QueryCompiler {
         // query function signature
         llvm::FunctionType *funcTy = llvm::TypeBuilder<void(int, void *), false>::get(llvmContext);
 
-        // the arrays the query computes live in arenas until the query ends
+        // the arrays the query computes live in an arena until the query ends
         struct ArenaResource : public ExecutionResource {
             Native::Sql::Arrays::QueryArenas arenas;
         };
