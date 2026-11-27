@@ -3,7 +3,7 @@
 //
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 
 namespace semanticalAnalysis {
 

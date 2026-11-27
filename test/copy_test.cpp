@@ -8,7 +8,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 #include "sqlParser/SQLParser.hpp"

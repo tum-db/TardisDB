@@ -9,7 +9,7 @@
 #include <fstream>
 #include <mutex>
 #include "foundations/Parallel.hpp"
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 #include <gtest/gtest.h>

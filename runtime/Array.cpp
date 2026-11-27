@@ -1,4 +1,4 @@
-#include "native/sql/Array.hpp"
+#include "runtime/Array.hpp"
 
 #include <algorithm>
 #include <climits>
@@ -9,7 +9,7 @@
 
 #include "foundations/LegacyTypes.hpp"
 #include "foundations/StringPool.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "utils/hashing.hpp"
 
 namespace Native {

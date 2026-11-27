@@ -11,7 +11,7 @@
 #include <set>
 #include <sstream>
 #include <unistd.h>
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 #include <gtest/gtest.h>

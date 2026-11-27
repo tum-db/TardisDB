@@ -1,6 +1,6 @@
 #pragma once
 
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "sql/SqlType.hpp"
 
 namespace Native {

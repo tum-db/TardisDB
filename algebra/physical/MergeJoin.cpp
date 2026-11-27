@@ -5,7 +5,7 @@
 
 #include "codegen/LLVMCompat.hpp"
 #include "foundations/MemoryPool.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "sql/SqlTuple.hpp"
 #include "sql/SqlValues.hpp"
 

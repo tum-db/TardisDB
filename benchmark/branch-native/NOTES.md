@@ -830,7 +830,7 @@ joins of both drivers in `test/test_pgserver.py`.
 Arrays of PostgreSQL: columns of any element type with `[]` or `ARRAY` (`integer[]`, `numeric(6,2)[]`,
 `text ARRAY`, also `bool`, `bigint`, `double precision`, `char(n)`, `varchar(n)`, `date`, `timestamp`),
 of any number of dimensions (the declared dimensions are not enforced, as in PostgreSQL), with lower
-bounds and `NULL` elements, in `native/sql/Array.hpp`.
+bounds and `NULL` elements, in `runtime/Array.hpp`.
 
 * **Storage**: a tuple holds a handle of 16 bytes (address and length, as `text`) of an immutable
   representation in the string pool: number of dimensions, widths, lower bounds, the elements (a string
@@ -960,7 +960,7 @@ computed in double precision; the results are `double precision[]` (or `double p
   column of the second); `softmax`, `softmaxcce(p)` and `highestposition` are NULL if an element is.
   Shapes that do not fit, division by zero and arrays that are not of numbers are errors.
 * **Without BLAS**: the products run in blocks (64 x 256 x 512) that stay in the caches, whose innermost loop over a row the
-  compiler vectorises (`multiply` in `native/sql/Array.cpp`), about 3 GFLOP/s in one thread (a product of
+  compiler vectorises (`multiply` in `runtime/Array.cpp`), about 3 GFLOP/s in one thread (a product of
   two 1000 x 1000 matrices in 0.6 s); TardisDB links no BLAS. The functions run in the generated code
   through `tardisArrayCall` (`Function::Elementwise`, `MatrixProduct`, `Kronecker`, `Transpose`, `Map`,
   `Softmax`, `SoftmaxCce`, `SoftmaxCceP`, `HighestPosition`), with their results in the query's arena.

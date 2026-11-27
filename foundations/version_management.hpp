@@ -4,9 +4,9 @@
 
 #include "foundations/Database.hpp"
 #include "queryCompiler/QueryContext.hpp"
-#include "native/sql/Register.hpp"
-#include "native/sql/SqlValues.hpp"
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/Register.hpp"
+#include "runtime/SqlValues.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "utils/optimistic_lock.hpp"
 
 #include <boost/dynamic_bitset.hpp>

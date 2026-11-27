@@ -10,7 +10,7 @@
 #include "algebra/physical/Map.hpp"
 #include "algebra/physical/Select.hpp"
 #include "algebra/physical/TableScan.hpp"
-#include "native/sql/Array.hpp"
+#include "runtime/Array.hpp"
 #include "sql/SqlTuple.hpp"
 #include "sql/SqlValues.hpp"
 

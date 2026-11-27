@@ -10,7 +10,7 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/InformationUnit.hpp"
-#include "native/sql/Array.hpp"
+#include "runtime/Array.hpp"
 #include "sql/SqlType.hpp"
 #include "sql/SqlValues.hpp"
 #include "sql/SqlCasts.hpp"

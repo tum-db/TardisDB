@@ -168,7 +168,7 @@ endif(ENABLE_PERFBENCHMARKING)
 file(GLOB_RECURSE ALGEBRA_FILES "algebra/*.cpp" "algebra/*.hpp" "algebra/*.tcc")
 file(GLOB_RECURSE CODEGEN_FILES "codegen/*.cpp" "codegen/*.hpp" "codegen/*.tcc")
 file(GLOB_RECURSE FOUNDATIONS_FILES "foundations/*.cpp" "foundations/*.hpp" "foundations/*.tcc")
-file(GLOB_RECURSE NATIVE_FILES "native/*.cpp" "native/*.hpp" "native/*.tcc")
+file(GLOB_RECURSE RUNTIME_FILES "runtime/*.cpp" "runtime/*.hpp" "runtime/*.tcc")
 file(GLOB_RECURSE SQL_FILES "sql/*.cpp" "sql/*.hpp" "sql/*.tcc")
 file(GLOB_RECURSE UTILS_FILES "utils/*.cpp" "utils/*.hpp" "utils/*.tcc")
 
@@ -179,7 +179,7 @@ set(DB_LIB_SOURCE_FILES
 	${ALGEBRA_FILES}
 	${CODEGEN_FILES}
 	${FOUNDATIONS_FILES}
-	${NATIVE_FILES}
+	${RUNTIME_FILES}
 	${SQL_FILES}
 	${QUERY_COMPILER_FILES}
 	${UTILS_FILES}

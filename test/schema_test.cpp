@@ -11,7 +11,7 @@
 #include "algebra/logical/operators.hpp"
 #include "foundations/Parallel.hpp"
 #include "foundations/version_management.hpp"
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include <gtest/gtest.h>
 

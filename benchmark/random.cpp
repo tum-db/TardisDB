@@ -5,8 +5,8 @@
 #include <random>
 #include <iostream>
 
-#include "native/sql/SqlValues.hpp"
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlValues.hpp"
+#include "runtime/SqlTuple.hpp"
 
 static constexpr size_t repetitions = 16;
 

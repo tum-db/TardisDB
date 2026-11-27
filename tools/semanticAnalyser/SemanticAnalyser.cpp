@@ -1,7 +1,7 @@
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 
 #include "foundations/Database.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "foundations/version_management.hpp"
 #include "semanticAnalyser/SemanticalVerifier.hpp"
 
@@ -10,7 +10,7 @@
 #include <stack>
 #include <string>
 #include <memory>
-#include <native/sql/SqlTuple.hpp>
+#include <runtime/SqlTuple.hpp>
 
 namespace semanticalAnalysis {
 

@@ -2,7 +2,7 @@
 #include <functional>
 
 #include "sqlParser/SQLParser.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 
 namespace tardisParser {
     static bool isArithmeticOperator(const Token &token) {

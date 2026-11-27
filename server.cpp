@@ -11,7 +11,7 @@
 #include "utils/general.hpp"
 
 
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "foundations/InformationUnit.hpp"
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 #include "queryCompiler/QueryContext.hpp"

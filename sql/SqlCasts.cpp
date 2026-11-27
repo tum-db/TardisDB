@@ -9,7 +9,7 @@
 #include "codegen/CodeGen.hpp"
 #include "foundations/exceptions.hpp"
 #include "foundations/LegacyTypes.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "sql/SqlOperators.hpp"
 #include "sql/SqlUtils.hpp"
 

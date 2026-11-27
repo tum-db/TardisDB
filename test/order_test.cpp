@@ -4,7 +4,7 @@
 #include "codegen/LLVMCompat.hpp"
 #include <mutex>
 #include "foundations/Parallel.hpp"
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include "semanticAnalyser/SemanticAnalyser.hpp"
 #include "sqlParser/SQLParser.hpp"

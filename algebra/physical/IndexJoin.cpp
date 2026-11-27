@@ -5,7 +5,7 @@
 #include "algebra/physical/Select.hpp"
 #include "algebra/physical/TableScan.hpp"
 #include "codegen/CodeGen.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "sql/SqlValues.hpp"
 
 namespace Algebra {

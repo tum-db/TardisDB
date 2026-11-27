@@ -5,7 +5,7 @@
 #ifndef PROTODB_VALUETRANSLATOR_HPP
 #define PROTODB_VALUETRANSLATOR_HPP
 
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "sql/SqlValues.hpp"
 
 class ValueTranslator {

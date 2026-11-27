@@ -3,7 +3,7 @@
 
 
 #include "algebra/physical/Operator.hpp"
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 
 namespace Algebra {
     namespace Physical {

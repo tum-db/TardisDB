@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 
 namespace semanticalAnalysis {
     struct CopyStatement;

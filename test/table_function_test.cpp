@@ -3,7 +3,7 @@
 #include "codegen/LLVMCompat.hpp"
 #include <algorithm>
 #include <mutex>
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include "queryCompiler/TableFunctions.hpp"
 #include "semanticAnalyser/SemanticAnalyser.hpp"

@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-#include "native/sql/Array.hpp"
+#include "runtime/Array.hpp"
 #include "sql/SqlType.hpp"
 #include "utils/hashing.hpp"
 
@@ -244,7 +244,7 @@ std::string formatNumeric(int64_t raw, unsigned scale);
 //-----------------------------------------------------------------------------
 // Array
 
-/// An array (see native/sql/Array.hpp): a handle of its representation. A value loaded from a computed
+/// An array (see runtime/Array.hpp): a handle of its representation. A value loaded from a computed
 /// array (in the arena of a query) owns a copy, as it may outlive the query (a result tuple).
 class Array : public Value {
 public:

@@ -5,7 +5,7 @@
 
 #include <llvm/IR/DerivedTypes.h>
 
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 
 namespace Native {
 namespace Sql {

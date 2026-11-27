@@ -3,7 +3,7 @@
 
 #include <cstdint>
 #include <memory>
-#include "native/sql/SqlTuple.hpp"
+#include "runtime/SqlTuple.hpp"
 
 #include "algebra/logical/expressions.hpp"
 #include "foundations/InformationUnit.hpp"

@@ -43,8 +43,8 @@
 #include "queryExecutor/queryExecutor.hpp"
 
 #include "semanticAnalyser/SemanticAnalyser.hpp"
-#include "native/sql/SqlTuple.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlTuple.hpp"
+#include "runtime/SqlValues.hpp"
 #include "sql/SqlCasts.hpp"
 #include "sqlParser/Expression.hpp"
 #include "sqlParser/ParserResult.hpp"

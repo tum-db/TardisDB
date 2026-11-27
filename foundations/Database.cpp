@@ -13,9 +13,8 @@
 #include "codegen/LLVMCompat.hpp"
 
 #include "foundations/exceptions.hpp"
-#include "native/sql/SqlValues.hpp"
+#include "runtime/SqlValues.hpp"
 #include "third_party/ART/Tree.h"
-#include "native/sql/SqlValues.hpp"
 #include "foundations/version_management.hpp"
 
 //-----------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "codegen/CodeGen.hpp"
-#include "native/sql/Array.hpp"
+#include "runtime/Array.hpp"
 #include "sql/SqlType.hpp"
 
 namespace Sql {
@@ -418,7 +418,7 @@ public:
 //-----------------------------------------------------------------------------
 // Array
 
-/// An array: the handle of its representation (see native/sql/Array.hpp) as an LLVM [2 x i64]
+/// An array: the handle of its representation (see runtime/Array.hpp) as an LLVM [2 x i64]
 class Array : public Value {
 public:
     static value_op_t castString(const std::string & str, SqlType type);
