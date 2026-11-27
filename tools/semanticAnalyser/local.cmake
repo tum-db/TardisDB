@@ -1,16 +1,16 @@
 # ---------------------------------------------------------------------------
-# SQLPARSER
+# SEMANTIC ANALYSER
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Files
 # ---------------------------------------------------------------------------
 
-file(GLOB_RECURSE SRC_CC "tools/semanticalAnalyser/*.cpp")
+file(GLOB_RECURSE SRC_CC "tools/semanticAnalyser/*.cpp")
 
 # ---------------------------------------------------------------------------
 # Libraries
 # ---------------------------------------------------------------------------
 
-add_library(semanticalAnalyser STATIC ${SRC_CC})
-target_link_libraries(semanticalAnalyser dblib)
+add_library(semanticAnalyser STATIC ${SRC_CC})
+target_link_libraries(semanticAnalyser dblib)

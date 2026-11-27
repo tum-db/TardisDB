@@ -99,7 +99,7 @@ endif(ENABLE_PERFBENCHMARKING)
 include_directories(.
 		${LLVM_INCLUDE_DIRS}
 		${GFLAGS_INCLUDE_DIR}
-		${CMAKE_SOURCE_DIR}/include/tardisdb
+		${CMAKE_SOURCE_DIR}/tools
 		)
 add_definitions(${LLVM_DEFINITIONS})
 
@@ -107,7 +107,7 @@ add_definitions(${LLVM_DEFINITIONS})
 ### libraries ####
 ##################
 include(tools/sqlParser/local.cmake)
-include(tools/semanticalAnalyser/local.cmake)
+include(tools/semanticAnalyser/local.cmake)
 include(tools/queryCompiler/local.cmake)
 include(tools/queryExecutor/local.cmake)
 if(LIBXML_AVAILABLE)
@@ -188,7 +188,7 @@ set(DB_LIB_SOURCE_FILES
 
 ### main library
 add_library(dblib ${DB_LIB_SOURCE_FILES})
-target_link_libraries(dblib semanticalAnalyser LLVM dl pthread)
+target_link_libraries(dblib semanticAnalyser LLVM dl pthread)
 if(INTERVAL_VISIBILITY)
 	target_compile_definitions(dblib PUBLIC -D INTERVAL_VISIBILITY=1)
 endif(INTERVAL_VISIBILITY)

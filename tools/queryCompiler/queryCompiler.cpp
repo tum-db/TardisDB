@@ -32,7 +32,7 @@
 #include <llvm/Transforms/IPO/FunctionAttrs.h>
 #include <llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm/Target/TargetMachine.h>
-#include <include/tardisdb/sqlParser/SQLParser.hpp>
+#include "sqlParser/SQLParser.hpp"
 
 #include "algebra/logical/operators.hpp"
 #include "algebra/translation.hpp"
@@ -42,7 +42,7 @@
 #include "foundations/version_management.hpp"
 #include "queryExecutor/queryExecutor.hpp"
 
-#include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
+#include "semanticAnalyser/SemanticAnalyser.hpp"
 #include "native/sql/SqlTuple.hpp"
 #include "native/sql/SqlValues.hpp"
 #include "sql/SqlCasts.hpp"

@@ -17,7 +17,6 @@ file(GLOB_RECURSE SRC_CC "tools/wikiParser/*.cpp")
 # ---------------------------------------------------------------------------
 
 add_library(wikiparser STATIC ${SRC_CC})
-target_include_directories(wikiparser PUBLIC include)
 target_include_directories(wikiparser SYSTEM PUBLIC ${LIBXML_INCLUDE_DIRS})
 target_include_directories(wikiparser SYSTEM PUBLIC ${GLIBMM_INCLUDE_DIRS})
 target_link_libraries(wikiparser ${LIBXML_LIBRARIES} ${GLIBMM_LIBRARIES})

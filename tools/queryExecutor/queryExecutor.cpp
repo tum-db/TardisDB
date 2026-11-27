@@ -26,7 +26,7 @@
 #include "foundations/exceptions.hpp"
 #include "foundations/version_management.hpp"
 
-#include "include/tardisdb/semanticAnalyser/SemanticAnalyser.hpp"
+#include "semanticAnalyser/SemanticAnalyser.hpp"
 
 //#define EMIT_IR
 //#define DISABLE_OPTIMIZATIONS
