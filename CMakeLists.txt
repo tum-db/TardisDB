@@ -3,6 +3,11 @@ project(protodb)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# optimised and debuggable unless a build type is given
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Debug, Release, RelWithDebInfo or MinSizeRel" FORCE)
+endif()
+
 set(LIBXML_AVAILABLE false)
 set(ENABLE_PERFBENCHMARKING false)
 option(INTERVAL_VISIBILITY "decide version visibility with interval labels of branch identifiers instead of the lineage map" OFF)
