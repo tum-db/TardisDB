@@ -15,14 +15,10 @@ namespace semanticalAnalysis {
             nested->parserResult.selectStmt = new SelectStatement(*relation.subquery);
             SelectStatement & sub = *nested->parserResult.selectStmt;
             SelectAnalyser analyser(*nested);
-            try {
-                analyser.verify();
-                analyser.constructTree();
-            } catch (const general_aggregation_required &) {
-                throw derived_table_required();
-            }
+            analyser.verify();
+            analyser.constructTree();
             auto * root = dynamic_cast<Result *>(nested->joinedTree.get());
-            if (root == nullptr) throw derived_table_required();
+            if (root == nullptr) throw semantic_sql_error("a subquery in FROM is a query");
             AnalyzingContext::DerivedTable derived;
             derived.ius = root->selection;
             // the names: aliases, names of columns and aggregates, else of the columns the IUs read
@@ -100,7 +96,7 @@ namespace semanticalAnalysis {
             verifyDiffQuery();
             return;
         }
-        _aggregation = needsGeneralAggregation(stmt);
+        _aggregation = needsAggregation(stmt);
         if (!_aggregation && isBranchQuery(stmt)) {
             verifyBranchQuery();
             return;
@@ -280,20 +276,37 @@ namespace semanticalAnalysis {
                                       name == "avg" ? Function::Avg : name == "min" ? Function::Min : Function::Max;
             iu_p_t input = nullptr;
             if (!star) {
+                using ID = Sql::SqlType::TypeID;
                 if (containsAggregate(*argument)) throw semantic_sql_error("aggregate function calls cannot be nested");
                 if (argument->kind == Node::Kind::Column) {
                     input = resolve(argument->table, argument->name);
                     if (input == nullptr) throw semantic_sql_error("column '" + argument->name + "' is not specified");
-                } else {
+                }
+                auto isString = [](Sql::SqlType type) { return type.typeID == ID::CharID || type.typeID == ID::VarcharID; };
+                const bool extreme = function == Function::Min || function == Function::Max;
+                if (input == nullptr || (extreme && isString(input->sqlType))) {
+                    // an expression; the least or greatest char or varchar as text, NULL as NULL of integer (no values)
                     Expressions::exp_op_t e = inputs.analyse(*argument);
-                    if (e->getType().typeID == Sql::SqlType::TypeID::UnknownID) throw general_aggregation_required();
+                    if (extreme && isString(e->getType())) {
+                        Node text;
+                        text.kind = Node::Kind::Cast;
+                        text.name = "text";
+                        text.children = {*argument};
+                        e = inputs.analyse(text);
+                    }
+                    if (e->getType().typeID == ID::UnknownID) {
+                        const Sql::SqlType integer = Sql::getIntegerTy(true);
+                        e = inputs.analyse(*argument, &integer);
+                    }
                     input = _context.iuFactory.createIU(e->getType());
                     arguments.push_back({input, std::move(e)});
                 }
             }
             Sql::SqlType result;
             if (!Aggregation::aggregateType(function, star ? Sql::getIntegerTy() : Sql::toNotNullableTy(input->sqlType), result)) {
-                throw general_aggregation_required();
+                const std::string type = Sql::getName(Sql::toNotNullableTy(input->sqlType));
+                if (function == Function::Sum || function == Function::Avg) throw semantic_sql_error(name + " takes numbers or arrays of numbers, not " + type);
+                throw semantic_sql_error("function " + name + "(" + type + ") does not exist");
             }
             aggregates.push_back({function, input, _context.iuFactory.createIU(result)});
             return aggregates.size() - 1;
@@ -356,7 +369,7 @@ namespace semanticalAnalysis {
         _context.joinedTree = std::make_unique<Result>(std::move(_context.joinedTree), projected);
     }
 
-    bool SelectAnalyser::needsGeneralAggregation(SelectStatement *stmt) {
+    bool SelectAnalyser::needsAggregation(SelectStatement *stmt) {
         // queries over several branches (VERSION ALL, ...) and those of the branch column stay with BranchAggregation
         for (auto &relation : stmt->relations) {
             if (!relation.versionScope.empty()) {
@@ -364,19 +377,14 @@ namespace semanticalAnalysis {
                 return false;
             }
         }
-        bool aggregates = false, expressions = false, branchColumn = false;
+        bool aggregates = false, branchColumn = false;
         for (auto &column : stmt->projections) {
             if (!column.aggregate.empty()) aggregates = true;
-            if (column.expression) {
-                expressions = true;
-                if (containsAggregate(*column.expression)) aggregates = true;
-            }
+            if (column.expression && containsAggregate(*column.expression)) aggregates = true;
             if (column.table.empty() && column.name == "branch" && column.aggregate.empty() && !column.expression) branchColumn = true;
         }
-        bool groupByColumns = false;
         for (auto &column : stmt->groupBy) {
             if (column.name == "branch" && column.table.empty()) branchColumn = true;
-            else groupByColumns = true;
         }
         if (stmt->having) {
             // the condition over the groups is a WHERE over the table of the groups
@@ -385,22 +393,8 @@ namespace semanticalAnalysis {
         }
         if (!aggregates && stmt->groupBy.empty()) return false;
         if (branchColumn) return false;
-        if (groupByColumns || expressions || stmt->relations.size() != 1 || !stmt->joinConditions.empty()) return true;
-        // aggregates of a column: BranchAggregation computes numbers (and counts)
-        Relation &relation = stmt->relations.front();
-        if (relation.subquery) return true;
-        Table *table = _context.db.getTable(relation.name);
-        auto branch = _context.db._branchMapping.find(relation.version);
-        if (table == nullptr || branch == _context.db._branchMapping.end()) return false; // the errors of the branch query
-        for (auto &column : stmt->projections) {
-            if (column.aggregate.empty() || column.aggregate == "count") continue;
-            ci_p_t ci = table->findColumn(column.name, branch->second);
-            if (ci == nullptr) return false;
-            const auto id = ci->type.typeID;
-            if (id != Sql::SqlType::TypeID::IntegerID && id != Sql::SqlType::TypeID::LongIntegerID &&
-                id != Sql::SqlType::TypeID::NumericID && id != Sql::SqlType::TypeID::DoubleID) return true;
-        }
-        return false;
+        // the aggregates of one branch, also of columns of a table: an Aggregation of the plan
+        return true;
     }
 
     bool SelectAnalyser::isBranchQuery(SelectStatement *stmt) {

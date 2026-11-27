@@ -52,7 +52,7 @@ namespace QueryCompiler {
     /// Where the time of a statement went, in milliseconds. Compilation is parsing, analysis, translation
     /// (the generation of the code) and the compilation of the generated code (LLVM's passes and machine
     /// code); execution is the rest, mostly the generated code, and also what a statement computes
-    /// outside of it (the groups of the general aggregation, the rows of WITH and set operations) and
+    /// outside of it (the rows of WITH and set operations) and
     /// the time it waits for latches. A statement of several queries adds up the times of all of them.
     struct Timing {
         double parsing = 0;
@@ -122,7 +122,7 @@ namespace QueryCompiler {
     /// shapes it: the tree of physical operators ("Node Type", the relation and branches, conditions and
     /// output columns), "Planning Time" (parsing and analysis), "Translation Time" and, with ANALYZE, which
     /// executes the statement (and its writes), "Actual Rows" per operator, "Compilation Time" and
-    /// "Execution Time". A statement of several queries (WITH, set operations, the general aggregation)
+    /// "Execution Time". A statement of several queries (WITH, set operations)
     /// shows each query it ran, and needs ANALYZE. execute() and compileAndExecute() take it.
     ///
     /// Executes one statement on behalf of a session: relations without VERSION are read and written

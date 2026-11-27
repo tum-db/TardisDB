@@ -1,4 +1,4 @@
-// The general aggregation: sum and avg of arrays (element by element), aggregates of expressions and in
+// Aggregation: sum and avg of arrays (element by element), aggregates of expressions and in
 // expressions, GROUP BY columns, aggregates over joins and common table expressions, min and max of any
 // type, groups of no rows, HAVING, the errors of PostgreSQL, and mini-batch gradient descent with avg
 

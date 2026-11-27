@@ -96,10 +96,9 @@ namespace {
         const std::string g = plan("EXPLAIN ANALYZE SELECT g, count(*) FROM t GROUP BY g HAVING count(*) > 1;");
         EXPECT_TRUE(has(g, "\"Node Type\": \"HashAggregate\"") && has(g, "\"Group Key\": [\"g\"]")) << g;
         EXPECT_EQ(actualRows(g), (std::vector<int>{1, 1, 3, 4})) << g;
-        // an aggregate the plan does not compute (of varchar): the rows, then the select list over the groups with HAVING
-        const std::string a = plan("EXPLAIN ANALYZE SELECT g, max(CAST(name AS varchar(5))) FROM t GROUP BY g HAVING count(*) > 1;");
-        EXPECT_TRUE(has(a, "\"Node Type\": \"Queries\"") && has(a, "\"Query\": \"aggregate rows\"") && has(a, "\"Query\": \"aggregate\"")) << a;
-        EXPECT_EQ(actualRows(a), (std::vector<int>{4, 4, 4, 1, 1, 1, 3})) << a;
+        // also of varchar, as text; without ANALYZE
+        const std::string a = plan("EXPLAIN SELECT g, max(CAST(name AS varchar(5))) FROM t GROUP BY g HAVING count(*) > 1;");
+        EXPECT_TRUE(has(a, "\"Node Type\": \"HashAggregate\"") && !has(a, "\"Queries\"")) << a;
         // a recursive common table expression: one plan, whose loop runs the steps over the working table
         const std::string r = plan("EXPLAIN ANALYZE WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 3) SELECT max(i) FROM r;");
         EXPECT_TRUE(has(r, "\"Node Type\": \"Recursive Union\"") && has(r, "\"Node Type\": \"WorkTable Scan\"")) << r;
@@ -116,7 +115,6 @@ namespace {
         EXPECT_THROW(exec("EXPLAIN (BUFFERS) SELECT g FROM t;"), std::exception);
         EXPECT_THROW(exec("EXPLAIN EXPLAIN SELECT g FROM t;"), std::exception);
         EXPECT_THROW(exec("EXPLAIN;"), std::exception);
-        EXPECT_THROW(exec("EXPLAIN SELECT g, max(CAST(name AS varchar(5))) FROM t GROUP BY g;"), std::exception);    // needs ANALYZE
         EXPECT_THROW(exec("EXPLAIN SELECT 1 UNION SELECT 2;"), std::exception);
         EXPECT_FALSE(db->hasTable("z"));
         EXPECT_EQ(rows("SELECT count(*) FROM t;"), (std::vector<std::string>{"(4)"}));

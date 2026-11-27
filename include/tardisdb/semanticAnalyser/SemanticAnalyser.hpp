@@ -20,18 +20,6 @@ namespace semanticalAnalysis {
         using std::runtime_error::runtime_error;
     };
 
-    /// An aggregate query that the aggregation over branches does not compute (aggregates of expressions,
-    /// in expressions, over several tables, of arrays or text, GROUP BY columns): QueryCompiler computes it
-    /// from the rows of a query (see SelectAnalyser::needsGeneralAggregation)
-    struct general_aggregation_required : semantic_sql_error {
-        general_aggregation_required() : semantic_sql_error("the query needs the general aggregation") { }
-    };
-
-    /// A subquery in FROM that is no part of the plan (it needs the general aggregation): it runs before, into a table
-    struct derived_table_required : semantic_sql_error {
-        derived_table_required() : semantic_sql_error("a subquery in FROM runs before the query") { }
-    };
-
     /// \returns Whether an expression of the select list contains an aggregate (count, sum, avg, min, max)
     bool containsAggregate(const sqlExpressions::Node & n);
 
@@ -81,8 +69,8 @@ namespace semanticalAnalysis {
         void constructTree() override;
     private:
         /// Aggregates over the rows of one branch that the aggregation over branches does not compute
-        bool needsGeneralAggregation(SelectStatement *stmt);
-        /// GROUP BY and aggregates in the plan (an Aggregation); throws general_aggregation_required for what it does not compute
+        bool needsAggregation(SelectStatement *stmt);
+        /// GROUP BY and aggregates in the plan (an Aggregation)
         void constructAggregation(SelectStatement *stmt);
         bool _aggregation = false;
         // branch-aware queries: aggregates per branch over a set of branches

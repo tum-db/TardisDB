@@ -11,6 +11,8 @@
 #include "sql/SqlTuple.hpp"
 #include "algebra/physical/Print.hpp"
 #include "algebra/physical/Select.hpp"
+#include "algebra/physical/Map.hpp"
+#include "algebra/physical/Aggregation.hpp"
 #include "algebra/physical/TupleStream.hpp"
 #include "foundations/Parallel.hpp"
 
@@ -255,11 +257,20 @@ void TableScan::produceIndexProbe(const BranchIndex & index, const std::string &
 bool TableScan::isParallelPipeline()
 {
     // selections pass tuples on; the result operators serialise the callbacks of the workers
+    bool computed = false;
     for (Operator * op = _parent; op != nullptr; op = op->getParent()) {
         if (dynamic_cast<Select *>(op) != nullptr) continue;
-        return dynamic_cast<TupleStream *>(op) != nullptr || dynamic_cast<Print *>(op) != nullptr;
+        if (dynamic_cast<Map *>(op) != nullptr) { computed = true; continue; }
+        if (dynamic_cast<Aggregation *>(op) != nullptr) return true;
+        return !computed && (dynamic_cast<TupleStream *>(op) != nullptr || dynamic_cast<Print *>(op) != nullptr);
     }
     return false;
+}
+
+bool TableScan::runsParallel()
+{
+    auto & logicalScan = static_cast<const Logical::TableScan &>(_logicalOperator);
+    return table.size() > 0 && logicalScan.getIndex() == nullptr && Parallel::threads > 1 && isParallelPipeline();
 }
 
 void TableScan::produceParallel()

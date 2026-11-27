@@ -468,7 +468,7 @@ public:
     std::vector<Key> _keys;
     std::vector<Aggregate> _aggregates;
 
-    /// \returns The type of the aggregate of an input type, or false if it is not computed here (as runAggregation types it)
+    /// \returns The type of the aggregate of an input type, or false if the aggregate does not take it
     static bool aggregateType(Function function, Sql::SqlType input, Sql::SqlType & result);
 
     void accept(OperatorVisitor & visitor) override;

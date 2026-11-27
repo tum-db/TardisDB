@@ -4,6 +4,7 @@
 #include "codegen/LLVMCompat.hpp"
 #include <algorithm>
 #include <mutex>
+#include "foundations/Parallel.hpp"
 #include "native/sql/SqlTuple.hpp"
 #include "queryCompiler/queryCompiler.hpp"
 #include <gtest/gtest.h>
@@ -63,6 +64,33 @@ namespace {
         // over no rows: one group without GROUP BY, none with it
         EXPECT_EQ(run("SELECT count(*), sum(c.x), max(c.s) FROM cg c, cg d WHERE c.k > 100;"), (rows_t{"(0, NULL, NULL)"}));
         EXPECT_EQ(run("SELECT k, count(*) FROM cg WHERE k > 100 GROUP BY k;"), rows_t{});
+        EXPECT_EQ(run("SELECT count(*), sum(x), min(s) FROM cg WHERE k > 100;"), (rows_t{"(0, NULL, NULL)"}));
+    }
+
+    TEST_F(CompiledQueryTest, ParallelAggregation) {
+        // the workers of a parallel scan aggregate into groups of their own, merged after the scan: the rows of one worker
+        exec("CREATE TABLE pa ( g integer not null, v double precision, s text, a double precision[] );");
+        std::string values;
+        for (int i = 0; i < 200; ++i) {
+            values += std::string(i ? ", " : "") + "(" + std::to_string(i % 7) + ", " + (i % 11 ? std::to_string(i) + ".5" : "NULL") +
+                      ", 's" + std::to_string(i % 13) + "', '{" + std::to_string(i) + ",1}')";
+        }
+        exec("INSERT INTO pa VALUES " + values + ";");
+        const std::vector<std::string> queries = {
+            "SELECT count(*), count(v), sum(v), min(v), max(s), avg(g), sum(a) FROM pa WHERE g > 0;",
+            "SELECT g, count(*), sum(v), max(v), min(s), avg(a) FROM pa GROUP BY g ORDER BY g;",
+            "SELECT s, g, count(*) FROM pa WHERE v > 20 GROUP BY s, g ORDER BY s, g;"};
+        const size_t threads = Parallel::threads, morselSize = Parallel::morselSize;
+        std::vector<rows_t> serial;
+        Parallel::threads = 1;
+        for (auto & q : queries) serial.push_back(run(q));
+        Parallel::threads = 4;
+        Parallel::morselSize = 3;
+        for (size_t i = 0; i < queries.size(); ++i) EXPECT_EQ(run(queries[i]), serial[i]) << queries[i];
+        Parallel::threads = threads;
+        Parallel::morselSize = morselSize;
+        EXPECT_EQ(serial[0].size(), 1u);
+        EXPECT_EQ(serial[1].size(), 7u);
     }
 
     TEST_F(CompiledQueryTest, Recursion) {
@@ -88,7 +116,7 @@ namespace {
     }
 
     TEST_F(CompiledQueryTest, Subqueries) {
-        // parts of the plan, also with aggregates; those of the general aggregation run before
+        // parts of the plan, also with aggregates
         const std::string p = plan("ANALYZE SELECT x FROM (SELECT x * 2 AS x FROM cg WHERE k = 1) s;");
         EXPECT_TRUE(!has(p, "\"Queries\"") && has(p, "\"Relation Name\": \"cg\"")) << p;
         EXPECT_EQ(run("SELECT sum(t) FROM (SELECT k, sum(x) AS t FROM cg GROUP BY k) s;"), (rows_t{"(13)"}));

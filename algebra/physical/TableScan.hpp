@@ -48,13 +48,17 @@ public:
     /// What a scan needs before it produces tuples: false if the table is empty
     bool prepare();
 
+    /// \returns Whether the scan runs morsel-driven in the workers (its operators up to the result, or an aggregation)
+    bool runsParallel();
+
 private:
     using column_t = std::tuple<ci_p_t, llvm::Type *, llvm::Value *, size_t, Sql::value_op_t>;
 
     cg_voidptr_t genGetLatestEntryCall(cg_tid_t tid, branch_id_t branchId);
     llvm::Value * genChainWalkCall(cg_tid_t tid, branch_id_t branchId);
 
-    /// The scan runs morsel-driven if only selections lie between it and the result
+    /// The scan runs morsel-driven if only selections lie between it and the result, or selections and maps between it
+    /// and an aggregation (whose workers aggregate into groups of their own)
     bool isParallelPipeline();
     void produceParallel();
     ParallelState * _parallel = nullptr;

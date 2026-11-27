@@ -208,8 +208,7 @@ Queries may start with `WITH [RECURSIVE]` and combine `SELECT`s with `UNION`, `I
 query without `FROM`; their arguments are constant expressions, and `TableFunctions::add` registers more
 (`test/table_function_test.cpp`). `generate_series(start, stop [, step])` of integers, bigints and
 numerics is one (`test/series_test.cpp`). Subqueries in `FROM` (`(SELECT ...) [AS] s [(a, b)]`, also
-without an alias and nested) are parts of the plan of the query that reads them (those of aggregates of
-`char` or `varchar` run before it, into tables); `LIMIT` and `OFFSET` end any query, `INSERT INTO t [(columns)] SELECT ...` inserts its rows, `*` may
+without an alias and nested) are parts of the plan of the query that reads them; `LIMIT` and `OFFSET` end any query, `INSERT INTO t [(columns)] SELECT ...` inserts its rows, `*` may
 stand among other items of the select list, `random()` gives a number in [0, 1) per row, and `CREATE
 TABLE IF NOT EXISTS` leaves an existing table (`test/script_syntax_test.cpp`).
 Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
@@ -217,7 +216,7 @@ Arrays of numbers have linear algebra (`**` for matrix products, `transpose`,
 `sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,
 read joins and common table expressions, group by columns, and `HAVING` filters the groups
 (`test/aggregate_test.cpp`); they run in a hash aggregation of the plan (`HashAggregate` in `EXPLAIN`),
-those of `char` and `varchar` as several queries. A recursive query (non-recursive query `UNION ALL`
+`min` and `max` of `char` and `varchar` as `text`. A recursive query (non-recursive query `UNION ALL`
 recursive query) runs in one plan: its `Recursive Union` runs the step in a loop of the generated code
 over the rows the last step added (`WorkTable Scan`), until a step adds none; `UNION` without `ALL`
 runs a query per step. Hash joins build their table of the smaller of two scanned tables. The
