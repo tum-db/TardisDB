@@ -281,13 +281,12 @@ static llvm::Function *genIntegerOverflowTestFunc() {
     auto &llvmContext = codeGen.getLLVMContext();
     auto &moduleGen = codeGen.getCurrentModuleGen();
 
-    // returns whether the addition overflowed
+    // the addition overflows: an error, before the function returns
     llvm::FunctionType *funcTy = llvm::FunctionType::get(llvm::Type::getInt1Ty(llvmContext), false);
     FunctionGen funcGen(moduleGen, "integerOverflowTest", funcTy);
 
     iu_value_mapping_t emptyMapping;
 
-    Sql::Operators::overflowFlag = false;
     value_op_t val1 = value_op_t(new Integer(2'005'000'000));
     value_op_t val2 = value_op_t(new Integer(2'005'000'000));
     exp_op_t exp = std::make_unique<Addition>(
@@ -297,11 +296,7 @@ static llvm::Function *genIntegerOverflowTestFunc() {
     );
     value_op_t result = exp->evaluate(emptyMapping);
 
-    cg_bool_t _result = Sql::Operators::genEvaluateOverflow();
-
-    funcGen.setReturnValue(_result);
-
-    Sql::Operators::overflowFlag = false;
+    funcGen.setReturnValue(cg_bool_t(false));
 
     return funcGen.getFunction();
 }
@@ -391,6 +386,5 @@ TEST(ExpressionTest, OverflowTest) {
     ModuleGen moduleGen("OverflowTestModule");
     llvm::Function *testFunc = genIntegerOverflowTestFunc();
     std::vector<llvm::GenericValue> args;
-    llvm::GenericValue result = QueryExecutor::executeFunction(testFunc, args);
-    ASSERT_EQ(result.IntVal.getZExtValue(),1);
+    EXPECT_THROW(QueryExecutor::executeFunction(testFunc, args), std::exception);
 }

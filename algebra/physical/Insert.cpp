@@ -4,6 +4,7 @@
 #include "foundations/version_management.hpp"
 #include "codegen/LLVMCompat.hpp"
 
+#include <deque>
 #include <iostream>
 
 #include "algebra/logical/operators.hpp"
@@ -60,16 +61,37 @@ namespace Algebra {
             loop.loopDone(_codeGen->CreateICmpULT(next.getValue(), count.getValue()), {next});
         }
 
-        /// The tuple the generated code fills for each row, as long as the execution
-        struct InsertTupleResource : public ExecutionResource {
+        /// The tuple the generated code fills for each row, and copies of the rows: an error of the query leaves the table as it was
+        struct InsertRows : public ExecutionResource {
             std::unique_ptr<Native::Sql::SqlTuple> tuple;
+            std::vector<std::unique_ptr<Native::Sql::SqlTuple>> rows;
+            std::deque<std::string> strings; // the characters of the varchar and char values of the rows
         };
 
-        /// Inserts the tuple into the branch and counts it
-        static void insert_query_tuple(Native::Sql::SqlTuple * tuple, Table * table, QueryContext * context, branch_id_t branchId)
+        static void insert_query_row(InsertRows * rows)
         {
-            insert_tuple_with_branchId(*tuple, *table, *context, branchId);
-            ++context->executionContext.affectedRows;
+            std::vector<Native::Sql::value_op_t> values;
+            values.reserve(rows->tuple->values.size());
+            for (auto & value : rows->tuple->values) {
+                // a varchar points to characters the next row overwrites
+                const Native::Sql::Value & plain = Native::Sql::getAssociatedValue(*value);
+                const bool null = Native::Sql::isNullable(*value) && static_cast<const Native::Sql::NullableValue &>(*value).isNull();
+                if (!null && (plain.type.typeID == SqlType::TypeID::VarcharID || plain.type.typeID == SqlType::TypeID::CharID)) {
+                    rows->strings.push_back(Native::Sql::toString(plain));
+                    values.push_back(Native::Sql::toColumnValue(Native::Sql::Value::castString(rows->strings.back(), plain.type), value->type));
+                } else {
+                    values.push_back(value->clone());
+                }
+            }
+            rows->rows.push_back(std::make_unique<Native::Sql::SqlTuple>(std::move(values)));
+        }
+
+        /// Inserts the rows into the branch, after the query
+        static void insert_query_rows(InsertRows * rows, Table * table, QueryContext * context, branch_id_t branchId)
+        {
+            for (auto & row : rows->rows) insert_tuple_with_branchId(*row, *table, *context, branchId);
+            context->executionContext.affectedRows = rows->rows.size();
+            rows->rows.clear();
         }
 
         static void insert_query_null(const char * column)
@@ -86,7 +108,15 @@ namespace Algebra {
 
         void InsertQuery::produce()
         {
+            auto & logical = static_cast<const Logical::InsertQuery &>(_logicalOperator);
+            auto rows = std::make_unique<InsertRows>();
+            _rows = rows.get();
+            _context.executionContext.acquireResource(std::move(rows));
             child->produce();
+            llvm::FunctionType * type = llvm::FunctionType::get(_codeGen->getVoidTy(),
+                    {cg_voidptr_t::getType(), cg_voidptr_t::getType(), cg_voidptr_t::getType(), _codeGen->getInt32Ty()}, false);
+            _codeGen.CreateCall(&insert_query_rows, type, {cg_voidptr_t::fromRawPointer(_rows), cg_voidptr_t::fromRawPointer(&logical._table),
+                                                           _codeGen.getCurrentFunctionGen().getArg(1), cg_u32_t(logical._branchId)});
         }
 
         void InsertQuery::consume(const iu_value_mapping_t & values, const Operator & src)
@@ -122,15 +152,9 @@ namespace Algebra {
                 written.emplace_back(ci, ValueTranslator::sqlValueToNativeSqlValue(value.get()));
             }
             // the other columns get their defaults
-            auto resource = std::make_unique<InsertTupleResource>();
-            resource->tuple = complete_tuple(logical._table, std::move(written));
-            Native::Sql::SqlTuple * tuple = resource->tuple.get();
-            _context.executionContext.acquireResource(std::move(resource));
-
-            llvm::FunctionType * type = llvm::FunctionType::get(_codeGen->getVoidTy(),
-                    {cg_voidptr_t::getType(), cg_voidptr_t::getType(), cg_voidptr_t::getType(), _codeGen->getInt32Ty()}, false);
-            _codeGen.CreateCall(&insert_query_tuple, type, {cg_voidptr_t::fromRawPointer(tuple), cg_voidptr_t::fromRawPointer(&logical._table),
-                                                            _codeGen.getCurrentFunctionGen().getArg(1), cg_u32_t(logical._branchId)});
+            _rows->tuple = complete_tuple(logical._table, std::move(written));
+            llvm::FunctionType * type = llvm::FunctionType::get(_codeGen->getVoidTy(), {cg_voidptr_t::getType()}, false);
+            _codeGen.CreateCall(&insert_query_row, type, std::vector<llvm::Value *>{cg_voidptr_t::fromRawPointer(_rows)});
         }
 
     } // end namespace Physical

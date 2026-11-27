@@ -47,7 +47,7 @@ llvm::Value * roundDoubleToInt(llvm::Value * value, unsigned bits, bool halfToEv
             codeGen->CreateFCmpOLT(rounded, llvm::ConstantFP::get(value->getType(), limit)));
     IfGen check(cg_bool_t(codeGen->CreateNot(inRange)));
     {
-        Operators::genOverflowException();
+        Operators::genRuntimeError(!halfToEven ? "numeric field overflow" : bits == 32 ? "integer out of range" : "bigint out of range");
     }
     check.EndIf();
     return codeGen->CreateFPToSI(rounded, codeGen->getIntNTy(bits));
@@ -66,7 +66,7 @@ llvm::Value * narrowToInteger(llvm::Value * raw)
     llvm::Value * truncated = codeGen->CreateTrunc(raw, codeGen->getInt32Ty());
     IfGen check(cg_bool_t(codeGen->CreateICmpNE(codeGen->CreateSExt(truncated, codeGen->getInt64Ty()), raw)));
     {
-        Operators::genOverflowException();
+        Operators::genRuntimeError("integer out of range");
     }
     check.EndIf();
     return truncated;
@@ -240,8 +240,7 @@ cg_size_t fitLength(cg_size_t length, SqlType target, Context context)
     if (context != Context::Explicit) {
         IfGen check((cg_bool_t(tooLong)));
         {
-            Operators::genOverflowException();
-            Functions::genPrintfCall("value too long for type " + typeName(target) + "\n");
+            Operators::genRuntimeError("value too long for type " + typeName(target));
         }
         check.EndIf();
     }

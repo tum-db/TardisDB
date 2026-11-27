@@ -243,7 +243,8 @@ comparisons, joins and the arithmetic cast both sides to their common type (`int
 trailing spaces of a `char`; with `text` to `text`), `SET` also narrows (`bigint` to `integer`,
 numbers rounded half away from zero, `text` to `varchar(n)`, numbers, booleans, dates, timestamps and arrays to strings), and `CAST(... AS type)` truncates a
 string to the length (`test/cast_test.cpp`). An error at run time (an overflow, a division by zero,
-a string too long for its column) prints a message, but does not yet abort the statement.
+a string too long for its column) ends the statement with the message of PostgreSQL; an `INSERT ... SELECT`
+then inserts no row.
 
 `COPY t [VERSION b] FROM 'file'` loads a file into a branch and `COPY t [VERSION b] TO 'file'` writes
 one, with the options of PostgreSQL, `WITH (FORMAT csv, HEADER, DELIMITER ';', NULL 'NA', QUOTE '"',

@@ -24,11 +24,20 @@ using TypeID = SqlType::TypeID;
 namespace Sql {
 namespace Operators {
 
-using overflow_handler_t = std::function<void()>;
+/// The error of an overflow of a result of the type, as PostgreSQL names it
+static std::string overflowMessage(SqlType type)
+{
+    switch (type.typeID) {
+        case TypeID::IntegerID: return "integer out of range";
+        case TypeID::LongIntegerID: return "bigint out of range";
+        case TypeID::NumericID: return "numeric field overflow";
+        default: return "arithmetic overflow";
+    }
+}
 
 // generic binary operator wrapper function
 template<llvm::Intrinsic::ID opIntrinsic>
-llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType resultTy, overflow_handler_t handler)
+llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType resultTy)
 {
     auto & codeGen = getThreadLocalCodeGen();
     llvm::Module & module = codeGen.getCurrentModule();
@@ -45,8 +54,7 @@ llvm::Value * CreateOverflowBinOp(llvm::Value * lhs, llvm::Value * rhs, SqlType 
 
     IfGen overflowCheck(obit);
     {
-        handler();
-        Functions::genPrintfCall("arithmetic overflow\n");
+        genRuntimeError(overflowMessage(resultTy));
     }
     overflowCheck.EndIf();
 
@@ -63,14 +71,14 @@ auto const CreateOverflowSMul = &CreateOverflowBinOp<llvm::Intrinsic::smul_with_
 static value_op_t sqlAddImpl(const Integer & lhs, const Integer & rhs, SqlType resultType)
 {
     llvm::Value * raw = CreateOverflowSAdd(
-        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType, &genOverflowException);
+        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType);
     return value_op_t( Integer::fromRawValues({ raw }) );
 }
 
 static value_op_t sqlAddImpl(const LongInteger & lhs, const LongInteger & rhs, SqlType resultType)
 {
     llvm::Value * raw = CreateOverflowSAdd(
-        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType, &genOverflowException);
+        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType);
     return value_op_t( LongInteger::fromRawValues({ raw }) );
 }
 
@@ -85,14 +93,14 @@ static value_op_t sqlAddImpl(const Numeric & lhs, const Numeric & rhs, SqlType r
     int diff = lhs.type.numericLayout.precision - rhs.type.numericLayout.precision;
     if (diff < 0) {
         cg_value_t shift( numericShifts[ std::abs(diff) ] );
-        lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType, &genOverflowException);
+        lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType);
     } else if (diff >  0) {
         cg_value_t shift( numericShifts[ diff ] );
-        rhsRaw = CreateOverflowSMul(rhsRaw, shift.llvmValue, resultType, &genOverflowException);
+        rhsRaw = CreateOverflowSMul(rhsRaw, shift.llvmValue, resultType);
     }
 
     // performe the arithmetic operation
-    llvm::Value * raw = CreateOverflowSAdd(lhsRaw, rhsRaw, resultType, &genOverflowException);
+    llvm::Value * raw = CreateOverflowSAdd(lhsRaw, rhsRaw, resultType);
     return value_op_t( Numeric::fromRawValues({ raw }, resultType) );
 }
 
@@ -195,14 +203,14 @@ bool inferAddTy(SqlType lhs, SqlType rhs, SqlType & result)
 static value_op_t sqlSubImpl(const Integer & lhs, const Integer & rhs, SqlType resultType)
 {
     llvm::Value * raw = CreateOverflowSSub(
-        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType, &genOverflowException);
+        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType);
     return value_op_t( Integer::fromRawValues({ raw }) );
 }
 
 static value_op_t sqlSubImpl(const LongInteger & lhs, const LongInteger & rhs, SqlType resultType)
 {
     llvm::Value * raw = CreateOverflowSSub(
-        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType, &genOverflowException);
+        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType);
     return value_op_t( LongInteger::fromRawValues({ raw }) );
 }
 
@@ -217,14 +225,14 @@ static value_op_t sqlSubImpl(const Numeric & lhs, const Numeric & rhs, SqlType r
     int diff = lhs.type.numericLayout.precision - rhs.type.numericLayout.precision;
     if (diff < 0) {
         cg_value_t shift( numericShifts[ std::abs(diff) ] );
-        lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType, &genOverflowException);
+        lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType);
     } else if (diff >  0) {
         cg_value_t shift( numericShifts[ diff ] );
-        rhsRaw = CreateOverflowSMul(rhsRaw, shift.llvmValue, resultType, &genOverflowException);
+        rhsRaw = CreateOverflowSMul(rhsRaw, shift.llvmValue, resultType);
     }
 
     // performe the arithmetic operation
-    llvm::Value * raw = CreateOverflowSSub(lhsRaw, rhsRaw, resultType, &genOverflowException);
+    llvm::Value * raw = CreateOverflowSSub(lhsRaw, rhsRaw, resultType);
     return value_op_t( Numeric::fromRawValues({ raw }, resultType) );
 }
 
@@ -264,14 +272,14 @@ bool inferSubTy(SqlType lhs, SqlType rhs, SqlType & result)
 static value_op_t sqlMulImpl(const Integer & lhs, const Integer & rhs, SqlType resultType)
 {
     llvm::Value * raw = CreateOverflowSMul(
-        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType, &genOverflowException);
+        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType);
     return value_op_t( Integer::fromRawValues({ raw }) );
 }
 
 static value_op_t sqlMulImpl(const LongInteger & lhs, const LongInteger & rhs, SqlType resultType)
 {
     llvm::Value * raw = CreateOverflowSMul(
-        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType, &genOverflowException);
+        lhs.getLLVMValue(), rhs.getLLVMValue(), resultType);
     return value_op_t( LongInteger::fromRawValues({ raw }) );
 }
 
@@ -281,7 +289,7 @@ static value_op_t sqlMulImpl(const Numeric & lhs, const Numeric & rhs, SqlType r
     llvm::Value * rhsRaw = rhs.getLLVMValue();
 
     // performe the arithmetic operation
-    llvm::Value * raw = CreateOverflowSMul(lhsRaw, rhsRaw, resultType, &genOverflowException);
+    llvm::Value * raw = CreateOverflowSMul(lhsRaw, rhsRaw, resultType);
     return value_op_t( Numeric::fromRawValues({ raw }, resultType) );
 }
 
@@ -357,11 +365,10 @@ static llvm::Value * genCheckedSDiv(llvm::Value * lhs, llvm::Value * rhs)
     llvm::Value * overflow = codeGen->CreateAnd(smallest, minusOne);
     IfGen check((cg_bool_t(overflow)));
     {
-        genOverflowException();
-        Functions::genPrintfCall("arithmetic overflow\n");
+        genRuntimeError(bits == 32 ? "integer out of range" : "bigint out of range");
     }
     check.EndIf();
-    // the quotient of -1 instead (which the overflow flag discards)
+    // the quotient of -1 instead (the error ends the statement before)
     return codeGen->CreateSDiv(lhs, codeGen->CreateSelect(overflow, llvm::ConstantInt::get(lhs->getType(), 1), rhs));
 }
 
@@ -387,14 +394,14 @@ static value_op_t sqlDivImpl(const Numeric & lhs, const Numeric & rhs, SqlType r
     int diff = lhs.type.numericLayout.precision - rhs.type.numericLayout.precision;
     if (diff <= 0) {
         cg_value_t shift( numericShifts[ std::abs(diff) + rhs.type.numericLayout.precision ] );
-        lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType, &genOverflowException);
+        lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType);
     } else if (diff >  0) {
         if (diff > rhs.type.numericLayout.precision) {
             cg_value_t shift( numericShifts[ diff - rhs.type.numericLayout.precision ] );
-            rhsRaw = CreateOverflowSMul(rhsRaw, shift.llvmValue, resultType, &genOverflowException);
+            rhsRaw = CreateOverflowSMul(rhsRaw, shift.llvmValue, resultType);
         } else if (diff < rhs.type.numericLayout.precision) {
             cg_value_t shift( numericShifts[ rhs.type.numericLayout.precision - diff] );
-            lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType, &genOverflowException);
+            lhsRaw = CreateOverflowSMul(lhsRaw, shift.llvmValue, resultType);
         }
     }
 
@@ -423,18 +430,14 @@ value_op_t sqlDiv(const Value & outerLhs, const Value & outerRhs)
             isZero = cg_bool_t( codeGen->CreateICmpEQ(raw, zero) );
         }
 
-        // a division by zero ends the generated function; the return needs a block of its own
+        // a division by zero ends the statement: the error does not return
         llvm::Function * function = codeGen->GetInsertBlock()->getParent();
         llvm::BasicBlock * zeroBlock = llvm::BasicBlock::Create(codeGen.getLLVMContext(), "division_by_zero", function);
         llvm::BasicBlock * nonZeroBlock = llvm::BasicBlock::Create(codeGen.getLLVMContext(), "divisor_not_zero", function);
         codeGen->CreateCondBr(isZero.llvmValue, zeroBlock, nonZeroBlock);
         codeGen->SetInsertPoint(zeroBlock);
-        Functions::genPrintfCall("division by zero\n");
-        if (function->getReturnType()->isVoidTy()) {
-            codeGen->CreateRetVoid();
-        } else {
-            codeGen->CreateRet(llvm::Constant::getNullValue(function->getReturnType()));
-        }
+        genRuntimeError("division by zero");
+        codeGen->CreateUnreachable();
         codeGen->SetInsertPoint(nonZeroBlock);
 
         // only values with the same type can be added
@@ -521,7 +524,7 @@ value_op_t sqlCast(const Value & value, SqlType newType)
 
 llvm::Value * genOverflowMul(llvm::Value * lhs, llvm::Value * rhs)
 {
-    return CreateOverflowSMul(lhs, rhs, SqlType(), &genOverflowException);
+    return CreateOverflowSMul(lhs, rhs, getNumericTy(18, 0)); // the shifts of numerics
 }
 
 //-----------------------------------------------------------------------------
@@ -587,25 +590,18 @@ value_op_t sqlNot(const Value & value)
     return Utils::nullHandler(action, value, value.type);
 }
 
-        // overflowFlag is a bool: one byte, accessed as i8
-        static llvm::Value * overflowFlagPtr()
+        /// Throws an error of the generated code (see genRuntimeError)
+        static void throwRuntimeError(const char * message)
         {
-            auto & codeGen = getThreadLocalCodeGen();
-            llvm::Value * ptrIntVal = codeGen->getIntN( TypeWrappers::ptrBitSize, reinterpret_cast<ptr_int_rep_t>(&overflowFlag) );
-            return codeGen->CreateIntToPtr(ptrIntVal, LLVMCompat::getIntNPtrTy(codeGen.getLLVMContext(), 8));
+            throw ArithmeticException(message);
         }
 
-        void genOverflowException()
+        void genRuntimeError(const std::string & message)
         {
             auto & codeGen = getThreadLocalCodeGen();
-            codeGen->CreateStore(codeGen->getInt8(1), overflowFlagPtr());
-        }
-
-        cg_bool_t genEvaluateOverflow()
-        {
-            auto & codeGen = getThreadLocalCodeGen();
-            llvm::Value * flag = codeGen->CreateLoad(codeGen->getInt8Ty(), overflowFlagPtr());
-            return cg_bool_t(codeGen->CreateICmpNE(flag, codeGen->getInt8(0)));
+            llvm::Value * text = codeGen->CreateGlobalString(message);
+            llvm::FunctionType * type = llvm::FunctionType::get(codeGen->getVoidTy(), {LLVMCompat::getInt8PtrTy(codeGen.getLLVMContext())}, false);
+            codeGen.CreateCall(&throwRuntimeError, type, std::vector<llvm::Value *>{text});
         }
 
 } // end namespace Operators

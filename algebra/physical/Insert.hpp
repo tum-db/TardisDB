@@ -26,7 +26,9 @@ namespace Algebra {
             void genInsertCall(void *funcPtr);
         };
 
-/// INSERT of the rows of a query (see Logical::InsertQuery): the generated code writes each row into a tuple of the table and inserts it
+        struct InsertRows;
+
+/// INSERT of the rows of a query (see Logical::InsertQuery): the generated code writes each row into a tuple of the table, inserted after the query
         class InsertQuery : public UnaryOperator {
         public:
             InsertQuery(const logical_operator_t & logicalOperator, std::unique_ptr<Operator> input, QueryContext & context);
@@ -36,6 +38,9 @@ namespace Algebra {
             void produce() override;
 
             void consume(const iu_value_mapping_t & values, const Operator & src) override;
+
+        private:
+            InsertRows * _rows = nullptr;
         };
 
     } // end namespace Physical

@@ -50,11 +50,8 @@ value_op_t sqlOr(const Value & lhs, const Value & rhs);
 
 value_op_t sqlNot(const Value & value);
 
-    static bool overflowFlag = false;
-
-    void genOverflowException();
-
-    cg_bool_t genEvaluateOverflow();
+    /// Ends the statement with the error \p message: a call of the runtime, which throws (an exception of the generated code)
+    void genRuntimeError(const std::string & message);
 
 } // end namespace Operators
 } // end namespace Sql

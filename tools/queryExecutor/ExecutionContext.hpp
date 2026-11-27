@@ -28,7 +28,6 @@ struct ExecutionContext {
     std::vector<std::unique_ptr<ExecutionResource>> resources;
     void acquireResource(std::unique_ptr<ExecutionResource> && resource);
 
-    bool overflowFlag = false;
     uint64_t affectedRows = 0; // the tuples an INSERT, UPDATE or DELETE wrote
     branch_id_t branchId = 0;
     std::unordered_map<branch_id_t, branch_id_t> branch_lineage; // mapping: parent -> offspring

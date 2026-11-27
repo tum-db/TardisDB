@@ -1,4 +1,4 @@
-// The casts of sql/SqlCasts.hpp: contexts, common types, implicit, explicit and assignment casts (also to strings), joins
+// The casts of sql/SqlCasts.hpp: contexts, common types, implicit, explicit and assignment casts (also to strings), joins, run-time errors
 
 #include "codegen/LLVMCompat.hpp"
 #include <algorithm>
@@ -166,6 +166,38 @@ namespace {
         // numbers into strings
         exec("UPDATE ci SET v = n WHERE id = 7;");
         EXPECT_EQ(run("SELECT v FROM ci WHERE id = 7;"), (rows_t{"(1.56)"}));
+    }
+
+    TEST_F(CastTest, RuntimeErrors) {
+        // an overflow, a division by zero and a string too long end the statement with the error of PostgreSQL
+        auto error = [&](const std::string & sql) {
+            try {
+                exec(sql);
+            } catch (const std::exception & e) {
+                return std::string(e.what());
+            }
+            return std::string("no error");
+        };
+        EXPECT_EQ(error("SELECT id + 2147483647 FROM ci;"), "integer out of range");
+        EXPECT_EQ(error("SELECT CAST(id AS bigint) * 4000000000000000000 FROM ci;"), "bigint out of range");
+        EXPECT_EQ(error("SELECT CAST(CAST(id AS bigint) * 1000000000 AS integer) FROM ci;"), "integer out of range");
+        EXPECT_EQ(error("SELECT CAST(d * 1e300 AS numeric(10, 2)) FROM ci;"), "numeric field overflow");
+        EXPECT_EQ(error("SELECT id / (id - id) FROM ci;"), "division by zero");
+        EXPECT_EQ(error("SELECT n / (n - n) FROM ci WHERE n IS NOT NULL;"), "division by zero");
+        EXPECT_EQ(error("SELECT d / (d - d) FROM ci WHERE d IS NOT NULL;"), "division by zero");
+        // writes: the table as it was
+        EXPECT_EQ(error("UPDATE ci SET c = v WHERE id = 3;"), "value too long for type character(4)");
+        EXPECT_EQ(run("SELECT c FROM ci WHERE id = 3;"), (rows_t{"(NULL)"}));
+        EXPECT_EQ(error("INSERT INTO ce SELECT 2147483646 + id, v FROM ci;"), "integer out of range");
+        EXPECT_EQ(run("SELECT count(*) FROM ce;"), (rows_t{"(0)"}));
+        // in the workers of a parallel scan
+        const size_t threads = Parallel::threads, morselSize = Parallel::morselSize;
+        Parallel::threads = 4;
+        Parallel::morselSize = 1;
+        EXPECT_EQ(error("SELECT id + 2147483646 FROM ci;"), "integer out of range");
+        Parallel::threads = threads;
+        Parallel::morselSize = morselSize;
+        EXPECT_EQ(run("SELECT id FROM ci WHERE id = 1;"), (rows_t{"(1)"}));
     }
 
     TEST_F(CastTest, EmptyBuildSide) {
