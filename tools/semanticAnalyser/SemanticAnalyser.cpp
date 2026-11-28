@@ -132,7 +132,10 @@ namespace semanticalAnalysis {
     Expressions::exp_op_t SemanticAnalyser::predicateExpression(const Predicate & predicate, const std::vector<iu_p_t> & ius) {
         using Expressions::ComparisonMode;
         auto value = [&](size_t i, const std::string & v) {
-            return std::make_unique<Expressions::Constant>(v, ius[i]->columnInformation->type);
+            // in the type of the column, or of a computed attribute (of a subquery in FROM)
+            const iu_p_t iu = ius[i];
+            const bool column = iu->iuType == InformationUnit::Type::ColumnRef && iu->columnInformation != nullptr;
+            return std::make_unique<Expressions::Constant>(v, column ? iu->columnInformation->type : Sql::toNotNullableTy(iu->sqlType));
         };
         auto comparison = [&](ComparisonMode mode, size_t i, const std::string & v) -> Expressions::exp_op_t {
             return std::make_unique<Expressions::Comparison>(mode, std::make_unique<Expressions::Identifier>(ius[i]), value(i, v));
