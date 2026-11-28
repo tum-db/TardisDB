@@ -45,7 +45,7 @@ private:
 
     const Logical::Aggregation & logical() const;
 
-    /// \returns Whether the scan below (through selections and maps) runs in the workers
+    /// \returns Whether the scan or window below (through selections and maps) passes tuples from workers
     bool parallelInput() const;
 
     /// The value of a key in the type of its column (a NULL indicator if it is nullable)

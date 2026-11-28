@@ -236,6 +236,9 @@ exp_op_t ExpressionAnalyser::analyse(const Node & n, const SqlType * expected)
             }
             throw semantic_sql_error("cannot cast type " + typeText(type) + " to " + typeText(target));
         }
+        case Kind::Window:
+            // the select list computes them (as columns) before its expressions
+            throw semantic_sql_error("window functions are not allowed here (" + n.name + " ... OVER)");
         case Kind::Row:
             throw semantic_sql_error("row values compare columns with constants only");
         default:

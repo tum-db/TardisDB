@@ -1,4 +1,5 @@
 #include "algebra/physical/Aggregation.hpp"
+#include "algebra/physical/Window.hpp"
 
 #include "codegen/LLVMCompat.hpp"
 
@@ -177,7 +178,8 @@ bool Aggregation::parallelInput() const
     Operator * op = child.get();
     while (dynamic_cast<Select *>(op) != nullptr || dynamic_cast<Map *>(op) != nullptr) op = op->getChildren().front();
     auto * scan = dynamic_cast<TableScan *>(op);
-    return scan != nullptr && scan->runsParallel();
+    auto * window = dynamic_cast<Window *>(op);
+    return (scan != nullptr && scan->runsParallel()) || (window != nullptr && window->emitsParallel());
 }
 
 void Aggregation::produce()

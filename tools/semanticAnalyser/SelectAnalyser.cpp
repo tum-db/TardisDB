@@ -181,19 +181,27 @@ namespace semanticalAnalysis {
 
         auto & db = _context.db;
 
-        // the computed columns of the select list
+        // the computed columns of the select list, over the results of its window functions
         std::vector<Mapping> mappings;
         std::vector<iu_p_t> computedIUs;
         {
-            ExpressionAnalyser analyser(columnResolver(_context));
+            std::vector<sqlExpressions::Node> expressions;
+            for (auto & column : stmt->projections) if (column.expression) expressions.push_back(*column.expression);
+            ColumnResolver resolve = columnResolver(_context);
+            if (std::any_of(expressions.begin(), expressions.end(), [](const sqlExpressions::Node & n) { return containsWindow(n); })) {
+                resolve = constructWindows(expressions, resolve);
+            }
+            ExpressionAnalyser analyser(resolve);
+            size_t next = 0;
             for (size_t c = 0; c < stmt->projections.size(); ++c) {
                 auto & column = stmt->projections[c];
                 if (!column.expression) { computedIUs.push_back(nullptr); continue; }
-                Expressions::exp_op_t exp = analyser.analyse(*column.expression);
+                const sqlExpressions::Node & expression = expressions[next++];
+                Expressions::exp_op_t exp = analyser.analyse(expression);
                 if (exp->getType().typeID == Sql::SqlType::TypeID::UnknownID) {
                     // a NULL of the select list is text, as in PostgreSQL, or of the column an INSERT writes it into
                     const Sql::SqlType type = projectionType(c);
-                    exp = analyser.analyse(*column.expression, &type);
+                    exp = analyser.analyse(expression, &type);
                 }
                 if (exp->getType().typeID == Sql::SqlType::TypeID::UnknownID) throw semantic_sql_error("the type of '" + column.name + "' is unknown (a NULL without a type)");
                 iu_p_t iu = _context.iuFactory.createIU(exp->getType());
@@ -236,6 +244,12 @@ namespace semanticalAnalysis {
             return true;
         }
         for (auto & child : n.children) if (containsAggregate(child)) return true;
+        if (n.window) {
+            const auto & w = *n.window;
+            for (auto * nodes : {&w.partition, &w.order, &w.startOffset, &w.endOffset}) {
+                for (auto & child : *nodes) if (containsAggregate(child)) return true;
+            }
+        }
         return false;
     }
 
@@ -322,6 +336,14 @@ namespace semanticalAnalysis {
             if (n.kind == Node::Kind::Column) return column("\x01" "g" + std::to_string(group(n.table, n.name)));
             Node copy = n;
             for (auto & child : copy.children) child = rewrite(child);
+            if (n.window) {
+                // the window of a window function over the groups
+                auto window = std::make_shared<sqlExpressions::Window>(*n.window);
+                for (auto * nodes : {&window->partition, &window->order, &window->startOffset, &window->endOffset}) {
+                    for (auto & child : *nodes) child = rewrite(child);
+                }
+                copy.window = window;
+            }
             return copy;
         };
         std::vector<Node> outputs;
@@ -344,12 +366,17 @@ namespace semanticalAnalysis {
         // the arguments, the groups, HAVING and the select list over them
         if (!arguments.empty()) _context.joinedTree = std::make_unique<Map>(std::move(_context.joinedTree), std::move(arguments));
         _context.joinedTree = std::make_unique<Aggregation>(std::move(_context.joinedTree), keys, aggregates);
-        ExpressionAnalyser groups([&](const std::string &, const std::string & name) -> iu_p_t {
+        ColumnResolver groupColumns = [&](const std::string &, const std::string & name) -> iu_p_t {
             if (name.size() < 3 || name[0] != '\x01') return nullptr;
             const size_t index = std::stoul(name.substr(2));
             return name[1] == 'a' ? aggregates.at(index).output : keys.at(index).output;
-        });
+        };
+        ExpressionAnalyser groups(groupColumns);
         if (having) _context.joinedTree = std::make_unique<Select>(std::move(_context.joinedTree), groups.analyseCondition(*having));
+        // the window functions over the groups
+        if (std::any_of(outputs.begin(), outputs.end(), [](const Node & n) { return containsWindow(n); })) {
+            groups = ExpressionAnalyser(constructWindows(outputs, groupColumns));
+        }
         std::vector<Mapping> mappings;
         std::vector<iu_p_t> projected;
         for (size_t c = 0; c < outputs.size(); ++c) {

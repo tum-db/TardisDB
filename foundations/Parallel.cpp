@@ -124,6 +124,25 @@ void runMorsels(size_t workers, size_t tuples, size_t positions, morsel_function
     if (failure) std::rethrow_exception(failure);
 }
 
+void runTasks(size_t workers, size_t tasks, const std::function<void(size_t task, size_t worker)> & task)
+{
+    if (tasks == 0) return;
+    std::atomic<size_t> next(0);
+    std::atomic<bool> failed(false);
+    std::exception_ptr failure;
+    std::function<void(size_t)> work = [&](size_t worker) {
+        try {
+            for (size_t t = next.fetch_add(1, std::memory_order_relaxed); t < tasks && !failed; t = next.fetch_add(1, std::memory_order_relaxed)) {
+                task(t, worker);
+            }
+        } catch (...) {
+            if (!failed.exchange(true)) failure = std::current_exception();
+        }
+    };
+    workerPool().run(std::max<size_t>(1, std::min(workers, tasks)), work);
+    if (failure) std::rethrow_exception(failure);
+}
+
 void lockResults()
 {
     resultMutex.lock();

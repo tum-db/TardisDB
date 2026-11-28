@@ -58,7 +58,7 @@ private:
     llvm::Value * genChainWalkCall(cg_tid_t tid, branch_id_t branchId);
 
     /// The scan runs morsel-driven if only selections lie between it and the result, or selections and maps between it
-    /// and an aggregation (whose workers aggregate into groups of their own)
+    /// and an aggregation or a window (whose workers aggregate or partition into groups of their own)
     bool isParallelPipeline();
     void produceParallel();
     ParallelState * _parallel = nullptr;

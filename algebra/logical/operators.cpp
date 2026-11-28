@@ -326,6 +326,38 @@ void Aggregation::computeRequired()
 }
 
 //-----------------------------------------------------------------------------
+// Window operator
+
+void Window::accept(OperatorVisitor & visitor)
+{
+    visitor.visit(*this);
+}
+
+void Window::computeProduced()
+{
+    produced.clear();
+    const iu_set_t & childProduced = child->getProduced();
+    produced.insert(childProduced.begin(), childProduced.end());
+    for (auto & call : _calls) produced.insert(call.output);
+}
+
+void Window::computeRequired()
+{
+    required.clear();
+    // what the parent expects, except the results, and the inputs of the functions
+    for (iu_p_t iu : computeExpected(parent, this)) {
+        if (std::none_of(_calls.begin(), _calls.end(), [iu](const Call & c) { return c.output == iu; })) required.insert(iu);
+    }
+    required.insert(_partition.begin(), _partition.end());
+    for (auto & key : _order) required.insert(key.input);
+    for (auto & call : _calls) {
+        for (iu_p_t a : call.arguments) if (a != nullptr) required.insert(a);
+        if (call.start.offset != nullptr) required.insert(call.start.offset);
+        if (call.end.offset != nullptr) required.insert(call.end.offset);
+    }
+}
+
+//-----------------------------------------------------------------------------
 // Fixpoint operator
 
 void Fixpoint::accept(OperatorVisitor & visitor)
@@ -859,6 +891,14 @@ struct Verifier : public OperatorVisitor {
     }
 
     void visit(Aggregation & op) override
+    {
+        if (!_result) { return; }
+
+        test(op, op.getChild());
+        op.getChild().accept(*this);
+    }
+
+    void visit(Window & op) override
     {
         if (!_result) { return; }
 

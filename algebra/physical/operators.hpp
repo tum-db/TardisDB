@@ -7,6 +7,7 @@
 #include "GroupBy.hpp"
 #include "Aggregation.hpp"
 #include "Fixpoint.hpp"
+#include "Window.hpp"
 #include "HashJoin.hpp"
 #include "MergeJoin.hpp"
 #include "IndexJoin.hpp"

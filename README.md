@@ -222,6 +222,15 @@ automatic differentiation of `+ - * / ^ **`, `sig`, `tanh`, `relu`, `abs`, `exp`
 of a recursive query, as `SELECT id + 1, a - 0.05 * avg(d_a), b - 0.05 * avg(d_b) FROM derivation(TABLE
 (SELECT * FROM gd, samples WHERE id < 500), lambda (x) ((x.a * x.x + x.b - x.y)^2)) GROUP BY id, a, b`
 (`test/derivation_test.cpp`);
+window functions (`f(...) OVER ( [PARTITION BY ...] [ORDER BY ...] [frame] )`, also `OVER w` with `WINDOW w AS (...)`) compute
+`row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first_value`, `last_value`,
+`nth_value`, `count`, `sum`, `avg`, `min` and `max` in the select list and `ORDER BY`, also over the groups of `GROUP BY`,
+with frames of `ROWS`, `RANGE` and `GROUPS`, whose offsets may also read the row. A `WindowAgg` per partitioning and
+ordering computes them as Leis et al. describe (Efficient Processing of Window Functions in Analytical SQL Queries,
+PVLDB 8(10), 2015): the workers of a parallel scan partition the tuples into hash groups of their own, which are
+combined and sorted (by normalized keys) in parallel, small hash groups each by one worker, a large one by all; frames
+are found by binary search, aggregates come from segment trees (or cumulatively), and the workers pass the rows on
+(`test/window_test.cpp`);
 `sum` and `avg` add arrays element by element, and aggregates take expressions, appear in expressions,
 read joins and common table expressions, group by columns, and `HAVING` filters the groups
 (`test/aggregate_test.cpp`); they run in a hash aggregation of the plan (`HashAggregate` in `EXPLAIN`),

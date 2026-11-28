@@ -23,6 +23,9 @@ namespace semanticalAnalysis {
     /// \returns Whether an expression of the select list contains an aggregate (count, sum, avg, min, max)
     bool containsAggregate(const sqlExpressions::Node & n);
 
+    /// \returns Whether the expression calls a window function (OVER)
+    bool containsWindow(const sqlExpressions::Node & n);
+
     /// A NULL, or a value that may be NULL, for a column declared NOT NULL (SQLSTATE 23502)
     struct not_null_violation : semantic_sql_error {
         using semantic_sql_error::semantic_sql_error;
@@ -78,6 +81,9 @@ namespace semanticalAnalysis {
         }
         /// GROUP BY and aggregates in the plan (an Aggregation)
         void constructAggregation(SelectStatement *stmt);
+        /// Window functions of the expressions over the tree: a Map of their inputs, a Window per partitioning and ordering, and columns of the results in place of the calls
+        std::function<iu_p_t(const std::string &, const std::string &)> constructWindows(std::vector<sqlExpressions::Node> & expressions,
+                std::function<iu_p_t(const std::string &, const std::string &)> resolve);
         bool _aggregation = false;
         // branch-aware queries: aggregates per branch over a set of branches
         static bool isBranchQuery(SelectStatement *stmt);

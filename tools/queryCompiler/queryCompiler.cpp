@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <mutex>
 #include <exception>
+#include <map>
 #include <optional>
 #include <regex>
 #include <set>
@@ -440,7 +441,7 @@ namespace QueryCompiler {
             "array_length", "array_lower", "array_upper", "array_ndims", "array_dims", "cardinality", "array_position",
             "array_positions", "array_remove", "array_replace", "array_fill", "array_to_string", "string_to_array",
             "trim_array", "@>", "<@", "&&", "any", "all", "=", "elementwise", "**", "kroneckerproduct", "transpose",
-            "map", "softmax", "softmaxcce", "softmaxccep", "highestposition"};
+            "map", "softmax", "softmaxcce", "softmaxccep", "highestposition", "unbroadcast"};
         const auto i = static_cast<size_t>(function);
         return i < sizeof(names) / sizeof(names[0]) ? names[i] : "array_function";
     }
@@ -519,6 +520,22 @@ namespace QueryCompiler {
             type("Recursive Union");
         } else if (dynamic_cast<P::WorkingTableScan *>(&op)) {
             type("WorkTable Scan");
+        } else if (dynamic_cast<P::Window *>(&op)) {
+            auto & window = dynamic_cast<const L::Window &>(logical);
+            type("WindowAgg");
+            std::vector<std::string> partition, order, functions;
+            for (iu_p_t iu : window._partition) partition.push_back(iuName(iu));
+            for (auto & key : window._order) order.push_back(iuName(key.input) + (key.descending ? " DESC" : ""));
+            static const char * names[] = {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile", "lag", "lead", "first_value",
+                                           "last_value", "nth_value", "count", "count", "sum", "avg", "min", "max"};
+            for (auto & call : window._calls) {
+                std::string arguments = call.function == L::Window::Function::CountAll ? "*" : "";
+                for (size_t a = 0; a < call.arguments.size(); ++a) arguments += (a ? ", " : "") + iuName(call.arguments[a]);
+                functions.push_back(std::string(names[static_cast<int>(call.function)]) + "(" + arguments + ")");
+            }
+            if (!partition.empty()) field("Partition Key", list(partition));
+            if (!order.empty()) field("Order Key", list(order));
+            field("Functions", list(functions));
         } else if (dynamic_cast<P::Aggregation *>(&op)) {
             auto & aggregation = dynamic_cast<const L::Aggregation &>(logical);
             type(aggregation._keys.empty() ? "Aggregate" : "HashAggregate");
@@ -1515,10 +1532,68 @@ namespace QueryCompiler {
         return at == 0 ? sql : out + sql.substr(at);
     }
 
+    /// \returns The query without its clause WINDOW name AS ( ... ), [...]: OVER name and OVER ( name ... ) take the window's definition
+    static std::string namedWindows(const std::string & sql) {
+        std::string lower;
+        std::transform(sql.begin(), sql.end(), std::back_inserter(lower), ::tolower);
+        if (lower.find("window") == std::string::npos || lower.find("over") == std::string::npos) return sql;
+        const std::vector<Lexeme> lexemes = with::lex(sql);
+        const size_t n = lexemes.size();
+        auto text = [&](size_t from, size_t to) { return sql.substr(lexemes[from].begin, lexemes[to].end - lexemes[from].begin); };
+        auto isName = [&](size_t i) { return i < n && (lexemes[i].kind == Lexeme::Word || lexemes[i].kind == Lexeme::Quoted); };
+        // the clause, outside parentheses
+        std::map<std::string, std::string> definitions;
+        size_t clause = SIZE_MAX, clauseEnd = 0;
+        for (size_t i = 0, depth = 0; i < n && clause == SIZE_MAX; ++i) {
+            if (lexemes[i].kind == Lexeme::Open) { ++depth; continue; }
+            if (lexemes[i].kind == Lexeme::Close) { if (depth > 0) --depth; continue; }
+            if (depth > 0 || !with::isWord(lexemes, i, "window") || !isName(i + 1) || !with::isWord(lexemes, i + 2, "as") ||
+                i + 3 >= n || lexemes[i + 3].kind != Lexeme::Open) continue;
+            clause = i;
+            for (size_t k = i + 1;;) {
+                if (!isName(k) || !with::isWord(lexemes, k + 1, "as") || k + 2 >= n || lexemes[k + 2].kind != Lexeme::Open) {
+                    throw with::syntaxError("Expected name AS ( window ) in WINDOW");
+                }
+                const size_t close = with::matching(lexemes, k + 2, n);
+                std::string definition = close > k + 3 ? text(k + 3, close - 1) : std::string();
+                // a window may begin with an earlier one
+                if (close > k + 3 && isName(k + 3) && definitions.count(lexemes[k + 3].word)) {
+                    definition = definitions[lexemes[k + 3].word] + " " + (close > k + 4 ? text(k + 4, close - 1) : std::string());
+                }
+                if (definitions.count(lexemes[k].word)) throw semanticalAnalysis::semantic_sql_error("window \"" + lexemes[k].word + "\" is already defined");
+                definitions[lexemes[k].word] = definition;
+                clauseEnd = close;
+                if (close + 1 < n && lexemes[close + 1].kind == Lexeme::Comma) { k = close + 2; continue; }
+                break;
+            }
+        }
+        if (clause == SIZE_MAX) return sql;
+        // OVER name and OVER ( name ... ) before the clause, not in subqueries
+        std::string out;
+        size_t at = 0;
+        auto replace = [&](size_t i, const std::string & with) {
+            out += sql.substr(at, lexemes[i].begin - at) + with;
+            at = lexemes[i].end;
+        };
+        for (size_t i = 0; i < clause; ++i) {
+            if (lexemes[i].kind == Lexeme::Open && with::isWord(lexemes, i + 1, "select")) { i = with::matching(lexemes, i, n); continue; }
+            if (!with::isWord(lexemes, i, "over")) continue;
+            if (isName(i + 1) && definitions.count(lexemes[i + 1].word)) {
+                replace(i + 1, "(" + definitions[lexemes[i + 1].word] + ")");
+                ++i;
+            } else if (i + 2 < n && lexemes[i + 1].kind == Lexeme::Open && isName(i + 2) && definitions.count(lexemes[i + 2].word)) {
+                replace(i + 2, definitions[lexemes[i + 2].word]);
+                i += 2;
+            }
+        }
+        out += sql.substr(at, lexemes[clause].begin - at);
+        return out + " " + sql.substr(lexemes[clauseEnd].end);
+    }
+
     /// \returns The query with each subquery of its FROM (outside other parentheses) replaced by a temporary table, listed in \p subqueries
     static std::string rewrite(const std::string & statement, std::vector<Subquery> & subqueries) {
         static std::atomic<uint64_t> counter{0};
-        const std::string sql = derivations(statement);
+        const std::string sql = derivations(namedWindows(statement));
         if (sql.find('(') == std::string::npos) return sql;
         const std::vector<Lexeme> lexemes = with::lex(sql);
         const size_t n = lexemes.size();
@@ -1580,7 +1655,7 @@ namespace QueryCompiler {
     static bool present(const std::string & sql) {
         std::vector<Subquery> subqueries;
         try {
-            rewrite(sql, subqueries);
+            if (rewrite(sql, subqueries) != sql) return true; // also a WINDOW clause
         } catch (const std::exception &) {
             return true; // its error comes with the query
         }

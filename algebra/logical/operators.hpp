@@ -89,6 +89,7 @@ private:
 class GroupBy;
 class Aggregation;
 class Fixpoint;
+class Window;
 class Join;
 class Map;
 class Update;
@@ -110,6 +111,7 @@ struct OperatorVisitor {
     virtual void visit(GroupBy & op) = 0;
     virtual void visit(Aggregation & op) = 0;
     virtual void visit(Fixpoint & op) = 0;
+    virtual void visit(Window & op) = 0;
     virtual void visit(Join & op) = 0;
     virtual void visit(Map & op) = 0;
     virtual void visit(Update & op) = 0;
@@ -472,6 +474,55 @@ public:
 
     /// \returns The type of the aggregate of an input type, or false if the aggregate does not take it
     static bool aggregateType(Function function, Sql::SqlType input, Sql::SqlType & result);
+
+    void accept(OperatorVisitor & visitor) override;
+
+protected:
+    void computeProduced() override;
+    void computeRequired() override;
+};
+
+//-----------------------------------------------------------------------------
+// Window operator
+
+/// Window functions of one partitioning and ordering: per tuple of its input the value of each function over the
+/// tuple's partition or frame, which it adds to the tuple (see Physical::Window)
+class Window : public UnaryOperator {
+public:
+    enum class Function { RowNumber, Rank, DenseRank, PercentRank, CumeDist, Ntile, Lag, Lead, FirstValue, LastValue, NthValue,
+                          CountAll, Count, Sum, Avg, Min, Max };
+    enum class Mode { Rows, Range, Groups };
+    enum class BoundKind { UnboundedPreceding, Preceding, CurrentRow, Following, UnboundedFollowing };
+
+    struct Bound {
+        BoundKind kind = BoundKind::CurrentRow;
+        iu_p_t offset = nullptr; // of Preceding and Following
+    };
+
+    struct OrderKey {
+        iu_p_t input;
+        bool descending = false;
+        bool nullsFirst = false;
+    };
+
+    struct Call {
+        Function function;
+        std::vector<iu_p_t> arguments; // the value, then the offset, n or default
+        iu_p_t output;
+        Mode mode = Mode::Range;
+        Bound start{BoundKind::UnboundedPreceding, nullptr}, end{BoundKind::CurrentRow, nullptr};
+    };
+
+    Window(std::unique_ptr<Operator> input, std::vector<iu_p_t> partition, std::vector<OrderKey> order, std::vector<Call> calls) :
+            UnaryOperator(std::move(input)),
+            _partition(std::move(partition)),
+            _order(std::move(order)),
+            _calls(std::move(calls))
+    { }
+
+    std::vector<iu_p_t> _partition;
+    std::vector<OrderKey> _order;
+    std::vector<Call> _calls;
 
     void accept(OperatorVisitor & visitor) override;
 

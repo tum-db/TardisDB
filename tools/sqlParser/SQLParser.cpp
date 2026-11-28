@@ -377,6 +377,97 @@ namespace tardisParser {
             }
         }
 
+        /// A call, or with OVER a window function: OVER name or OVER ( [name] [PARTITION BY ...] [ORDER BY ...] [frame] )
+        Node over(Node call) {
+            if (!word("over")) return call;
+            advance();
+            auto window = std::make_shared<sqlExpressions::Window>();
+            call.kind = Node::Kind::Window;
+            call.window = window;
+            auto clause = [&]() { return word("partition") || word("order") || word("rows") || word("range") || word("groups"); };
+            if (_token.type == Type::identifier && !symbol(controlSymbols::openBracket)) {
+                window->name = _token.value;
+                advance();
+                return call;
+            }
+            expect(controlSymbols::openBracket);
+            if (_token.type == Type::identifier && !clause()) {
+                window->name = _token.value;
+                advance();
+            }
+            auto by = [&](const char * what) {
+                advance();
+                if (!word("by")) throw syntactical_error(std::string("Expected BY after ") + what + ", found '" + _token.value + "'");
+                advance();
+            };
+            if (word("partition")) {
+                by("PARTITION");
+                for (;;) {
+                    window->partition.push_back(disjunction());
+                    if (!symbol(controlSymbols::separator)) break;
+                    advance();
+                }
+            }
+            if (word("order")) {
+                by("ORDER");
+                for (;;) {
+                    window->order.push_back(disjunction());
+                    bool descending = false;
+                    if (word("asc") || word("desc")) {
+                        descending = word("desc");
+                        advance();
+                    }
+                    bool nullsFirst = descending;
+                    if (word("nulls")) {
+                        advance();
+                        if (!word("first") && !word("last")) throw syntactical_error("Expected FIRST or LAST after NULLS, found '" + _token.value + "'");
+                        nullsFirst = word("first");
+                        advance();
+                    }
+                    window->descending.push_back(descending);
+                    window->nullsFirst.push_back(nullsFirst);
+                    if (!symbol(controlSymbols::separator)) break;
+                    advance();
+                }
+            }
+            if (word("rows") || word("range") || word("groups")) {
+                std::transform(_token.value.begin(), _token.value.end(), std::back_inserter(window->mode), ::tolower);
+                advance();
+                // UNBOUNDED PRECEDING, n PRECEDING, CURRENT ROW, n FOLLOWING or UNBOUNDED FOLLOWING
+                auto bound = [&](std::string & kind, std::vector<Node> & offset) {
+                    if (word("unbounded")) {
+                        advance();
+                        if (!word("preceding") && !word("following")) throw syntactical_error("Expected PRECEDING or FOLLOWING, found '" + _token.value + "'");
+                        kind = word("preceding") ? "unbounded preceding" : "unbounded following";
+                        advance();
+                    } else if (word("current")) {
+                        advance();
+                        if (!word("row")) throw syntactical_error("Expected ROW after CURRENT, found '" + _token.value + "'");
+                        kind = "current row";
+                        advance();
+                    } else {
+                        offset.push_back(other());
+                        if (!word("preceding") && !word("following")) throw syntactical_error("Expected PRECEDING or FOLLOWING, found '" + _token.value + "'");
+                        kind = word("preceding") ? "preceding" : "following";
+                        advance();
+                    }
+                };
+                if (word("between")) {
+                    advance();
+                    bound(window->start, window->startOffset);
+                    if (!_token.equalsKeyword(Keyword::And) && !word("and")) throw syntactical_error("Expected AND in the frame, found '" + _token.value + "'");
+                    advance();
+                    bound(window->end, window->endOffset);
+                } else {
+                    bound(window->start, window->startOffset);
+                    window->end = "current row";
+                }
+                if (word("exclude")) throw syntactical_error("EXCLUDE in a window frame is not supported");
+            }
+            expect(controlSymbols::closeBracket);
+            return call;
+        }
+
         Node primary() {
             if (symbol(controlSymbols::openBracket)) {
                 advance();
@@ -425,17 +516,17 @@ namespace tardisParser {
                         call.value = "*";
                         advance();
                         expect(controlSymbols::closeBracket);
-                        return call;
+                        return over(std::move(call));
                     }
                     if (symbol(controlSymbols::closeBracket)) {
                         advance();
-                        return call;
+                        return over(std::move(call));
                     }
                     for (;;) {
                         call.children.push_back(disjunction());
                         if (symbol(controlSymbols::separator)) { advance(); continue; }
                         expect(controlSymbols::closeBracket);
-                        return call;
+                        return over(std::move(call));
                     }
                 }
                 Column column = columnOf(name.value);
@@ -485,6 +576,7 @@ namespace tardisParser {
             case Node::Kind::Subscript: return e.children.front().kind == Node::Kind::Column ? e.children.front().name : outputName(e.children.front());
             case Node::Kind::Array: return "array";
             case Node::Kind::Column: return e.name;
+            case Node::Kind::Window: return e.name;
             default: return "?column?";
         }
     }

@@ -13,6 +13,7 @@
 #include "algebra/physical/Select.hpp"
 #include "algebra/physical/Map.hpp"
 #include "algebra/physical/Aggregation.hpp"
+#include "algebra/physical/Window.hpp"
 #include "algebra/physical/TupleStream.hpp"
 #include "foundations/Parallel.hpp"
 
@@ -261,7 +262,7 @@ bool TableScan::isParallelPipeline()
     for (Operator * op = _parent; op != nullptr; op = op->getParent()) {
         if (dynamic_cast<Select *>(op) != nullptr) continue;
         if (dynamic_cast<Map *>(op) != nullptr) { computed = true; continue; }
-        if (dynamic_cast<Aggregation *>(op) != nullptr) return true;
+        if (dynamic_cast<Aggregation *>(op) != nullptr || dynamic_cast<Window *>(op) != nullptr) return true;
         return !computed && (dynamic_cast<TupleStream *>(op) != nullptr || dynamic_cast<Print *>(op) != nullptr);
     }
     return false;
@@ -293,7 +294,7 @@ void TableScan::produceParallel()
     // the scan loop over a morsel and the operators above it form their own function
     llvm::Function * morsel;
     {
-        FunctionGen funcGen(_codeGen.getCurrentModuleGen(), "table_scan_morsel",
+        FunctionGen funcGen(_codeGen.getCurrentModuleGen(), "table_scan_morsel_" + std::to_string(_logicalOperator.getUID()),
                             llvm::TypeBuilder<void (size_t, size_t, size_t, size_t), false>::get(context));
         _context.parallelPipeline = true;
         llvm::Value * begin = funcGen.getArg(0);

@@ -6,6 +6,8 @@
 
 namespace sqlExpressions {
 
+struct Window;
+
 /// An expression of the select list, of WHERE or of SET, as the parser reads it (shared by the parser's
 /// and the semantic analyser's statements, whose layouts must match)
 struct Node {
@@ -23,12 +25,25 @@ struct Node {
         Between,    // children: the value, the lower and the upper bound
         In,         // children: the value, then the items
         Cast,       // name: the type ("numeric", "integer[]"), value: its length and precision ("10,2"); children: the value
+        Window,     // name (lower case) of a window function with the children as arguments (count(*): value "*"), over window
     } kind = Kind::Literal;
     std::string name;     // of a column, function or operator
     std::string table;    // the binding of a column
     std::string value;    // the text of a literal
     bool quoted = false;  // a string literal ('5' is a string, 5 a number)
     std::vector<Node> children;
+    std::shared_ptr<Window> window; // of a Window
+};
+
+/// OVER ( [name] [PARTITION BY ...] [ORDER BY ...] [frame] ) or OVER name: the frame is mode, start and end
+struct Window {
+    std::string name;                    // a window of the WINDOW clause
+    std::vector<Node> partition;
+    std::vector<Node> order;
+    std::vector<bool> descending, nullsFirst; // per key of ORDER BY
+    std::string mode;                    // "rows", "range", "groups", or empty without a frame
+    std::string start, end;              // "unbounded preceding", "preceding", "current row", "following" or "unbounded following"
+    std::vector<Node> startOffset, endOffset; // the offset of a bound n PRECEDING or n FOLLOWING (one node)
 };
 
 using node_p_t = std::shared_ptr<Node>;

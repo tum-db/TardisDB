@@ -366,6 +366,13 @@ public:
         _translated.push(std::make_unique<Physical::Fixpoint>(op, std::move(initial), std::move(step), state, _queryContext));
     }
 
+    void visit(Logical::Window & op) override
+    {
+        auto child = std::move(_translated.top());
+        _translated.pop();
+        _translated.push(std::make_unique<Physical::Window>(op, std::move(child), _queryContext));
+    }
+
     void visit(Logical::Aggregation & op) override
     {
         auto child = std::move(_translated.top());
